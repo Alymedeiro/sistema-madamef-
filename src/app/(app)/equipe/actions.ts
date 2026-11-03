@@ -44,7 +44,7 @@ export async function convidarColaborador(dados: ColaboradorInput): Promise<Resu
 
   try {
     const admin = createAdminClient();
-    const redirectTo = `${await urlDoSite()}/login`;
+    const redirectTo = `${await urlDoSite()}/auth/confirmar`;
     const { data, error } = await admin.auth.admin.inviteUserByEmail(email, { redirectTo });
     if (error || !data.user) return falha(mensagemDeConvite(error ?? {}));
     const authId = data.user.id;

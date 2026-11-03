@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { ehRotaDeConfirmacao, ehRotaPublica } from "@/lib/auth/rotas";
 import type { Database } from "@/lib/supabase/tipos";
 import { variaveisSupabase } from "@/lib/supabase/ambiente";
 import {
@@ -10,7 +11,8 @@ import {
 
 /**
  * Renova a sessão Supabase a cada requisição e manda quem não está logado para
- * /login. Qualquer erro de autenticação (inclusive Supabase fora do ar ou sem
+ * /login (exceto rotas públicas: /login, /esqueci-senha, /auth/confirmar).
+ * Qualquer erro de autenticação (inclusive Supabase fora do ar ou sem
  * configuração) conta como "sem sessão": nunca derruba a requisição e nunca
  * redireciona em laço, porque /login é sempre público.
  *
@@ -20,6 +22,11 @@ import {
 export async function middleware(request: NextRequest) {
   const { pathname, searchParams } = request.nextUrl;
   const ehLogin = pathname === "/login" || pathname.startsWith("/login/");
+
+  // Link de e-mail (convite/recuperação): a própria rota cria a sessão e os
+  // cookies. Não mexer em nada aqui, para o middleware não limpar sb-* antigos
+  // (sessão expirada) por cima dos novos.
+  if (ehRotaDeConfirmacao(pathname)) return NextResponse.next();
 
   const escritos: CookieParaEscrever[] = [];
   const cabecalhos: Record<string, string> = {};
@@ -77,7 +84,7 @@ export async function middleware(request: NextRequest) {
   }
 
   let resposta: NextResponse;
-  if (!temSessao && !ehLogin) {
+  if (!temSessao && !ehRotaPublica(pathname)) {
     const destino = request.nextUrl.clone();
     destino.pathname = "/login";
     destino.search = "";

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +47,12 @@ export function FormularioLogin() {
       <Button type="submit" size="lg" disabled={pendente}>
         {pendente ? "Entrando..." : "Entrar"}
       </Button>
+      <Link
+        href="/esqueci-senha"
+        className="inline-flex min-h-11 items-center justify-center text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      >
+        Esqueci minha senha
+      </Link>
     </form>
   );
 }

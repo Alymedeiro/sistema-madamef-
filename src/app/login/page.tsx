@@ -23,6 +23,7 @@ export default async function LoginPage({
 }) {
   const { motivo } = await searchParams;
   const inativo = motivo === "inativo";
+  const linkInvalido = motivo === "link-invalido";
 
   // Quem já tem acesso ativo não precisa ver o login de novo.
   if (!inativo && (await jaLogada())) redirect("/inicio");
@@ -43,6 +44,15 @@ export default async function LoginPage({
               className="rounded-md border border-destructive bg-card px-3 py-2 text-sm font-medium text-destructive"
             >
               Seu acesso foi desativado. Fale com a responsável pela clínica.
+            </p>
+          ) : null}
+          {linkInvalido ? (
+            <p
+              role="alert"
+              className="rounded-md border border-destructive bg-card px-3 py-2 text-sm font-medium text-destructive"
+            >
+              Este link expirou ou já foi usado. Peça um novo convite ou use
+              &quot;Esqueci minha senha&quot;.
             </p>
           ) : null}
           <FormularioLogin />
