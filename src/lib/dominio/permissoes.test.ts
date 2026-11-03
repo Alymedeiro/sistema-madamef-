@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { ITENS_MENU, podeAcessar, type Perfil, type Recurso } from "./permissoes";
+import {
+  ITENS_MENU,
+  perfisComAcesso,
+  podeAcessar,
+  type Perfil,
+  type Recurso,
+} from "./permissoes";
 
 describe("podeAcessar", () => {
   it("dona acessa tudo", () => {
@@ -61,5 +67,18 @@ describe("ITENS_MENU", () => {
     for (const item of ITENS_MENU) {
       expect(item.href).toBe(`/${item.recurso}`);
     }
+  });
+});
+
+describe("perfisComAcesso", () => {
+  it("lista só os perfis que podem acessar o recurso", () => {
+    expect(perfisComAcesso("equipe")).toEqual(["dona"]);
+    expect(perfisComAcesso("caixa")).toEqual(["dona", "recepcao"]);
+    expect(perfisComAcesso("servicos")).toEqual(["dona", "recepcao", "profissional"]);
+  });
+
+  it("devolve uma cópia (não expõe a tabela interna)", () => {
+    perfisComAcesso("equipe").push("recepcao");
+    expect(perfisComAcesso("equipe")).toEqual(["dona"]);
   });
 });

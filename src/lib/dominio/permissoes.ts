@@ -36,6 +36,11 @@ export function podeAcessar(perfil: Perfil, recurso: Recurso): boolean {
   return ACESSO[recurso].includes(perfil);
 }
 
+/** Perfis com acesso ao recurso (para `exigirPerfil(...perfisComAcesso(recurso))`). */
+export function perfisComAcesso(recurso: Recurso): Perfil[] {
+  return [...ACESSO[recurso]];
+}
+
 export type ItemMenu = {
   recurso: Recurso;
   rotulo: string;
