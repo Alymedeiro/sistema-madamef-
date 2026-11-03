@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/supabase/tipos";
 import { variaveisSupabase } from "@/lib/supabase/ambiente";
 import {
-  cookiesComJanelaDeInatividade,
+  cookiesDaResposta,
+  sessaoExpiradaPorInatividade,
   type CookieParaEscrever,
 } from "@/lib/supabase/cookies-sessao";
 
@@ -22,6 +23,12 @@ export async function middleware(request: NextRequest) {
 
   const escritos: CookieParaEscrever[] = [];
   const cabecalhos: Record<string, string> = {};
+  const existentes = request.cookies.getAll();
+  // Login (POST) grava tokens e cookie de atividade na própria resposta da ação;
+  // não mexer nos cookies antigos aí para não competir com ela.
+  const postDeLogin = ehLogin && request.method === "POST";
+  const expirada = !postDeLogin && sessaoExpiradaPorInatividade(existentes);
+  let encerrada = expirada; // sessão encerrada aqui: remover os sb-* da resposta
   let temSessao = false;
   let supabase: ReturnType<typeof createServerClient<Database>> | null = null;
 
@@ -41,8 +48,18 @@ export async function middleware(request: NextRequest) {
         },
       },
     });
-    const { data, error } = await supabase.auth.getClaims();
-    temSessao = !error && !!data?.claims?.sub;
+    if (expirada) {
+      // 12 h sem uso: encerra a sessão. Os cookies sb-* são removidos abaixo
+      // mesmo que o signOut falhe (ex.: Supabase fora do ar).
+      try {
+        await supabase.auth.signOut({ scope: "local" });
+      } catch {
+        // ignorado de propósito
+      }
+    } else {
+      const { data, error } = await supabase.auth.getClaims();
+      temSessao = !error && !!data?.claims?.sub;
+    }
   } catch {
     temSessao = false;
   }
@@ -56,6 +73,7 @@ export async function middleware(request: NextRequest) {
       // Sem backend: os cookies são descartados abaixo mesmo assim.
     }
     temSessao = false;
+    encerrada = true;
   }
 
   let resposta: NextResponse;
@@ -68,12 +86,9 @@ export async function middleware(request: NextRequest) {
     resposta = NextResponse.next({ request });
   }
 
-  const aplicar =
-    ehLogin && searchParams.get("motivo") === "inativo" && !temSessao
-      ? escritos // sessão encerrada: só o que o signOut gravou (remoções)
-      : cookiesComJanelaDeInatividade(request.cookies.getAll(), escritos);
-  aplicar.forEach(({ name, value, options }) =>
-    resposta.cookies.set(name, value, options),
+  // Nunca reenviamos sb-* que esta requisição não renovou (ver cookies-sessao.ts).
+  cookiesDaResposta({ existentes, escritos, temSessao, expirada: encerrada }).forEach(
+    ({ name, value, options }) => resposta.cookies.set(name, value, options),
   );
   Object.entries(cabecalhos).forEach(([k, v]) => resposta.headers.set(k, v));
 

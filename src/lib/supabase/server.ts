@@ -2,7 +2,7 @@ import "server-only";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "./tipos";
-import { JANELA_INATIVIDADE_SEGUNDOS, variaveisSupabase } from "./ambiente";
+import { variaveisSupabase } from "./ambiente";
 
 /** Cliente Supabase para Server Components, Server Actions e Route Handlers. */
 export async function createClient() {
@@ -10,7 +10,6 @@ export async function createClient() {
   const { url, anonKey } = variaveisSupabase();
 
   return createServerClient<Database>(url, anonKey, {
-    cookieOptions: { maxAge: JANELA_INATIVIDADE_SEGUNDOS },
     cookies: {
       getAll() {
         return cookieStore.getAll();

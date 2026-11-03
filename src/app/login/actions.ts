@@ -1,6 +1,8 @@
 "use server";
 
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { cookieDeAtividade } from "@/lib/supabase/cookies-sessao";
 import { createClient } from "@/lib/supabase/server";
 
 export type EstadoLogin = { erro?: string };
@@ -27,6 +29,9 @@ export async function entrar(
       const recusada = error.status !== undefined && error.status >= 400 && error.status < 500;
       return { erro: recusada ? ERRO_CREDENCIAIS : ERRO_CONEXAO };
     }
+    // Abre a janela de 12 h de inatividade (o middleware a renova a cada uso).
+    const atividade = cookieDeAtividade();
+    (await cookies()).set(atividade.name, atividade.value, atividade.options);
   } catch {
     return { erro: ERRO_CONEXAO };
   }
