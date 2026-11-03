@@ -3,6 +3,7 @@ import { Logo } from "@/components/shell/logo";
 import { MenuInferior, MenuLateral } from "@/components/shell/menu";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Toaster } from "@/components/ui/sonner";
 import {
   ITENS_MENU,
   podeAcessar,
@@ -54,6 +55,7 @@ export default async function AppLayout({
 
       <main className="px-4 py-6 pb-24 lg:px-8 lg:pb-8">{children}</main>
       <MenuInferior itens={itens} />
+      <Toaster />
     </div>
   );
 }
