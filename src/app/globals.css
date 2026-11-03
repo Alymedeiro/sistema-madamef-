@@ -8,6 +8,8 @@
   --color-ouro: #986818;
   --color-ouro-escuro: #805008;
   --color-ouro-claro: #e8c979;
+  /* Borda de campos e cartões: ≥ 3:1 sobre branco (3,5:1) e sobre blush (3,1:1). */
+  --color-ouro-borda: #b08030;
   --color-texto: #3d2b1f;
   --color-branco: #ffffff;
 }
@@ -30,9 +32,10 @@
   --accent: var(--color-blush-forte);
   --accent-foreground: var(--color-texto);
   --destructive: #b42318;
-  --border: var(--color-ouro-claro);
-  --input: var(--color-ouro-claro);
-  --ring: var(--color-ouro-claro);
+  --border: var(--color-ouro-borda);
+  --input: var(--color-ouro-borda);
+  /* Foco bem visível: ouro-escuro opaco (6,8:1 sobre branco). */
+  --ring: var(--color-ouro-escuro);
 }
 
 @theme inline {
@@ -66,7 +69,7 @@
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border outline-ring;
   }
   body {
     @apply bg-background font-sans text-foreground antialiased;
