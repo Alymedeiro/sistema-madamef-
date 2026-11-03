@@ -656,6 +656,82 @@ describe("escrita por profissional (trigger agendamentos_guarda_profissional)", 
   });
 });
 
+describe("status final é definitivo para a profissional (R11, migração 0003)", () => {
+  const MENSAGEM_FINAL =
+    "Status final: só a dona ou a recepção podem alterar este agendamento";
+
+  /** Cria (como dona) um agendamento da profissional A e passa a agir como ela. */
+  async function agendamentoDaA(c: PoolClient, status: string) {
+    const r = await inserirAg(c, {
+      cliente: clienteA,
+      profissional: profAId,
+      inicio: hora("25", "10:00"),
+      fim: hora("25", "11:00"),
+      status,
+    });
+    await c.query("select set_config('request.jwt.claims', $1, true)", [
+      JSON.stringify({ sub: profA, role: "authenticated" }),
+    ]);
+    return r.rows[0].id;
+  }
+
+  const casos: [string, string][] = [];
+  for (const de of ["atendido", "faltou", "cancelado"]) {
+    for (const para of ["confirmado", "atendido", "faltou"]) {
+      casos.push([de, para]);
+    }
+  }
+  it.each(casos)("não muda de %s para %s (P0001)", async (de, para) => {
+    const erro = await comoUsuario(dona, async (c) => {
+      const id = await agendamentoDaA(c, de);
+      return esperarErroSql(
+        c.query("update agendamentos set status = $2 where id = $1", [id, para]),
+        "P0001",
+      );
+    });
+    expect(erro.message).toBe(MENSAGEM_FINAL);
+  });
+
+  it.each([
+    ["pendente", "confirmado"],
+    ["pendente", "atendido"],
+    ["pendente", "faltou"],
+    ["confirmado", "atendido"],
+    ["confirmado", "faltou"],
+  ])("muda de %s para %s", async (de, para) => {
+    const r = await comoUsuario(dona, async (c) => {
+      const id = await agendamentoDaA(c, de);
+      return c.query("update agendamentos set status = $2 where id = $1", [
+        id,
+        para,
+      ]);
+    });
+    expect(r.rowCount).toBe(1);
+  });
+
+  it.each(["atendido", "faltou", "cancelado"])(
+    "dona e recepção ainda corrigem um status %s",
+    async (de) => {
+      for (const uid of [dona, recepcao]) {
+        const r = await comoUsuario(uid, async (c) => {
+          const ins = await inserirAg(c, {
+            cliente: clienteA,
+            profissional: profAId,
+            inicio: hora("25", "10:00"),
+            fim: hora("25", "11:00"),
+            status: de,
+          });
+          return c.query(
+            "update agendamentos set status = 'confirmado' where id = $1",
+            [ins.rows[0].id],
+          );
+        });
+        expect(r.rowCount).toBe(1);
+      }
+    },
+  );
+});
+
 describe("exclusão", () => {
   it.each([
     ["dona", () => dona],

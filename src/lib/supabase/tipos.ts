@@ -1,5 +1,5 @@
 // Tipos do banco no formato gerado por `supabase gen types typescript`.
-// Escrito à mão (Ruling R2) a partir de supabase/migrations/0001_base.sql;
+// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0003);
 // cada migração nova atualiza este arquivo. Regenerar com o CLI quando houver
 // um projeto Supabase real: `supabase gen types typescript --local`.
 
@@ -134,6 +134,65 @@ export type Database = {
           {
             foreignKeyName: "bloqueios_agenda_colaborador_id_fkey"
             columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      caixas: {
+        Row: {
+          aberto_em: string
+          aberto_por: string
+          atualizado_em: string
+          criado_em: string
+          data: string
+          diferenca_centavos: number | null
+          fechado_em: string | null
+          fechado_por: string | null
+          id: string
+          valor_contado_centavos: number | null
+          valor_inicial_centavos: number
+        }
+        // Sem escrita direta: use abrir_caixa / fechar_caixa (Insert/Update
+        // ficam no formato gerado, mas o banco recusa com 42501).
+        Insert: {
+          aberto_em?: string
+          aberto_por: string
+          atualizado_em?: string
+          criado_em?: string
+          data: string
+          diferenca_centavos?: number | null
+          fechado_em?: string | null
+          fechado_por?: string | null
+          id?: string
+          valor_contado_centavos?: number | null
+          valor_inicial_centavos: number
+        }
+        Update: {
+          aberto_em?: string
+          aberto_por?: string
+          atualizado_em?: string
+          criado_em?: string
+          data?: string
+          diferenca_centavos?: number | null
+          fechado_em?: string | null
+          fechado_por?: string | null
+          id?: string
+          valor_contado_centavos?: number | null
+          valor_inicial_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "caixas_aberto_por_fkey"
+            columns: ["aberto_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "caixas_fechado_por_fkey"
+            columns: ["fechado_por"]
             isOneToOne: false
             referencedRelation: "colaboradores"
             referencedColumns: ["id"]
@@ -348,6 +407,61 @@ export type Database = {
         Relationships: [
         ]
       }
+      contas_receber: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string
+          criado_em: string
+          id: string
+          numero: number
+          pagamento_id: string
+          recebido_em: string | null
+          total_parcelas: number
+          valor_centavos: number
+          vencimento: string
+        }
+        // Sem escrita direta: criadas por registrar_pagamento ('a_receber').
+        Insert: {
+          atualizado_em?: string
+          cliente_id: string
+          criado_em?: string
+          id?: string
+          numero: number
+          pagamento_id: string
+          recebido_em?: string | null
+          total_parcelas: number
+          valor_centavos: number
+          vencimento: string
+        }
+        Update: {
+          atualizado_em?: string
+          cliente_id?: string
+          criado_em?: string
+          id?: string
+          numero?: number
+          pagamento_id?: string
+          recebido_em?: string | null
+          total_parcelas?: number
+          valor_centavos?: number
+          vencimento?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contas_receber_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_receber_pagamento_id_fkey"
+            columns: ["pagamento_id"]
+            isOneToOne: false
+            referencedRelation: "pagamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jornadas: {
         Row: {
           atualizado_em: string
@@ -380,6 +494,81 @@ export type Database = {
           {
             foreignKeyName: "jornadas_colaborador_id_fkey"
             columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pagamentos: {
+        Row: {
+          agendamento_id: string | null
+          atualizado_em: string
+          caixa_id: string
+          cliente_id: string
+          criado_em: string
+          desconto_centavos: number
+          forma: Database["public"]["Enums"]["forma_pagamento"]
+          id: string
+          lancado_por: string
+          origem: Database["public"]["Enums"]["origem_pagamento"]
+          parcelas: number
+          valor_centavos: number
+        }
+        // Sem escrita direta: use registrar_pagamento.
+        Insert: {
+          agendamento_id?: string | null
+          atualizado_em?: string
+          caixa_id: string
+          cliente_id: string
+          criado_em?: string
+          desconto_centavos?: number
+          forma: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          lancado_por: string
+          origem: Database["public"]["Enums"]["origem_pagamento"]
+          parcelas?: number
+          valor_centavos: number
+        }
+        Update: {
+          agendamento_id?: string | null
+          atualizado_em?: string
+          caixa_id?: string
+          cliente_id?: string
+          criado_em?: string
+          desconto_centavos?: number
+          forma?: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          lancado_por?: string
+          origem?: Database["public"]["Enums"]["origem_pagamento"]
+          parcelas?: number
+          valor_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pagamentos_agendamento_id_fkey"
+            columns: ["agendamento_id"]
+            isOneToOne: false
+            referencedRelation: "agendamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_lancado_por_fkey"
+            columns: ["lancado_por"]
             isOneToOne: false
             referencedRelation: "colaboradores"
             referencedColumns: ["id"]
@@ -555,15 +744,61 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      abrir_caixa: { Args: { p_valor_inicial_centavos: number }; Returns: string }
+      agendamentos_sem_pagamento: { Args: { p_data: string }; Returns: string[] }
+      caixa_aberto_hoje_id: { Args: never; Returns: string | null }
+      // Sem caixa visível o PostgREST pode devolver null ou um objeto com todos
+      // os campos nulos (função não-SETOF de tipo composto): teste `id`.
+      caixa_de_hoje: {
+        Args: never
+        Returns:
+          | Database["public"]["Tables"]["caixas"]["Row"]
+          | { [K in keyof Database["public"]["Tables"]["caixas"]["Row"]]: null }
+          | null
+        SetofOptions: {
+          from: "*"
+          to: "caixas"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
       cliente_vinculada: { Args: { p_cliente: string }; Returns: boolean }
       colaborador_atual_id: { Args: never; Returns: string }
+      // Retorna { total_por_forma: Record<forma_pagamento, number>,
+      //           total_geral, dinheiro_esperado, diferenca } (centavos).
+      fechar_caixa: {
+        Args: { p_caixa: string; p_valor_contado_centavos: number }
+        Returns: Json
+      }
       perfil_atual: {
         Args: never
         Returns: Database["public"]["Enums"]["perfil"]
       }
+      registrar_pagamento: {
+        Args: {
+          p_agendamento: string | null
+          p_cliente: string
+          p_desconto_centavos: number
+          p_forma: Database["public"]["Enums"]["forma_pagamento"]
+          p_parcelas: number
+          p_valor_centavos: number
+          // Só para 'a_receber' (um item por parcela); ignorados nas demais.
+          p_valores_parcelas: number[] | null
+          p_vencimentos: string[] | null
+        }
+        Returns: string
+      }
     }
     Enums: {
+      forma_pagamento:
+        | "pix"
+        | "dinheiro"
+        | "debito"
+        | "credito"
+        | "credito_parcelado"
+        | "a_receber"
       origem_agendamento: "interno" | "online"
+      origem_pagamento: "agendamento" | "pacote" | "venda_produto"
       perfil: "dona" | "recepcao" | "profissional"
       status_agendamento:
         | "pendente"
@@ -698,7 +933,16 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      forma_pagamento: [
+        "pix",
+        "dinheiro",
+        "debito",
+        "credito",
+        "credito_parcelado",
+        "a_receber",
+      ],
       origem_agendamento: ["interno", "online"],
+      origem_pagamento: ["agendamento", "pacote", "venda_produto"],
       perfil: ["dona", "recepcao", "profissional"],
       status_agendamento: [
         "pendente",
