@@ -23,6 +23,13 @@ describe("normalizarWhatsApp", () => {
     expect(normalizarWhatsApp("(55) 3456-7890")).toBe("555534567890");
   });
 
+  it("aceita o 0 de tronco antes do DDD (uma vez só)", () => {
+    expect(normalizarWhatsApp("(011) 98765-4321")).toBe("5511987654321");
+    expect(normalizarWhatsApp("011987654321")).toBe("5511987654321");
+    expect(normalizarWhatsApp("(011) 3456-7890")).toBe("551134567890");
+    expect(normalizarWhatsApp("0011987654321")).toBeNull();
+  });
+
   it("rejeita número sem DDD", () => {
     expect(normalizarWhatsApp("98765-4321")).toBeNull();
   });

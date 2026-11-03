@@ -1,5 +1,5 @@
 // Tipos do banco no formato gerado por `supabase gen types typescript`.
-// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0003);
+// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0004);
 // cada migração nova atualiza este arquivo. Regenerar com o CLI quando houver
 // um projeto Supabase real: `supabase gen types typescript --local`.
 
@@ -234,6 +234,8 @@ export type Database = {
           endereco: string | null
           id: string
           nome: string
+          // Coluna gerada (0004): nome sem acento e em minúsculas, para busca.
+          nome_busca: string | null
           observacoes: string | null
           origem: string | null
           whatsapp: string | null
@@ -250,6 +252,7 @@ export type Database = {
           endereco?: string | null
           id?: string
           nome: string
+          nome_busca?: never
           observacoes?: string | null
           origem?: string | null
           whatsapp?: string | null
@@ -266,6 +269,7 @@ export type Database = {
           endereco?: string | null
           id?: string
           nome?: string
+          nome_busca?: never
           observacoes?: string | null
           origem?: string | null
           whatsapp?: string | null
@@ -770,6 +774,7 @@ export type Database = {
         Args: { p_caixa: string; p_valor_contado_centavos: number }
         Returns: Json
       }
+      normalizar_busca: { Args: { texto: string }; Returns: string }
       perfil_atual: {
         Args: never
         Returns: Database["public"]["Enums"]["perfil"]

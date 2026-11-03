@@ -12,7 +12,11 @@ const METODOS = [
   "delete",
   "eq",
   "in",
+  "like",
+  "ilike",
+  "or",
   "order",
+  "limit",
   "maybeSingle",
   "single",
 ];

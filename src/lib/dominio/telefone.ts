@@ -1,13 +1,13 @@
 /**
- * Tira a pontuação e o código do país (55) quando presente.
+ * Tira a pontuação, o código do país (55) e o 0 de tronco quando presentes.
  * 12 ou 13 dígitos começando por 55 são tratados como código do país,
- * porque um número nacional tem no máximo 11 dígitos.
+ * porque um número nacional tem no máximo 11 dígitos. Um único 0 inicial
+ * (discagem "011 98765-4321") também é descartado; DDD nunca começa com 0.
  */
 function numeroNacional(entrada: string): string {
   const d = entrada.replace(/\D/g, "");
-  return (d.length === 12 || d.length === 13) && d.startsWith("55")
-    ? d.slice(2)
-    : d;
+  if ((d.length === 12 || d.length === 13) && d.startsWith("55")) return d.slice(2);
+  return d.startsWith("0") ? d.slice(1) : d;
 }
 
 /**
