@@ -19,6 +19,89 @@ export type Database = {
   }
   public: {
     Tables: {
+      agendamentos: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string
+          criado_em: string
+          criado_por: string | null
+          fim: string
+          google_event_id: string | null
+          id: string
+          inicio: string
+          observacoes: string | null
+          origem: Database["public"]["Enums"]["origem_agendamento"]
+          pacote_vendido_id: string | null
+          profissional_id: string
+          servico_id: string
+          status: Database["public"]["Enums"]["status_agendamento"]
+          valor_previsto_centavos: number
+        }
+        Insert: {
+          atualizado_em?: string
+          cliente_id: string
+          criado_em?: string
+          criado_por?: string | null
+          fim: string
+          google_event_id?: string | null
+          id?: string
+          inicio: string
+          observacoes?: string | null
+          origem?: Database["public"]["Enums"]["origem_agendamento"]
+          pacote_vendido_id?: string | null
+          profissional_id: string
+          servico_id: string
+          status?: Database["public"]["Enums"]["status_agendamento"]
+          valor_previsto_centavos?: number
+        }
+        Update: {
+          atualizado_em?: string
+          cliente_id?: string
+          criado_em?: string
+          criado_por?: string | null
+          fim?: string
+          google_event_id?: string | null
+          id?: string
+          inicio?: string
+          observacoes?: string | null
+          origem?: Database["public"]["Enums"]["origem_agendamento"]
+          pacote_vendido_id?: string | null
+          profissional_id?: string
+          servico_id?: string
+          status?: Database["public"]["Enums"]["status_agendamento"]
+          valor_previsto_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agendamentos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agendamentos_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agendamentos_profissional_id_fkey"
+            columns: ["profissional_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agendamentos_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bloqueios_agenda: {
         Row: {
           atualizado_em: string
@@ -480,7 +563,14 @@ export type Database = {
       }
     }
     Enums: {
+      origem_agendamento: "interno" | "online"
       perfil: "dona" | "recepcao" | "profissional"
+      status_agendamento:
+        | "pendente"
+        | "confirmado"
+        | "atendido"
+        | "faltou"
+        | "cancelado"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -608,7 +698,15 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      origem_agendamento: ["interno", "online"],
       perfil: ["dona", "recepcao", "profissional"],
+      status_agendamento: [
+        "pendente",
+        "confirmado",
+        "atendido",
+        "faltou",
+        "cancelado",
+      ],
     },
   },
 } as const

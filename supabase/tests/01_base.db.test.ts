@@ -93,7 +93,7 @@ describe("perfil_atual / colaborador_atual_id", () => {
     );
   });
 
-  it("cliente_vinculada retorna false nesta fase", async () => {
+  it("cliente_vinculada retorna false para cliente sem agendamento", async () => {
     const r = await comoUsuario(profissional, (c) =>
       c.query<{ v: boolean }>(
         "select public.cliente_vinculada(gen_random_uuid()) as v",
