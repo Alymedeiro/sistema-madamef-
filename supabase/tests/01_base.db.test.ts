@@ -12,33 +12,42 @@ import {
 } from "./helpers";
 
 let dona: string;
+let donaColaboradorId: string;
 let recepcao: string;
 let profissional: string;
 let recepcaoInativa: string;
+let donaInativa: string;
 let semColaborador: string;
 let servicoId: string;
+let categoriaId: string;
+let produtoSemCustoId: string;
+
+const SQL_CONFIGURACAO = `insert into configuracoes_clinica (nome, horario_funcionamento)
+  values ('Madame Fê Clinic', '{"1":[{"inicio":"09:00","fim":"19:00"}]}')`;
 
 beforeAll(async () => {
   await resetarBanco();
-  dona = (await criarUsuario("dona", { nome: "Fê" })).uid;
+  const fe = await criarUsuario("dona", { nome: "Fê" });
+  dona = fe.uid;
+  donaColaboradorId = fe.colaboradorId;
   recepcao = (await criarUsuario("recepcao")).uid;
   profissional = (await criarUsuario("profissional")).uid;
   recepcaoInativa = (await criarUsuario("recepcao", { ativo: false })).uid;
+  donaInativa = (await criarUsuario("dona", { ativo: false })).uid;
   semColaborador = await criarUsuarioSemColaborador();
 
-  servicoId = await comoSuperusuario(async (c) => {
-    await c.query(
-      `insert into configuracoes_clinica (nome, horario_funcionamento)
-       values ('Madame Fê Clinic', '{"1":[{"inicio":"09:00","fim":"19:00"}]}')`,
-    );
+  await comoSuperusuario(async (c) => {
+    await c.query(SQL_CONFIGURACAO);
     const cat = await c.query<{ id: string }>(
       "insert into categorias_servico (nome) values ('Facial') returning id",
     );
+    categoriaId = cat.rows[0].id;
     const serv = await c.query<{ id: string }>(
       `insert into servicos (nome, categoria_id, duracao_min, preco_centavos)
        values ('Peeling', $1, 60, 25000) returning id`,
-      [cat.rows[0].id],
+      [categoriaId],
     );
+    servicoId = serv.rows[0].id;
     const prod = await c.query<{ id: string }>(
       "insert into produtos (nome, unidade) values ('Ácido glicólico', 'ml') returning id",
     );
@@ -46,11 +55,14 @@ beforeAll(async () => {
       "insert into produtos_custos (produto_id, custo_unitario_centavos) values ($1, 150)",
       [prod.rows[0].id],
     );
+    const semCusto = await c.query<{ id: string }>(
+      "insert into produtos (nome) values ('Algodão') returning id",
+    );
+    produtoSemCustoId = semCusto.rows[0].id;
     await c.query(
       `insert into clientes (nome, whatsapp, aceite_lgpd_em)
        values ('Cliente Existente', '5511912345678', now())`,
     );
-    return serv.rows[0].id;
   });
 });
 
@@ -256,7 +268,7 @@ describe("custos de produtos (somente dona — R10)", () => {
       await contar(c, "produtos"),
       await contar(c, "produtos_custos"),
     ]);
-    expect(produtos).toBe(1);
+    expect(produtos).toBe(2);
     expect(custos).toBe(0);
   });
 
@@ -309,10 +321,10 @@ describe("configurações da clínica", () => {
 
 describe("equipe", () => {
   it("todos os colaboradores ativos veem a equipe (agenda)", async () => {
-    // dona, recepção, profissional e a recepção inativa (a dona precisa ver todas).
+    // dona, recepção, profissional e as duas inativas (a dona precisa ver todas).
     expect(
       await comoUsuario(profissional, (c) => contar(c, "colaboradores")),
-    ).toBe(4);
+    ).toBe(5);
   });
 
   it("recepção não altera colaborador (0 linhas)", async () => {
@@ -376,5 +388,191 @@ describe("seed.sql", () => {
       peeling: 1,
       produtos: 1,
     });
+  });
+});
+
+describe("matriz de inserção por perfil (RLS WITH CHECK)", () => {
+  type Ator = "dona" | "recepcao" | "profissional" | "donaInativa" | "anon";
+  const ATORES: Ator[] = [
+    "dona",
+    "recepcao",
+    "profissional",
+    "donaInativa",
+    "anon",
+  ];
+  const uidDe = (ator: Ator): string | null =>
+    ({ dona, recepcao, profissional, donaInativa, anon: null })[ator];
+
+  type Caso = {
+    tabela: string;
+    sql: () => [string, unknown[]];
+    permitidos: Ator[];
+    /** Prepara/restaura dados (como superusuário) só para o caso positivo. */
+    antes?: () => Promise<void>;
+    depois?: () => Promise<void>;
+  };
+
+  const casos: Caso[] = [
+    {
+      tabela: "configuracoes_clinica",
+      sql: () => ["insert into configuracoes_clinica (nome) values ('Nova')", []],
+      permitidos: ["dona"],
+      // Linha única: remove a existente para o insert da dona caber.
+      antes: () =>
+        comoSuperusuario(async (c) => {
+          await c.query("delete from configuracoes_clinica");
+        }),
+      depois: () =>
+        comoSuperusuario(async (c) => {
+          await c.query("delete from configuracoes_clinica");
+          await c.query(SQL_CONFIGURACAO);
+        }),
+    },
+    {
+      tabela: "colaboradores",
+      sql: () => [
+        "insert into colaboradores (nome, perfil) values ('Nova', 'profissional')",
+        [],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "jornadas",
+      sql: () => [
+        `insert into jornadas (colaborador_id, dia_semana, hora_inicio, hora_fim)
+         values ($1, 1, '09:00', '12:00')`,
+        [donaColaboradorId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "bloqueios_agenda",
+      sql: () => [
+        `insert into bloqueios_agenda (colaborador_id, inicio, fim, motivo)
+         values ($1, now(), now() + interval '1 day', 'folga')`,
+        [donaColaboradorId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "colaborador_servicos",
+      sql: () => [
+        "insert into colaborador_servicos (colaborador_id, servico_id) values ($1, $2)",
+        [donaColaboradorId, servicoId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "categorias_servico",
+      sql: () => ["insert into categorias_servico (nome) values ('Corporal')", []],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "servicos",
+      sql: () => [
+        `insert into servicos (nome, categoria_id, duracao_min) values ('Novo', $1, 30)`,
+        [categoriaId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "servico_produtos",
+      sql: () => [
+        "insert into servico_produtos (servico_id, produto_id, quantidade) values ($1, $2, 1)",
+        [servicoId, produtoSemCustoId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "produtos",
+      sql: () => ["insert into produtos (nome) values ('Luva')", []],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "produtos_custos",
+      sql: () => [
+        "insert into produtos_custos (produto_id, custo_unitario_centavos) values ($1, 10)",
+        [produtoSemCustoId],
+      ],
+      permitidos: ["dona"],
+    },
+    {
+      tabela: "clientes",
+      sql: () => [
+        "insert into clientes (nome, aceite_lgpd_em) values ('Nova', now())",
+        [],
+      ],
+      permitidos: ["dona", "recepcao"],
+    },
+  ];
+
+  describe.each(casos)("$tabela", (caso) => {
+    it.each(ATORES)("%s", async (ator) => {
+      const [sql, params] = caso.sql();
+      if (caso.permitidos.includes(ator)) {
+        await caso.antes?.();
+        try {
+          const r = await comoUsuario(uidDe(ator), (c) => c.query(sql, params));
+          expect(r.rowCount).toBe(1);
+        } finally {
+          await caso.depois?.();
+        }
+      } else {
+        await comoUsuario(uidDe(ator), (c) =>
+          esperarErroSql(c.query(sql, params), "42501"),
+        );
+      }
+    });
+  });
+
+  it("RLS habilitado em todas as tabelas do schema public", async () => {
+    const r = await comoSuperusuario((c) =>
+      c.query<{ relname: string }>(
+        `select relname from pg_class
+         where relnamespace = 'public'::regnamespace and relkind = 'r' and not relrowsecurity`,
+      ),
+    );
+    expect(r.rows).toEqual([]);
+  });
+});
+
+describe("alterações negadas (0 linhas)", () => {
+  it("recepção não altera custo de produto", async () => {
+    const r = await comoUsuario(recepcao, (c) =>
+      c.query("update produtos_custos set custo_unitario_centavos = 1 where true"),
+    );
+    expect(r.rowCount).toBe(0);
+  });
+
+  it("dona altera custo de produto", async () => {
+    const r = await comoUsuario(dona, (c) =>
+      c.query("update produtos_custos set custo_unitario_centavos = 1 where true"),
+    );
+    expect(r.rowCount).toBe(1);
+  });
+
+  it("profissional não altera cliente", async () => {
+    const r = await comoUsuario(profissional, (c) =>
+      c.query("update clientes set observacoes = 'x' where true"),
+    );
+    expect(r.rowCount).toBe(0);
+  });
+
+  it("recepção altera cliente", async () => {
+    const r = await comoUsuario(recepcao, (c) =>
+      c.query("update clientes set observacoes = 'x' where true"),
+    );
+    expect(r.rowCount).toBe(1);
+  });
+
+  it("dona inativa não altera serviço nem configuração", async () => {
+    const [servicos, config] = await comoUsuario(donaInativa, async (c) => [
+      (await c.query("update servicos set preco_centavos = 1 where true"))
+        .rowCount,
+      (await c.query("update configuracoes_clinica set nome = 'X' where true"))
+        .rowCount,
+    ]);
+    expect(servicos).toBe(0);
+    expect(config).toBe(0);
   });
 });
