@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useDraggable } from "@dnd-kit/core";
-import { CalendarClock, FileUser } from "lucide-react";
+import { CalendarClock, FileUser, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -162,6 +162,8 @@ export function DetalhesAgendamento({
 
   const destinos = a ? DESTINOS.filter((para) => transicaoPermitida(a.status, para, perfil)) : [];
   const podeRemarcar = !!a && perfil !== "profissional" && !STATUS_FINAIS.includes(a.status);
+  // Atendido que ficou sem pagamento (ex.: "Pagar depois"): lança no caixa de hoje.
+  const podePagar = !!a && perfil !== "profissional" && a.status === "atendido" && a.semPagamento;
 
   return (
     <Dialog open={!!a} onOpenChange={(aberto) => !aberto && fechar()}>
@@ -218,6 +220,18 @@ export function DetalhesAgendamento({
             )}
 
             <div className="flex flex-wrap gap-2 border-t pt-4">
+              {podePagar && (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    fechar();
+                    onAbrirPagamento(a);
+                  }}
+                >
+                  <Wallet aria-hidden />
+                  Lançar pagamento
+                </Button>
+              )}
               {podeRemarcar && (
                 <Button type="button" variant="secondary" onClick={() => onRemarcar(a)}>
                   <CalendarClock aria-hidden />

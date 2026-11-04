@@ -89,6 +89,22 @@ describe("montarDadosAgenda", () => {
   });
 });
 
+describe("montarDadosAgenda — atendidos sem pagamento", () => {
+  it("marca semPagamento só nos ids informados pelo banco", () => {
+    const d = montarDadosAgenda(
+      { ...linhas, semPagamento: ["a2"] },
+      { perfil: "recepcao", colaboradorId: "p-recepcao" },
+    );
+    expect(d.agendamentos.find((a) => a.id === "a2")?.semPagamento).toBe(true);
+    expect(d.agendamentos.find((a) => a.id === "a1")?.semPagamento).toBe(false);
+  });
+
+  it("sem a lista (profissional), ninguém fica marcado", () => {
+    const d = montarDadosAgenda(linhas, { perfil: "profissional", colaboradorId: "p-bia" });
+    expect(d.agendamentos.every((a) => a.semPagamento === false)).toBe(true);
+  });
+});
+
 describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
   const comInativa: LinhasAgenda = {
     ...linhas,

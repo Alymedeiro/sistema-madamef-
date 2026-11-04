@@ -40,6 +40,8 @@ export type AgendamentoAgenda = {
   status: StatusAgendamento;
   observacoes: string | null;
   valorPrevistoCentavos: number;
+  /** Atendido e ainda sem pagamento (só calculado para dona/recepção). */
+  semPagamento: boolean;
 };
 
 export type BloqueioAgenda = {
@@ -79,6 +81,8 @@ export type LinhasAgenda = {
     clientes: { nome: string } | null;
   }[];
   horarioFuncionamento: unknown;
+  /** Ids de atendidos sem pagamento no período (agendamentos_sem_pagamento_periodo). */
+  semPagamento?: string[];
 };
 
 /**
@@ -124,6 +128,7 @@ export function montarDadosAgenda(
   const visiveis = new Set(profissionais.map((p) => p.id));
 
   const nomeServico = new Map(linhas.servicos.map((s) => [s.id, s.nome]));
+  const semPagamento = new Set(linhas.semPagamento ?? []);
 
   const jornadas: Record<string, IntervalosPorDia> = {};
   for (const p of profissionais) {
@@ -159,6 +164,7 @@ export function montarDadosAgenda(
         status: a.status,
         observacoes: a.observacoes,
         valorPrevistoCentavos: a.valor_previsto_centavos,
+        semPagamento: semPagamento.has(a.id),
       })),
     jornadas,
     bloqueios: linhas.bloqueios

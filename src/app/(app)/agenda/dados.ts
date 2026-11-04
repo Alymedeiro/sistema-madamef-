@@ -23,7 +23,8 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
   const fim = limitesDoDia(datas[datas.length - 1]).fim.toISOString();
 
   const supabase = await createClient();
-  const [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config] =
+  const gerencia = colaborador.perfil !== "profissional";
+  const [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento] =
     await Promise.all([
       // Inclui inativas: quem tem atendimento no período continua com coluna.
       supabase.from("colaboradores").select("id, nome, cor, ativo").order("nome"),
@@ -44,9 +45,16 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
         .gt("fim", inicio)
         .order("inicio"),
       supabase.from("configuracoes_clinica").select("horario_funcionamento").limit(1).maybeSingle(),
+      // Atendidos sem pagamento: habilita "Lançar pagamento" nos detalhes.
+      gerencia
+        ? supabase.rpc("agendamentos_sem_pagamento_periodo", {
+            p_de: datas[0],
+            p_ate: datas[datas.length - 1],
+          })
+        : Promise.resolve({ data: [] as string[], error: null }),
     ]);
 
-  for (const r of [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config]) {
+  for (const r of [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);
   }
 
@@ -59,6 +67,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       bloqueios: bloqueios.data ?? [],
       agendamentos: agendamentos.data ?? [],
       horarioFuncionamento: config.data?.horario_funcionamento ?? {},
+      semPagamento: semPagamento.data ?? [],
     },
     { perfil: colaborador.perfil, colaboradorId: colaborador.id },
   );
