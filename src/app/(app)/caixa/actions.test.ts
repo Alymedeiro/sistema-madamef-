@@ -16,7 +16,7 @@ vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidatePa
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { abrirCaixa, fecharCaixa, registrarPagamento } from "./actions";
+import { abrirCaixa, estadoCaixaHoje, fecharCaixa, registrarPagamento } from "./actions";
 
 const AG = "a0000000-0000-4000-8000-0000000000a1";
 const CLIENTE_DO_AG = "c1111111-1111-4111-8111-111111111111";
@@ -97,6 +97,33 @@ describe("abrirCaixa", () => {
     falso.responder("rpc:abrir_caixa", falha("P0001", "Já existe caixa para hoje"));
     falso.responder("rpc:caixa_de_hoje", ok({ id: null, fechado_em: null }));
     expect(await abrirCaixa("0")).toEqual({ ok: false, erro: "O caixa de hoje já foi fechado." });
+  });
+});
+
+describe("estadoCaixaHoje", () => {
+  it("aberto", async () => {
+    falso.responder("rpc:caixa_de_hoje", ok({ id: CAIXA, fechado_em: null }));
+    expect(await estadoCaixaHoje()).toEqual({ ok: true, estado: "aberto" });
+  });
+
+  it("já fechado (a dona vê o caixa fechado)", async () => {
+    perfilAtual = "dona";
+    falso.responder("rpc:caixa_de_hoje", ok({ id: CAIXA, fechado_em: "2026-11-04T22:00:00Z" }));
+    expect(await estadoCaixaHoje()).toEqual({ ok: true, estado: "fechado" });
+  });
+
+  it("ainda não aberto (objeto todo nulo ou null)", async () => {
+    falso.responder("rpc:caixa_de_hoje", ok({ id: null, fechado_em: null }), ok(null));
+    expect(await estadoCaixaHoje()).toEqual({ ok: true, estado: "nao_aberto" });
+    expect(await estadoCaixaHoje()).toEqual({ ok: true, estado: "nao_aberto" });
+  });
+
+  it("erro do banco vira mensagem", async () => {
+    falso.responder("rpc:caixa_de_hoje", falha("42501", "permission denied"));
+    expect(await estadoCaixaHoje()).toEqual({
+      ok: false,
+      erro: "Você não tem permissão para esta ação.",
+    });
   });
 });
 

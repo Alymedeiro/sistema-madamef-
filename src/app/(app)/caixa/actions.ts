@@ -57,16 +57,23 @@ export async function abrirCaixa(valorInicial: string): Promise<Resultado> {
   }
 }
 
-/** O caixa de hoje está aberto? (usado pelo diálogo de pagamento) */
-export async function caixaAbertoHoje(): Promise<
-  { ok: true; aberto: boolean } | { ok: false; erro: string }
+export type EstadoCaixaHoje = "aberto" | "fechado" | "nao_aberto";
+
+/**
+ * Situação do caixa de hoje para o diálogo de pagamento. A recepção não
+ * enxerga caixa fechado (RLS): para ela, fechado aparece como "nao_aberto" e
+ * a tentativa de abrir responde "O caixa de hoje já foi fechado.".
+ */
+export async function estadoCaixaHoje(): Promise<
+  { ok: true; estado: EstadoCaixaHoje } | { ok: false; erro: string }
 > {
   await exigirPerfil("dona", "recepcao");
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("caixa_de_hoje");
     if (error) return erro(mensagemErroBanco(error));
-    return { ok: true, aberto: !!data?.id && !data.fechado_em };
+    if (!data?.id) return { ok: true, estado: "nao_aberto" };
+    return { ok: true, estado: data.fechado_em ? "fechado" : "aberto" };
   } catch {
     return erro(ERRO_INESPERADO);
   }

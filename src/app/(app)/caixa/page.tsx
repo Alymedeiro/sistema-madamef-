@@ -1,10 +1,16 @@
-import { PainelCaixa, type LancamentoPainel } from "@/features/caixa/painel-caixa";
+import { CaixasNaoFechados, PainelCaixa, type LancamentoPainel } from "@/features/caixa/painel-caixa";
 import type { FormaPagamento } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { formatarNoFuso } from "@/lib/dominio/tempo";
+import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
-import { descreverDiferenca, CLASSE_TOM } from "@/features/caixa/formato";
+import {
+  caixasNaoFechados,
+  CLASSE_TOM,
+  dataCurta,
+  descreverDiferenca,
+  type CaixaNaoFechado,
+} from "@/features/caixa/formato";
 import { cn } from "@/lib/utils";
 
 export const metadata = { title: "Caixa | Madame Fê Clinic" };
@@ -46,6 +52,37 @@ export default async function CaixaPage() {
     valor_contado_centavos: number | null;
     diferenca_centavos: number | null;
   }[] = [];
+  // Caixas de dias anteriores que ficaram abertos: só a dona pode fechá-los.
+  let naoFechados: CaixaNaoFechado[] = [];
+  if (ehDona) {
+    const hojeSP = dataNoFuso(new Date());
+    const { data: abertos, error: erroAbertos } = await supabase
+      .from("caixas")
+      .select("id, data, valor_inicial_centavos, fechado_em")
+      .is("fechado_em", null)
+      .lt("data", hojeSP)
+      .order("data");
+    if (erroAbertos) throw new Error(`Falha ao carregar os caixas não fechados: ${erroAbertos.message}`);
+    let pagamentosAbertos: {
+      caixa_id: string;
+      forma: string;
+      valor_centavos: number;
+      desconto_centavos: number;
+    }[] = [];
+    if (abertos && abertos.length > 0) {
+      const { data, error } = await supabase
+        .from("pagamentos")
+        .select("caixa_id, forma, valor_centavos, desconto_centavos")
+        .in(
+          "caixa_id",
+          abertos.map((c) => c.id),
+        );
+      if (error) throw new Error(`Falha ao carregar os caixas não fechados: ${error.message}`);
+      pagamentosAbertos = data ?? [];
+    }
+    naoFechados = caixasNaoFechados(abertos ?? [], pagamentosAbertos, hojeSP);
+  }
+
   if (ehDona) {
     const { data, error } = await supabase
       .from("caixas")
@@ -67,6 +104,8 @@ export default async function CaixaPage() {
         lancamentos={lancamentos}
       />
 
+      {ehDona && <CaixasNaoFechados caixas={naoFechados} />}
+
       {ehDona && (
         <section aria-labelledby="historico-t" className="flex flex-col gap-3">
           <h2 id="historico-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
@@ -83,7 +122,7 @@ export default async function CaixaPage() {
                     key={c.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-card p-3 text-sm"
                   >
-                    <span className="font-medium">{c.data.split("-").reverse().join("/")}</span>
+                    <span className="font-medium">{dataCurta(c.data)}</span>
                     <span>Contado: {formatarBRL(c.valor_contado_centavos ?? 0)}</span>
                     <span className={cn(CLASSE_TOM[d.tom])}>Diferença: {d.texto}</span>
                   </li>

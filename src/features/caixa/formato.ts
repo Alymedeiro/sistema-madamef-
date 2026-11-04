@@ -1,3 +1,4 @@
+import { resumoCaixa, type FormaPagamento, type ResumoCaixa } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 
 /** 18000 -> "180,00" (sem "R$", para campos de entrada). */
@@ -19,3 +20,45 @@ export const CLASSE_TOM: Record<TomDiferenca, string> = {
   sobra: "text-emerald-800",
   falta: "text-destructive",
 };
+
+/** "2026-11-03" -> "03/11/2026". */
+export function dataCurta(data: string): string {
+  return data.split("-").reverse().join("/");
+}
+
+export type CaixaNaoFechado = {
+  id: string;
+  data: string;
+  valorInicialCentavos: number;
+  resumo: ResumoCaixa;
+};
+
+/**
+ * Caixas de dias anteriores a `hoje` que ninguém fechou (a dona pode fechá-los
+ * depois), do mais antigo para o mais recente, com o resumo calculado dos
+ * pagamentos de cada um.
+ */
+export function caixasNaoFechados(
+  caixas: { id: string; data: string; valor_inicial_centavos: number; fechado_em: string | null }[],
+  pagamentos: { caixa_id: string; forma: string; valor_centavos: number; desconto_centavos: number }[],
+  hoje: string,
+): CaixaNaoFechado[] {
+  return caixas
+    .filter((c) => c.fechado_em === null && c.data < hoje)
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .map((c) => ({
+      id: c.id,
+      data: c.data,
+      valorInicialCentavos: c.valor_inicial_centavos,
+      resumo: resumoCaixa(
+        c.valor_inicial_centavos,
+        pagamentos
+          .filter((p) => p.caixa_id === c.id)
+          .map((p) => ({
+            forma: p.forma as FormaPagamento,
+            valorCentavos: p.valor_centavos,
+            descontoCentavos: p.desconto_centavos,
+          })),
+      ),
+    }));
+}

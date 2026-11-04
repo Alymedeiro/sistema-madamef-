@@ -14,7 +14,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { abrirCaixa, caixaAbertoHoje, registrarPagamento } from "@/app/(app)/caixa/actions";
+import {
+  abrirCaixa,
+  estadoCaixaHoje,
+  registrarPagamento,
+  type EstadoCaixaHoje,
+} from "@/app/(app)/caixa/actions";
 import {
   FORMAS_PAGAMENTO,
   formaParcelada,
@@ -86,7 +91,7 @@ function FormularioPagamento({
   onFechar: () => void;
 }) {
   const id = useId();
-  const [caixa, setCaixa] = useState<"carregando" | "aberto" | "fechado">("carregando");
+  const [caixa, setCaixa] = useState<"carregando" | EstadoCaixaHoje>("carregando");
   const [erroCaixa, setErroCaixa] = useState<string | null>(null);
   const [forma, setForma] = useState<FormaPagamento>("pix");
   const [valor, setValor] = useState(centavosParaCampo(atendimento.valorPrevistoCentavos));
@@ -99,10 +104,10 @@ function FormularioPagamento({
   useEffect(() => {
     if (caixa !== "carregando") return;
     let ativo = true;
-    caixaAbertoHoje()
+    estadoCaixaHoje()
       .then((r) => {
         if (!ativo) return;
-        if (r.ok) setCaixa(r.aberto ? "aberto" : "fechado");
+        if (r.ok) setCaixa(r.estado);
         else setErroCaixa(r.erro);
       })
       .catch(() => ativo && setErroCaixa("Não foi possível verificar o caixa."));
@@ -163,7 +168,13 @@ function FormularioPagamento({
           {erroCaixa}
         </p>
       )}
-      {caixa === "fechado" && <AbrirCaixaAgora onAberto={() => setCaixa("aberto")} />}
+      {caixa === "nao_aberto" && <AbrirCaixaAgora onAberto={() => setCaixa("aberto")} />}
+      {caixa === "fechado" && (
+        <p role="status" className="rounded-md border bg-blush p-4 text-sm font-medium">
+          O caixa de hoje já foi fechado. Não é possível lançar novos pagamentos hoje; o
+          atendimento continua em &quot;Atendidos sem pagamento&quot; no Início.
+        </p>
+      )}
 
       {caixa === "aberto" && (
         <form onSubmit={lancar} className="flex flex-col gap-4" noValidate>

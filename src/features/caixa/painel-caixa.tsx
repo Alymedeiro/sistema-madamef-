@@ -20,10 +20,11 @@ import {
   resumoCaixa,
   ROTULO_FORMA,
   type FormaPagamento,
+  type ResumoCaixa,
 } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { cn } from "@/lib/utils";
-import { CLASSE_TOM, descreverDiferenca } from "./formato";
+import { CLASSE_TOM, dataCurta, descreverDiferenca, type CaixaNaoFechado } from "./formato";
 
 export type LancamentoPainel = {
   id: string;
@@ -89,7 +90,17 @@ function AbrirCaixa() {
   );
 }
 
-function FecharCaixa({ caixaId, onFechado }: { caixaId: string; onFechado: (r: { diferenca: number }) => void }) {
+function FecharCaixa({
+  caixaId,
+  pergunta = "Fechar o caixa de hoje?",
+  semTitulo = false,
+  onFechado,
+}: {
+  caixaId: string;
+  pergunta?: string;
+  semTitulo?: boolean;
+  onFechado: (r: { diferenca: number }) => void;
+}) {
   const id = useId();
   const [contado, setContado] = useState("");
   const [confirmando, setConfirmando] = useState(false);
@@ -111,10 +122,16 @@ function FecharCaixa({ caixaId, onFechado }: { caixaId: string; onFechado: (r: {
   }
 
   return (
-    <section className="flex max-w-md flex-col gap-3 rounded-xl border bg-card p-4" aria-labelledby={`${id}-t`}>
-      <h2 id={`${id}-t`} className="font-titulo text-lg font-semibold text-ouro-escuro">
-        Fechar caixa
-      </h2>
+    <section
+      className={cn("flex max-w-md flex-col gap-3", !semTitulo && "rounded-xl border bg-card p-4")}
+      aria-labelledby={semTitulo ? undefined : `${id}-t`}
+      aria-label={semTitulo ? "Fechar caixa" : undefined}
+    >
+      {!semTitulo && (
+        <h2 id={`${id}-t`} className="font-titulo text-lg font-semibold text-ouro-escuro">
+          Fechar caixa
+        </h2>
+      )}
       <div className="flex flex-col gap-2">
         <Label htmlFor={`${id}-contado`}>Dinheiro contado na gaveta</Label>
         <Input
@@ -136,7 +153,7 @@ function FecharCaixa({ caixaId, onFechado }: { caixaId: string; onFechado: (r: {
       {confirmando ? (
         <div className="flex flex-col gap-2 rounded-md border bg-blush p-3">
           <p className="text-sm font-medium">
-            Fechar o caixa de hoje? Depois de fechado, não é possível lançar novos pagamentos.
+            {pergunta} Depois de fechado, não é possível lançar novos pagamentos nele.
           </p>
           <div className="flex flex-wrap gap-2">
             <Button type="button" onClick={fechar} disabled={pendente}>
@@ -163,25 +180,138 @@ function FecharCaixa({ caixaId, onFechado }: { caixaId: string; onFechado: (r: {
   );
 }
 
-export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
+/** Resultado do fechamento; "Atualizar" descarta o resultado e recarrega a tela. */
+function CaixaFechado({
+  titulo,
+  diferenca,
+  onAtualizar,
+}: {
+  titulo: string;
+  diferenca: number;
+  onAtualizar: () => void;
+}) {
   const router = useRouter();
+  const [pendente, iniciar] = useTransition();
+  const d = descreverDiferenca(diferenca);
+  return (
+    <section className="flex max-w-md flex-col gap-2 rounded-xl border bg-card p-4" aria-live="polite">
+      <h2 className="font-titulo text-lg font-semibold text-ouro-escuro">{titulo}</h2>
+      <p>
+        Diferença:{" "}
+        <strong data-testid="diferenca-caixa" className={cn(CLASSE_TOM[d.tom])}>
+          {d.texto}
+        </strong>
+      </p>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={pendente}
+        onClick={() =>
+          // Na mesma transição: o resultado some quando a tela nova chega.
+          iniciar(() => {
+            router.refresh();
+            onAtualizar();
+          })
+        }
+      >
+        Atualizar
+      </Button>
+    </section>
+  );
+}
+
+function TabelaResumo({ valorInicialCentavos, resumo }: { valorInicialCentavos: number; resumo: ResumoCaixa }) {
+  return (
+    <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
+      <dt className="text-muted-foreground">Troco inicial</dt>
+      <dd className="text-right">{formatarBRL(valorInicialCentavos)}</dd>
+      {FORMAS_PAGAMENTO.map((f) => (
+        <div key={f} className="contents">
+          <dt className="text-muted-foreground">{ROTULO_FORMA[f]}</dt>
+          <dd className="text-right">{formatarBRL(resumo.totalPorForma[f])}</dd>
+        </div>
+      ))}
+      <dt className="border-t pt-1 font-medium">Total lançado</dt>
+      <dd className="border-t pt-1 text-right font-medium">{formatarBRL(resumo.totalGeral)}</dd>
+      <dt className="font-medium">Dinheiro esperado na gaveta</dt>
+      <dd className="text-right font-medium">{formatarBRL(resumo.dinheiroEsperado)}</dd>
+    </dl>
+  );
+}
+
+/** Caixa de um dia anterior que ficou aberto: a dona confere e fecha. */
+function CartaoCaixaNaoFechado({
+  caixa,
+  onFechado,
+}: {
+  caixa: CaixaNaoFechado;
+  onFechado: (r: { diferenca: number }) => void;
+}) {
+  const data = dataCurta(caixa.data);
+  return (
+    <li className="flex max-w-md flex-col gap-3 rounded-xl border bg-card p-4">
+      <h3 className="font-titulo font-semibold text-ouro-escuro">Caixa de {data}</h3>
+      <TabelaResumo valorInicialCentavos={caixa.valorInicialCentavos} resumo={caixa.resumo} />
+      <FecharCaixa caixaId={caixa.id} pergunta={`Fechar o caixa de ${data}?`} semTitulo onFechado={onFechado} />
+    </li>
+  );
+}
+
+/**
+ * Lista (só da dona) dos caixas de dias anteriores que ninguém fechou. Os
+ * resultados dos fechamentos ficam aqui, porque o caixa fechado sai da lista
+ * assim que a tela é revalidada.
+ */
+export function CaixasNaoFechados({ caixas }: { caixas: CaixaNaoFechado[] }) {
+  const [fechados, setFechados] = useState<{ id: string; data: string; diferenca: number }[]>([]);
+  const idsFechados = new Set(fechados.map((f) => f.id));
+  const pendentes = caixas.filter((c) => !idsFechados.has(c.id));
+
+  if (pendentes.length === 0 && fechados.length === 0) return null;
+  return (
+    <section aria-labelledby="nao-fechados-t" className="flex flex-col gap-3">
+      <h2 id="nao-fechados-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
+        Caixas não fechados
+      </h2>
+      {pendentes.length > 0 && (
+        <p className="text-sm text-muted-foreground">
+          Estes caixas ficaram abertos em dias anteriores. Conte o dinheiro e feche cada um.
+        </p>
+      )}
+      <ul className="flex flex-col gap-4">
+        {fechados.map((f) => (
+          <li key={f.id}>
+            <CaixaFechado
+              titulo={`Caixa de ${dataCurta(f.data)} fechado`}
+              diferenca={f.diferenca}
+              onAtualizar={() => setFechados((lista) => lista.filter((x) => x.id !== f.id))}
+            />
+          </li>
+        ))}
+        {pendentes.map((c) => (
+          <CartaoCaixaNaoFechado
+            key={c.id}
+            caixa={c}
+            onFechado={({ diferenca }) =>
+              setFechados((lista) => [...lista, { id: c.id, data: c.data, diferenca }])
+            }
+          />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
   const [fechamento, setFechamento] = useState<{ diferenca: number } | null>(null);
 
   if (fechamento) {
-    const d = descreverDiferenca(fechamento.diferenca);
     return (
-      <section className="flex max-w-md flex-col gap-2 rounded-xl border bg-card p-4" aria-live="polite">
-        <h2 className="font-titulo text-lg font-semibold text-ouro-escuro">Caixa fechado</h2>
-        <p>
-          Diferença:{" "}
-          <strong data-testid="diferenca-caixa" className={cn(CLASSE_TOM[d.tom])}>
-            {d.texto}
-          </strong>
-        </p>
-        <Button type="button" variant="outline" onClick={() => router.refresh()}>
-          Atualizar
-        </Button>
-      </section>
+      <CaixaFechado
+        titulo="Caixa fechado"
+        diferenca={fechamento.diferenca}
+        onAtualizar={() => setFechamento(null)}
+      />
     );
   }
 
@@ -245,20 +375,7 @@ export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
         <h2 id="resumo-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
           Resumo
         </h2>
-        <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
-          <dt className="text-muted-foreground">Troco inicial</dt>
-          <dd className="text-right">{formatarBRL(caixa.valorInicialCentavos)}</dd>
-          {FORMAS_PAGAMENTO.map((f) => (
-            <div key={f} className="contents">
-              <dt className="text-muted-foreground">{ROTULO_FORMA[f]}</dt>
-              <dd className="text-right">{formatarBRL(resumo.totalPorForma[f])}</dd>
-            </div>
-          ))}
-          <dt className="border-t pt-1 font-medium">Total lançado</dt>
-          <dd className="border-t pt-1 text-right font-medium">{formatarBRL(resumo.totalGeral)}</dd>
-          <dt className="font-medium">Dinheiro esperado na gaveta</dt>
-          <dd className="text-right font-medium">{formatarBRL(resumo.dinheiroEsperado)}</dd>
-        </dl>
+        <TabelaResumo valorInicialCentavos={caixa.valorInicialCentavos} resumo={resumo} />
       </section>
 
       <FecharCaixa caixaId={caixa.id} onFechado={setFechamento} />
