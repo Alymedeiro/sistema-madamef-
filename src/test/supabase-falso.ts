@@ -51,7 +51,14 @@ export function criarSupabaseFalso() {
   }
 
   return {
-    cliente: { from: (tabela: string) => consulta(tabela) },
+    cliente: {
+      from: (tabela: string) => consulta(tabela),
+      // RPCs usam a fila "rpc:<nome>" e ficam em `chamadas` com tabela "rpc:<nome>".
+      rpc: (nome: string, args?: unknown) => {
+        chamadas.push({ tabela: `rpc:${nome}`, metodo: "rpc", args: [args] });
+        return Promise.resolve(proxima(`rpc:${nome}`));
+      },
+    },
     chamadas,
     /** Enfileira respostas, na ordem em que as consultas da tabela serão aguardadas. */
     responder(tabela: string, ...respostas: Resposta[]) {
@@ -59,6 +66,10 @@ export function criarSupabaseFalso() {
     },
     definirPadrao(resposta: Resposta) {
       padrao = resposta;
+    },
+    /** Chamadas da RPC `nome`; `args[0]` é o objeto de parâmetros. */
+    chamadasRpc(nome: string) {
+      return chamadas.filter((c) => c.tabela === `rpc:${nome}`);
     },
     chamadasDe(tabela: string, metodo?: string) {
       return chamadas.filter((c) => c.tabela === tabela && (!metodo || c.metodo === metodo));

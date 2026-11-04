@@ -13,6 +13,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { toast } from "sonner";
+import { DialogoPagamento, type AtendimentoParaPagar } from "@/features/caixa/dialogo-pagamento";
 import { remarcarAgendamento } from "@/app/(app)/agenda/actions";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import { combinarDataHora } from "@/lib/dominio/tempo";
@@ -71,6 +72,7 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
     ? escolhida
     : (dados.profissionais[0]?.id ?? null);
   const [dialogo, setDialogo] = useState<EstadoDialogo | null>(null);
+  const [pagando, setPagando] = useState<AtendimentoParaPagar | null>(null);
   const [aberto, setAberto] = useState<AgendamentoAgenda | null>(null);
   const [arrastando, setArrastando] = useState<AgendamentoAgenda | null>(null);
   const [encaixe, setEncaixe] = useState<{ id: string; m: Movimento } | null>(null);
@@ -224,10 +226,22 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
           setAberto(null);
           setDialogo({ modo: "editar", agendamento: a });
         }}
-        onAbrirPagamento={() =>
-          // Ponto de integração da Task 12 (diálogo de pagamento).
-          toast.info("Atendimento concluído. Registre o pagamento no caixa.")
+        onAbrirPagamento={(a) =>
+          setPagando({
+            id: a.id,
+            clienteId: a.clienteId,
+            clienteNome: a.clienteNome,
+            valorPrevistoCentavos: a.valorPrevistoCentavos,
+          })
         }
+      />
+
+      <DialogoPagamento
+        atendimento={pagando}
+        onFechar={() => {
+          setPagando(null);
+          router.refresh();
+        }}
       />
 
       <DialogoEncaixe
