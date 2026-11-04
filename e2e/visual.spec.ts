@@ -6,6 +6,8 @@ import { expect, test } from "@playwright/test";
 const PAGINAS = [
   { caminho: "/login", titulo: /Entrar|Madame/i },
   { caminho: "/esqueci-senha", titulo: /senha/i },
+  // Link de convite: o GET só mostra "Continuar" (não consome o token).
+  { caminho: "/auth/confirmar?token_hash=abc_123&type=invite", titulo: /Ative o seu acesso/i },
 ];
 
 for (const { caminho, titulo } of PAGINAS) {
@@ -27,6 +29,15 @@ for (const { caminho, titulo } of PAGINAS) {
     await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute("content", "#986818");
   });
 }
+
+test("/auth/confirmar: GET mostra o botão Continuar; link inválido volta ao login", async ({ page }) => {
+  await page.goto("/auth/confirmar?token_hash=abc_123&type=recovery");
+  await expect(page.getByRole("button", { name: "Continuar" })).toBeVisible();
+  await expect(page).toHaveURL(/\/auth\/confirmar/);
+
+  await page.goto("/auth/confirmar?token_hash=abc_123&type=signup");
+  await expect(page).toHaveURL(/\/login\?motivo=link-invalido/);
+});
 
 test("manifest do PWA é servido com os valores esperados", async ({ request }) => {
   const r = await request.get("/manifest.webmanifest");

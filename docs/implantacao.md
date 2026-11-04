@@ -56,6 +56,7 @@ Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no pain
    <h2>Redefinir senha</h2>
    <p><a href="{{ .SiteURL }}/auth/confirmar?token_hash={{ .TokenHash }}&type=recovery">Escolher uma nova senha</a></p>
    ```
+   O link abre uma tela com o botão **Continuar**; o token só é usado quando a pessoa toca nele. Assim, antivírus de e-mail que abrem os links sozinhos não invalidam o convite.
 4. **Sessions** (plano Pro): ligue **Inactivity timeout** em **12 horas**. O sistema já derruba a sessão após 12 h sem uso por conta própria (cookie `ultima_atividade`), mas a configuração do Supabase protege também o lado do servidor.
 5. **Project Settings → Database → Backups**: confirme que os backups diários estão ativos (plano Pro).
 

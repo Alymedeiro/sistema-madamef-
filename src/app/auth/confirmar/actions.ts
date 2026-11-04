@@ -1,18 +1,27 @@
+"use server";
+
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import type { NextRequest } from "next/server";
 import { lerConfirmacao } from "@/lib/auth/confirmar";
 import { cookieDeAtividade } from "@/lib/supabase/cookies-sessao";
 import { createClient } from "@/lib/supabase/server";
 
+const LINK_INVALIDO = "/login?motivo=link-invalido";
+
 /**
- * Destino dos links de e-mail (convite e recuperação de senha). Troca o
- * token_hash por uma sessão e leva a pessoa a /definir-senha.
+ * "Continuar" da tela /auth/confirmar: troca o token_hash por uma sessão e
+ * leva a pessoa a /definir-senha. Só roda num POST (clique da pessoa), então
+ * o pré-carregamento do link por antivírus de e-mail não consome o token.
  * Link inválido, expirado ou já usado → /login?motivo=link-invalido.
  */
-export async function GET(request: NextRequest) {
-  const confirmacao = lerConfirmacao(request.nextUrl.searchParams);
-  let destino = "/login?motivo=link-invalido";
+export async function confirmarLink(formulario: FormData): Promise<void> {
+  const confirmacao = lerConfirmacao({
+    get: (campo: string) => {
+      const valor = formulario.get(campo);
+      return typeof valor === "string" ? valor : null;
+    },
+  });
+  let destino = LINK_INVALIDO;
 
   if (confirmacao) {
     try {
