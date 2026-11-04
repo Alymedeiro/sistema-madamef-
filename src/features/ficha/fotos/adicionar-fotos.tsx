@@ -58,7 +58,6 @@ export function AdicionarFotos({
     const atendimento = atendimentos.find((a) => a.id === atendimentoId);
     const supabase = createBrowserClient();
     const enviadas: string[] = [];
-    const tiradaEm = new Date().toISOString();
 
     for (const [i, arquivo] of validos.entries()) {
       setProgresso(`Enviando foto ${i + 1} de ${validos.length}…`);
@@ -84,7 +83,6 @@ export function AdicionarFotos({
           tipo,
           servicoId: atendimento?.servicoId ?? null,
           agendamentoId: atendimento?.id ?? null,
-          tiradaEm,
         })),
       );
       if (r.ok) {

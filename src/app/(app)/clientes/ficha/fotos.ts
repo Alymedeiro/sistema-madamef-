@@ -21,8 +21,21 @@ const itemSchema = z.object({
   tipo: z.enum(TIPOS_FOTO as [string, ...string[]]),
   servicoId: idSchema.nullish(),
   agendamentoId: idSchema.nullish(),
-  tiradaEm: z.iso.datetime({ offset: true }).optional(),
 });
+
+/** Apaga do Storage só os caminhos que NÃO estão em `fotos` (nenhum dado clínico é removido). */
+async function removerOrfaos(paths: string[]): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin.from("fotos").select("path").in("path", paths);
+    if (error) return; // sem certeza do que é órfão: não apaga
+    const registrados = new Set((data ?? []).map((f) => f.path));
+    const orfaos = paths.filter((p) => !registrados.has(p));
+    if (orfaos.length > 0) await admin.storage.from(BUCKET_FICHA).remove(orfaos);
+  } catch {
+    // melhor esforço: arquivo órfão não é lido por ninguém (sem linha em `fotos`).
+  }
+}
 
 /**
  * Grava no banco as fotos que o navegador já enviou ao Storage (com o JWT da
@@ -36,7 +49,6 @@ export async function registrarFotos(
     tipo: "antes" | "depois" | "evolucao";
     servicoId?: string | null;
     agendamentoId?: string | null;
-    tiradaEm?: string;
   }[],
 ): Promise<Resultado> {
   await exigirPerfil("dona", "profissional");
@@ -62,15 +74,11 @@ export async function registrarFotos(
         tipo: i.tipo as "antes" | "depois" | "evolucao",
         servico_id: i.servicoId ?? null,
         agendamento_id: i.agendamentoId ?? null,
-        ...(i.tiradaEm ? { tirada_em: i.tiradaEm } : {}),
       })),
     );
     if (error) {
-      try {
-        await createAdminClient().storage.from(BUCKET_FICHA).remove(paths);
-      } catch {
-        // melhor esforço: arquivo órfão não é lido por ninguém (sem linha em `fotos`).
-      }
+      // Caminho repetido (23505) prova que o arquivo já é de uma foto registrada: nunca apagar.
+      if (error.code !== "23505") await removerOrfaos(paths);
       return { ok: false, erro: mensagemErroBanco(error) };
     }
     revalidatePath(`/clientes/${clienteId}`);

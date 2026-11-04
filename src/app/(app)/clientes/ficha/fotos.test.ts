@@ -73,11 +73,31 @@ describe("registrarFotos", () => {
     expect(inseridos[1]).toMatchObject({ cliente_id: C, path: P2, tipo: "depois" });
   });
 
-  it("falha do banco remove os arquivos pelo admin e traduz o erro", async () => {
+  it("falha do banco remove só os órfãos (não registrados) pelo admin", async () => {
     falso.responder("fotos", { data: null, error: { code: "42501", message: "rls" } });
-    const r = await registrarFotos(C, [{ path: P1, tipo: "antes" }]);
+    admin.responder("fotos", { data: [{ path: P2 }], error: null });
+    const r = await registrarFotos(C, [
+      { path: P1, tipo: "antes" },
+      { path: P2, tipo: "depois" },
+    ]);
     expect(r).toEqual({ ok: false, erro: "Você não tem permissão para esta ação." });
-    expect(admin.chamadasDe(`storage:ficha-clinica`, "remove")[0].args[0]).toEqual([P1]);
+    expect(admin.chamadasDe("storage:ficha-clinica", "remove")[0].args[0]).toEqual([P1]);
+  });
+
+  it("caminho já registrado (23505) nunca apaga arquivo", async () => {
+    falso.responder("fotos", { data: null, error: { code: "23505", message: "fotos_path_key" } });
+    const r = await registrarFotos(C, [{ path: P1, tipo: "antes" }]);
+    expect(r.ok).toBe(false);
+    expect(admin.chamadasDe("storage:ficha-clinica", "remove")).toHaveLength(0);
+  });
+
+  it("ignora tiradaEm enviado: o banco usa now()", async () => {
+    falso.responder("fotos", { data: null, error: null });
+    await registrarFotos(C, [
+      { path: P1, tipo: "antes", tiradaEm: "1900-01-01T00:00:00Z" } as never,
+    ]);
+    const ins = falso.chamadasDe("fotos", "insert")[0].args[0] as Record<string, unknown>[];
+    expect(ins[0]).not.toHaveProperty("tirada_em");
   });
 
   it("recepção é barrada; 0 e 21 itens são recusados sem gravar", async () => {
