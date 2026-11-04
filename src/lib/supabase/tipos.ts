@@ -1197,6 +1197,8 @@ export type Database = {
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
       cliente_vinculada: { Args: { p_cliente: string }; Returns: boolean }
       colaborador_atual_id: { Args: never; Returns: string }
+      // 0006: usada pela política de leitura do Storage.
+      foto_arquivada: { Args: { p_path: string }; Returns: boolean }
       // Retorna { total_por_forma: Record<forma_pagamento, number>,
       //           total_geral, dinheiro_esperado, diferenca } (centavos).
       fechar_caixa: {

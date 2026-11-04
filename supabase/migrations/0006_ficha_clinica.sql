@@ -247,6 +247,20 @@ as $$
   ))[2]
 $$;
 
+-- Foto arquivada? security definer: sob o RLS da usuária a linha arquivada é
+-- invisível para a profissional, e um "not exists" comum daria acesso.
+create function public.foto_arquivada(p_path text)
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select exists (
+    select 1 from public.fotos f where f.path = p_path and f.arquivada
+  )
+$$;
+
 -- =============================================================================
 -- 4. Auditoria
 -- =============================================================================
@@ -557,6 +571,7 @@ $$;
 revoke execute on function public.acesso_clinico(uuid, text) from public, anon;
 revoke execute on function public.cliente_do_caminho(text) from public, anon;
 revoke execute on function public.area_do_caminho(text) from public, anon;
+revoke execute on function public.foto_arquivada(text) from public, anon;
 revoke execute on function public.registrar_acesso(text, uuid, uuid) from public, anon;
 revoke execute on function public.salvar_modelo_anamnese(text, jsonb) from public, anon;
 revoke execute on function public.salvar_modelo_termo(uuid, text, text) from public, anon;
@@ -572,6 +587,7 @@ revoke execute on function public.evolucoes_guarda() from public, anon, authenti
 grant execute on function public.acesso_clinico(uuid, text) to authenticated;
 grant execute on function public.cliente_do_caminho(text) to authenticated;
 grant execute on function public.area_do_caminho(text) to authenticated;
+grant execute on function public.foto_arquivada(text) to authenticated;
 grant execute on function public.registrar_acesso(text, uuid, uuid) to authenticated;
 grant execute on function public.salvar_modelo_anamnese(text, jsonb) to authenticated;
 grant execute on function public.salvar_modelo_termo(uuid, text, text) to authenticated;
@@ -682,7 +698,8 @@ create policy auditoria_select on public.auditoria
 -- =============================================================================
 -- Storage: bucket privado e políticas
 --
--- Leitura: mesma regra das tabelas, pela área do caminho. Envio pelo
+-- Leitura: mesma regra das tabelas, pela área do caminho (foto arquivada só
+-- para a dona). Envio pelo
 -- navegador: só fotos (.jpg) — assinaturas e PDFs são gravados pelo servidor
 -- com o cliente admin. Sem update/delete: nada é sobrescrito nem apagado.
 -- =============================================================================
@@ -698,6 +715,12 @@ create policy ficha_clinica_select on storage.objects
   using (
     bucket_id = 'ficha-clinica'
     and public.acesso_clinico(public.cliente_do_caminho(name), public.area_do_caminho(name))
+    -- Foto arquivada: o arquivo também some (só a dona continua vendo).
+    and (
+      public.area_do_caminho(name) <> 'fotos'
+      or (select public.perfil_atual()) = 'dona'
+      or not public.foto_arquivada(name)
+    )
   );
 
 create policy ficha_clinica_insert on storage.objects

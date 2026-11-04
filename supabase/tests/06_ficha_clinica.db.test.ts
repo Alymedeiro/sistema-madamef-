@@ -358,6 +358,12 @@ describe("fotos", () => {
         JSON.stringify({ sub: profA, role: "authenticated" }),
       ]);
       expect(await contar(c, "fotos")).toBe(0);
+      // O arquivo também some do Storage para ela (3 → 2); a dona ainda vê.
+      expect(await contar(c, "storage.objects")).toBe(2);
+      await c.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: dona, role: "authenticated" }),
+      ]);
+      expect(await contar(c, "storage.objects")).toBe(3);
       await comoSuper(c);
       const r = await c.query(
         "select acao, entidade, colaborador_id, cliente_id from auditoria where entidade_id = $1 and acao = 'arquivou'",
@@ -649,6 +655,7 @@ describe("estrutura e ajustes herdados", () => {
     ["acesso_clinico", true, "s", true],
     ["cliente_do_caminho", false, "i", true],
     ["area_do_caminho", false, "i", true],
+    ["foto_arquivada", true, "s", true],
     ["registrar_acesso", true, "v", true],
     ["salvar_modelo_anamnese", true, "v", true],
     ["salvar_modelo_termo", true, "v", true],
