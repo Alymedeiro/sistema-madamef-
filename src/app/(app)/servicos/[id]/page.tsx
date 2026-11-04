@@ -38,14 +38,14 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
   if (!novo && !idSchema.safeParse(id).success) notFound();
 
   const supabase = await createClient();
-  const [categorias, servico, vinculos, produtos] = await Promise.all([
+  const [categorias, servico, vinculos, produtos, termos] = await Promise.all([
     supabase.from("categorias_servico").select("id, nome").order("nome", { ascending: true }),
     novo
       ? Promise.resolve({ data: null, error: null })
       : supabase
           .from("servicos")
           .select(
-            "id, nome, categoria_id, descricao, duracao_min, preco_centavos, dias_retorno, permite_online, exige_avaliacao, ativo",
+            "id, nome, categoria_id, descricao, duracao_min, preco_centavos, dias_retorno, permite_online, exige_avaliacao, modelo_termo_id, ativo",
           )
           .eq("id", id)
           .maybeSingle(),
@@ -53,8 +53,13 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
       ? Promise.resolve({ data: [], error: null })
       : supabase.from("servico_produtos").select("produto_id, quantidade").eq("servico_id", id),
     supabase.from("produtos").select("id, nome, unidade, ativo").order("nome", { ascending: true }),
+    supabase
+      .from("modelos_termo")
+      .select("id, titulo")
+      .eq("ativo", true)
+      .order("titulo", { ascending: true }),
   ]);
-  for (const r of [categorias, servico, vinculos, produtos]) {
+  for (const r of [categorias, servico, vinculos, produtos, termos]) {
     if (r.error) throw new Error(`Falha ao carregar o serviço: ${r.error.message}`);
   }
   const s = servico.data;
@@ -95,6 +100,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
 
       <FormularioServico
         categorias={categoriasLista}
+        termos={termos.data ?? []}
         servico={
           s
             ? {
@@ -107,6 +113,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
                 diasRetorno: s.dias_retorno,
                 permiteOnline: s.permite_online,
                 exigeAvaliacao: s.exige_avaliacao,
+                modeloTermoId: s.modelo_termo_id,
               }
             : undefined
         }

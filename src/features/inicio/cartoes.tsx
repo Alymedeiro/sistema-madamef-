@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { COR_STATUS } from "@/lib/dominio/status";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
-import type { Aniversariante, ItemAgenda } from "./dados";
+import type { Aniversariante, ItemAgenda, ItemSemTermo } from "./dados";
 import type { ProdutoEstoque } from "./painel";
 
 export function CartaoPainel({
@@ -101,6 +102,27 @@ export function ListaEstoqueBaixo({ itens }: { itens: (ProdutoEstoque & { unidad
           <span className="tabular-nums text-destructive">
             {p.estoque_atual} / mín. {p.estoque_minimo}
           </span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function ListaSemTermo({ itens }: { itens: ItemSemTermo[] }) {
+  return (
+    <ul className="flex flex-col gap-2">
+      {itens.map((a) => (
+        <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+          <span className="w-24 font-medium tabular-nums">{formatarNoFuso(a.inicio, "dd/MM HH:mm")}</span>
+          <span className="min-w-0 flex-1">
+            {a.clienteNome} · {a.servicoNome}
+          </span>
+          <Link
+            href={`/clientes/${a.clienteId}?aba=termos`}
+            className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
+          >
+            Abrir ficha
+          </Link>
         </li>
       ))}
     </ul>

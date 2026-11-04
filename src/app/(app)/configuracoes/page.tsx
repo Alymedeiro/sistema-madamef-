@@ -22,12 +22,18 @@ export default async function ConfiguracoesPage() {
       <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">
         Configurações
       </h1>
-      <nav aria-label="Modelos da ficha clínica">
+      <nav aria-label="Modelos da ficha clínica" className="flex flex-wrap gap-2">
         <Link
           href="/configuracoes/anamnese"
           className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
         >
           Modelo de anamnese
+        </Link>
+        <Link
+          href="/configuracoes/termos"
+          className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+        >
+          Termos
         </Link>
       </nav>
       <FormularioConfiguracoes

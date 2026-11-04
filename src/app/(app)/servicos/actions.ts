@@ -73,6 +73,7 @@ export async function salvarServico(dados: ServicoInput, id?: string): Promise<R
     permite_online: d.permiteOnline,
     exige_avaliacao: d.exigeAvaliacao,
     dias_retorno: d.diasRetorno,
+    modelo_termo_id: d.modeloTermoId,
   };
 
   try {

@@ -309,13 +309,21 @@ describe("alterarStatus", () => {
 
     atual("confirmado", EU);
     falso.responder("agendamentos", ok([{ id: AG }]));
-    expect(await alterarStatus(AG, "atendido")).toEqual({ ok: true, abrirPagamento: false });
+    expect(await alterarStatus(AG, "atendido")).toEqual({
+      ok: true,
+      abrirPagamento: false,
+      termoPendente: false,
+    });
   });
 
   it("atualiza de forma otimista e abre pagamento para a recepção", async () => {
     atual("confirmado");
     falso.responder("agendamentos", ok([{ id: AG }]));
-    expect(await alterarStatus(AG, "atendido")).toEqual({ ok: true, abrirPagamento: true });
+    expect(await alterarStatus(AG, "atendido")).toEqual({
+      ok: true,
+      abrirPagamento: true,
+      termoPendente: false,
+    });
 
     const filtros = falso
       .chamadasDe("agendamentos")
@@ -324,6 +332,43 @@ describe("alterarStatus", () => {
     expect(filtros).toContainEqual(["update", { status: "atendido" }]);
     expect(filtros).toContainEqual(["eq", "status", "confirmado"]);
     expect(revalidatePath).toHaveBeenCalledWith("/agenda");
+  });
+
+  it("atendido com termo pendente: avisa, e o pagamento continua abrindo", async () => {
+    atual("confirmado");
+    falso.responder("agendamentos", ok([{ id: AG }]));
+    falso.responder("rpc:agendamentos_com_termo_pendente", ok([AG]));
+    expect(await alterarStatus(AG, "atendido")).toEqual({
+      ok: true,
+      abrirPagamento: true,
+      termoPendente: true,
+    });
+    expect(falso.chamadasRpc("agendamentos_com_termo_pendente")[0].args[0]).toEqual({ p_ids: [AG] });
+  });
+
+  it("falha na consulta do termo não desfaz o status", async () => {
+    atual("confirmado");
+    falso.responder("agendamentos", ok([{ id: AG }]));
+    falso.responder("rpc:agendamentos_com_termo_pendente", {
+      data: null,
+      error: { code: "XX000", message: "boom" },
+    });
+    expect(await alterarStatus(AG, "atendido")).toEqual({
+      ok: true,
+      abrirPagamento: true,
+      termoPendente: false,
+    });
+  });
+
+  it("outros status não consultam o termo", async () => {
+    atual("confirmado");
+    falso.responder("agendamentos", ok([{ id: AG }]));
+    expect(await alterarStatus(AG, "faltou")).toEqual({
+      ok: true,
+      abrirPagamento: false,
+      termoPendente: false,
+    });
+    expect(falso.chamadasRpc("agendamentos_com_termo_pendente")).toHaveLength(0);
   });
 
   it("avisa quando outra pessoa mudou o status antes", async () => {

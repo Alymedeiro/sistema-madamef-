@@ -128,6 +128,42 @@ export async function atendidosSemPagamento(
   }));
 }
 
+export type ItemSemTermo = {
+  id: string;
+  inicio: string;
+  clienteId: string;
+  clienteNome: string;
+  servicoNome: string;
+};
+
+/** Atendidos de `de` a `ate` (dias de São Paulo) cujo termo não foi assinado. Só a dona recebe linhas. */
+export async function atendidosSemTermo(
+  supabase: Supabase,
+  de: string,
+  ate: string,
+): Promise<ItemSemTermo[]> {
+  const { data: ids, error: erroIds } = await supabase.rpc("atendimentos_sem_termo", {
+    p_de: de,
+    p_ate: ate,
+  });
+  falhou("os atendimentos sem termo", erroIds);
+  if (!ids || ids.length === 0) return [];
+
+  const { data, error } = await supabase
+    .from("agendamentos")
+    .select("id, inicio, cliente_id, clientes(nome), servicos(nome)")
+    .in("id", ids)
+    .order("inicio", { ascending: false });
+  falhou("os atendimentos sem termo", error);
+  return (data ?? []).map((a) => ({
+    id: a.id,
+    inicio: a.inicio,
+    clienteId: a.cliente_id,
+    clienteNome: a.clientes?.nome ?? "—",
+    servicoNome: a.servicos?.nome ?? "—",
+  }));
+}
+
 /**
  * Aniversariantes do período, filtrados no banco (sem limite de linhas) e
  * ordenados pelos dias até o aniversário a partir de `de` (virada de ano).

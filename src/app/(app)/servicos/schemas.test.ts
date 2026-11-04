@@ -21,6 +21,20 @@ const valido = {
 };
 
 describe("servicoSchema", () => {
+  it("modeloTermoId: vazio ou ausente vira null; uuid passa; lixo é recusado", () => {
+    const T = "6c1d2e63-4d5f-4a7b-9c8e-2b3c4d5e6f70";
+    const dado = (v: unknown) => servicoSchema.safeParse({ ...valido, modeloTermoId: v });
+    const r = dado("");
+    expect(r.success && r.data.modeloTermoId).toBeNull();
+    const nulo = dado(null);
+    expect(nulo.success && nulo.data.modeloTermoId).toBeNull();
+    const ausente = servicoSchema.safeParse(valido);
+    expect(ausente.success && ausente.data.modeloTermoId).toBeNull();
+    const ok = dado(T);
+    expect(ok.success && ok.data.modeloTermoId).toBe(T);
+    expect(dado("abc").success).toBe(false);
+  });
+
   it("aceita um serviço válido", () => {
     const r = servicoSchema.safeParse(valido);
     expect(r.success).toBe(true);

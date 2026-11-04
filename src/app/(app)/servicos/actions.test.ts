@@ -119,7 +119,15 @@ describe("salvarServico", () => {
       permite_online: true,
       exige_avaliacao: true,
       dias_retorno: null,
+      modelo_termo_id: null,
     });
+  });
+
+  it("grava o termo de consentimento escolhido", async () => {
+    const T = "6c1d2e63-4d5f-4a7b-9c8e-2b3c4d5e6f70";
+    await salvarServico({ ...servico, modeloTermoId: T });
+    const linha = falso.chamadasDe("servicos", "insert")[0].args[0] as Record<string, unknown>;
+    expect(linha.modelo_termo_id).toBe(T);
   });
 
   it("rejeita duração inválida com mensagem e sem tocar no banco", async () => {

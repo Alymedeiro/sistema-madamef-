@@ -47,6 +47,10 @@ export type AgendamentoAgenda = {
   alertaAnamnese: boolean;
   /** Sem anamnese ou a última tem mais de 12 meses. */
   anamnesePendente: boolean;
+  /** Termo de consentimento exigido pelo serviço (versão ativa), se houver. */
+  modeloTermoId: string | null;
+  /** O serviço exige termo e a cliente ainda não assinou a versão atual. */
+  termoPendente: boolean;
 };
 
 export type BloqueioAgenda = {
@@ -70,7 +74,14 @@ export type DadosAgenda = {
 export type LinhasAgenda = {
   colaboradores: { id: string; nome: string; cor: string; ativo: boolean }[];
   vinculos: { colaborador_id: string; servico_id: string }[];
-  servicos: { id: string; nome: string; duracao_min: number; preco_centavos: number; ativo: boolean }[];
+  servicos: {
+    id: string;
+    nome: string;
+    duracao_min: number;
+    preco_centavos: number;
+    ativo: boolean;
+    modelo_termo_id?: string | null;
+  }[];
   jornadas: { colaborador_id: string; dia_semana: number; hora_inicio: string; hora_fim: string }[];
   bloqueios: { id: string; colaborador_id: string; inicio: string; fim: string; motivo: string }[];
   agendamentos: {
@@ -90,6 +101,8 @@ export type LinhasAgenda = {
   semPagamento?: string[];
   /** situacao_ficha das clientes do período. */
   situacaoFicha?: { cliente_id: string; ultima_anamnese_em: string | null; tem_alerta: boolean }[];
+  /** Ids de atendimentos com termo pendente (agendamentos_com_termo_pendente). */
+  termoPendente?: string[];
 };
 
 /**
@@ -137,6 +150,8 @@ export function montarDadosAgenda(
 
   const nomeServico = new Map(linhas.servicos.map((s) => [s.id, s.nome]));
   const semPagamento = new Set(linhas.semPagamento ?? []);
+  const termoDoServico = new Map(linhas.servicos.map((s) => [s.id, s.modelo_termo_id ?? null]));
+  const termoPendente = new Set(linhas.termoPendente ?? []);
   const situacao = new Map((linhas.situacaoFicha ?? []).map((s) => [s.cliente_id, s]));
 
   const jornadas: Record<string, IntervalosPorDia> = {};
@@ -179,6 +194,8 @@ export function montarDadosAgenda(
           situacao.get(a.cliente_id)?.ultima_anamnese_em ?? null,
           agora,
         ),
+        modeloTermoId: termoDoServico.get(a.servico_id) ?? null,
+        termoPendente: termoPendente.has(a.id),
       })),
     jornadas,
     bloqueios: linhas.bloqueios

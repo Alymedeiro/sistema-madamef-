@@ -10,6 +10,7 @@ import { FormularioCliente } from "@/features/clientes/formulario-cliente";
 import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
 import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
+import { AbaTermos } from "@/features/ficha/termos/aba-termos";
 import { formatarCPF } from "@/lib/dominio/cpf";
 import {
   abasDaFicha,
@@ -25,6 +26,7 @@ import { idSchema } from "@/lib/validacao";
 import {
   carregarAlertasCabecalho,
   carregarAnamneses,
+  carregarTermos,
 } from "../ficha/dados";
 import { ROTULO_ORIGEM, type OrigemCliente } from "../schemas";
 
@@ -135,9 +137,10 @@ export default async function ClientePage({
     }),
   );
 
-  const [cabecalho, anamneses] = await Promise.all([
+  const [cabecalho, anamneses, termos] = await Promise.all([
     carregarAlertasCabecalho(supabase, c.id),
     aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
+    aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
   ]);
 
   const origem = c.origem
@@ -177,12 +180,19 @@ export default async function ClientePage({
       ) : null}
 
       <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
-      {/* As demais abas clínicas (termos, fotos, evoluções, pacotes) chegam nas Tasks 5–9. */}
+      {/* As demais abas clínicas (fotos, evoluções, pacotes) chegam nas Tasks 6–9. */}
       {aba === "anamnese" ? (
         <AbaAnamnese
           clienteId={c.id}
           anamneses={anamneses}
           podePreencher={podeNaFicha(colaborador.perfil, "aplicar_anamnese")}
+        />
+      ) : null}
+      {aba === "termos" && termos ? (
+        <AbaTermos
+          clienteId={c.id}
+          termos={termos}
+          podeColher={podeNaFicha(colaborador.perfil, "colher_termo")}
         />
       ) : null}
       {aba === "dados" ? (

@@ -82,3 +82,70 @@ export async function carregarAlertasCabecalho(
     alertas: alertasDaAnamnese(perguntas, ultima.respostas as unknown as Respostas),
   };
 }
+
+export type TermosFicha = {
+  assinados: {
+    id: string;
+    titulo: string;
+    versao: number;
+    assinadoEm: string;
+    colhidoPor: string;
+    /** A versão assinada ainda é a vigente do termo. */
+    atual: boolean;
+  }[];
+  pendentes: { modeloTermoId: string; titulo: string }[];
+};
+
+/**
+ * Termos assinados da cliente (do mais recente) e os exigidos pelos serviços
+ * que ela já agendou e ainda não assinou na versão atual. Audita antes de ler.
+ */
+export async function carregarTermos(
+  supabase: Supabase,
+  clienteId: string,
+): Promise<TermosFicha> {
+  await registrarAcesso(supabase, { entidade: "termos_assinados", clienteId });
+  const [termosRes, agendamentosRes] = await Promise.all([
+    supabase
+      .from("termos_assinados")
+      .select(
+        "id, assinado_em, modelo_versao, modelo_termo_id, modelos_termo(titulo, ativo), colaboradores!termos_assinados_colhido_por_fkey(nome)",
+      )
+      .eq("cliente_id", clienteId)
+      .order("assinado_em", { ascending: false }),
+    supabase
+      .from("agendamentos")
+      .select("servicos(modelo_termo_id, modelos_termo(id, titulo))")
+      .eq("cliente_id", clienteId)
+      .neq("status", "cancelado"),
+  ]);
+  if (termosRes.error) throw new Error(`Falha ao carregar os termos: ${termosRes.error.message}`);
+  if (agendamentosRes.error) {
+    throw new Error(`Falha ao carregar os termos pendentes: ${agendamentosRes.error.message}`);
+  }
+
+  const termos = termosRes.data ?? [];
+  const assinadosIds = new Set(termos.map((t) => t.modelo_termo_id));
+  const pendentes = new Map<string, string>();
+  for (const a of agendamentosRes.data ?? []) {
+    const servico = um(a.servicos) as {
+      modelo_termo_id: string | null;
+      modelos_termo: { id: string; titulo: string } | { id: string; titulo: string }[] | null;
+    } | null;
+    const modelo = um(servico?.modelos_termo);
+    if (!modelo || assinadosIds.has(modelo.id)) continue;
+    pendentes.set(modelo.id, modelo.titulo);
+  }
+
+  return {
+    assinados: termos.map((t) => ({
+      id: t.id,
+      titulo: um(t.modelos_termo)?.titulo ?? "Termo",
+      versao: t.modelo_versao,
+      assinadoEm: t.assinado_em,
+      colhidoPor: um(t.colaboradores)?.nome ?? "—",
+      atual: um(t.modelos_termo)?.ativo ?? false,
+    })),
+    pendentes: [...pendentes].map(([modeloTermoId, titulo]) => ({ modeloTermoId, titulo })),
+  };
+}

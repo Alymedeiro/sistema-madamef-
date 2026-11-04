@@ -173,10 +173,25 @@ export async function alterarStatus(
       return erro("Este atendimento foi alterado por outra pessoa. Atualize a agenda.");
     }
 
+    // O aviso de termo é informativo: se a consulta falhar, o status já gravado fica.
+    let termoPendente = false;
+    if (d.para === "atendido") {
+      try {
+        const { data: pendentes, error: erroTermo } = await supabase.rpc(
+          "agendamentos_com_termo_pendente",
+          { p_ids: [d.id] },
+        );
+        termoPendente = !erroTermo && (pendentes ?? []).includes(d.id);
+      } catch {
+        termoPendente = false;
+      }
+    }
+
     revalidatePath("/agenda");
     return {
       ok: true,
       abrirPagamento: d.para === "atendido" && colaborador.perfil !== "profissional",
+      termoPendente,
     };
   } catch {
     return erro(ERRO_INESPERADO);

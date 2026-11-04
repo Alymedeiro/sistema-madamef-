@@ -108,6 +108,30 @@ describe("montarDadosAgenda — atendidos sem pagamento", () => {
   });
 });
 
+describe("montarDadosAgenda — termo pendente", () => {
+  it("marca termoPendente nos ids do banco e expõe o termo do serviço", () => {
+    const d = montarDadosAgenda(
+      {
+        ...linhas,
+        servicos: linhas.servicos.map((s) => ({ ...s, modelo_termo_id: "m1" })),
+        termoPendente: ["a2"],
+      },
+      { perfil: "dona", colaboradorId: "x" },
+      AGORA,
+    );
+    expect(d.agendamentos.find((a) => a.id === "a2")).toMatchObject({
+      termoPendente: true,
+      modeloTermoId: "m1",
+    });
+    expect(d.agendamentos.find((a) => a.id === "a1")?.termoPendente).toBe(false);
+  });
+
+  it("sem a lista, ninguém fica pendente e o termo é nulo", () => {
+    const d = montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" }, AGORA);
+    expect(d.agendamentos.every((a) => !a.termoPendente && a.modeloTermoId === null)).toBe(true);
+  });
+});
+
 describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
   const comInativa: LinhasAgenda = {
     ...linhas,

@@ -29,7 +29,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       // Inclui inativas: quem tem atendimento no período continua com coluna.
       supabase.from("colaboradores").select("id, nome, cor, ativo").order("nome"),
       supabase.from("colaborador_servicos").select("colaborador_id, servico_id"),
-      supabase.from("servicos").select("id, nome, duracao_min, preco_centavos, ativo"),
+      supabase.from("servicos").select("id, nome, duracao_min, preco_centavos, ativo, modelo_termo_id"),
       supabase.from("jornadas").select("colaborador_id, dia_semana, hora_inicio, hora_fim"),
       supabase
         .from("bloqueios_agenda")
@@ -60,7 +60,13 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
     ? await supabase.rpc("situacao_ficha", { p_clientes: clienteIds })
     : { data: [], error: null };
 
-  for (const r of [situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
+  // Atendimentos do período cujo serviço exige termo ainda não assinado (só o indicador).
+  const agendamentoIds = (agendamentos.data ?? []).map((a) => a.id);
+  const termos = agendamentoIds.length
+    ? await supabase.rpc("agendamentos_com_termo_pendente", { p_ids: agendamentoIds })
+    : { data: [] as string[], error: null };
+
+  for (const r of [termos, situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);
   }
 
@@ -75,6 +81,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       horarioFuncionamento: config.data?.horario_funcionamento ?? {},
       semPagamento: semPagamento.data ?? [],
       situacaoFicha: situacao.data ?? [],
+      termoPendente: termos.data ?? [],
     },
     { perfil: colaborador.perfil, colaboradorId: colaborador.id },
     new Date(),
