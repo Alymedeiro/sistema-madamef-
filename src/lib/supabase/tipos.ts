@@ -750,6 +750,23 @@ export type Database = {
     Functions: {
       abrir_caixa: { Args: { p_valor_inicial_centavos: number }; Returns: string }
       agendamentos_sem_pagamento: { Args: { p_data: string }; Returns: string[] }
+      // 0005: dias de São Paulo, inclusive; no máximo 62 dias.
+      agendamentos_sem_pagamento_periodo: {
+        Args: { p_de: string; p_ate: string }
+        Returns: string[]
+      }
+      // 0005: clientes ativas com aniversário no período (RLS de clientes).
+      aniversariantes_entre: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          id: string
+          nome: string
+          data_nascimento: string
+          whatsapp: string | null
+          dias: number
+        }[]
+      }
+      aniversario_no_ano: { Args: { p_nascimento: string; p_ano: number }; Returns: string }
       caixa_aberto_hoje_id: { Args: never; Returns: string | null }
       // Sem caixa visível o PostgREST pode devolver null ou um objeto com todos
       // os campos nulos (função não-SETOF de tipo composto): teste `id`.

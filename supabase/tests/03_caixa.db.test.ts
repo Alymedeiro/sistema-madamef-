@@ -803,7 +803,7 @@ describe("registrar_pagamento", () => {
     expect(contas).toBe(0);
   });
 
-  it("mais de um pagamento para o mesmo agendamento é permitido (pagamento dividido)", async () => {
+  it("segundo pagamento para o mesmo agendamento é rejeitado (0005: pagamento único, 23505)", async () => {
     await comoUsuario(recepcao, async (c) => {
       await abrir(c, 0);
       const ag = await c.query<{ id: string }>(
@@ -813,12 +813,12 @@ describe("registrar_pagamento", () => {
         [cli, profissionalId, servicoId],
       );
       await registrar(c, { agendamento: ag.rows[0].id, forma: "pix", valor: 10000 });
-      await registrar(c, {
-        agendamento: ag.rows[0].id,
-        forma: "dinheiro",
-        valor: 15000,
-      });
-      expect(await contar(c, "pagamentos")).toBe(2);
+      await registrarFalha(
+        c,
+        { agendamento: ag.rows[0].id, forma: "dinheiro", valor: 15000 },
+        "23505",
+      );
+      expect(await contar(c, "pagamentos")).toBe(1);
     });
   });
 

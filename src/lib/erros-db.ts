@@ -14,6 +14,9 @@ export function mensagemErroBanco(erro: ErroBanco): string {
       if (erro.message?.includes("clientes_cpf_key")) {
         return "Já existe uma cliente cadastrada com este CPF.";
       }
+      if (erro.message?.includes("pagamentos_agendamento_unico")) {
+        return "Este atendimento já foi pago.";
+      }
       return "Já existe um registro com estes dados.";
     case "42501":
       return "Você não tem permissão para esta ação.";

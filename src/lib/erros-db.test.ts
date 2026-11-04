@@ -17,6 +17,16 @@ describe("mensagemErroBanco", () => {
     ).toBe("Já existe uma cliente cadastrada com este CPF.");
   });
 
+  it("segundo pagamento do mesmo atendimento (índice pagamentos_agendamento_unico)", () => {
+    expect(
+      mensagemErroBanco({
+        code: "23505",
+        message:
+          'duplicate key value violates unique constraint "pagamentos_agendamento_unico"',
+      }),
+    ).toBe("Este atendimento já foi pago.");
+  });
+
   it("duplicidade genérica", () => {
     expect(mensagemErroBanco({ code: "23505", message: "duplicate key" })).toBe(
       "Já existe um registro com estes dados.",
