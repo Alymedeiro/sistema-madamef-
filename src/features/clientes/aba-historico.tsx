@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
-import { STATUS_HISTORICO, type StatusAgendamento } from "./status";
+import { COR_STATUS, type StatusAgendamento } from "@/lib/dominio/status";
 
 export type AtendimentoHistorico = {
   id: string;
@@ -21,7 +21,7 @@ export function AbaHistorico({ atendimentos }: { atendimentos: AtendimentoHistor
   return (
     <ul className="flex flex-col gap-3">
       {atendimentos.map((a) => {
-        const status = STATUS_HISTORICO[a.status];
+        const status = COR_STATUS[a.status];
         return (
           <li
             key={a.id}
@@ -35,7 +35,7 @@ export function AbaHistorico({ atendimentos }: { atendimentos: AtendimentoHistor
               <p className="text-sm text-muted-foreground">com {a.profissional}</p>
             </div>
             <div className="flex items-center justify-between gap-3 sm:flex-col sm:items-end">
-              <Badge variant="outline" className={cn(status.classes)}>
+              <Badge variant="outline" className={cn(status.fundo)}>
                 {status.rotulo}
               </Badge>
               <p className="text-sm">
