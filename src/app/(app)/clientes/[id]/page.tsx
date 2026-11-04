@@ -10,6 +10,7 @@ import { FormularioCliente } from "@/features/clientes/formulario-cliente";
 import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
 import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
+import { AbaFotos } from "@/features/ficha/fotos/aba-fotos";
 import { AbaTermos } from "@/features/ficha/termos/aba-termos";
 import { formatarCPF } from "@/lib/dominio/cpf";
 import {
@@ -26,6 +27,7 @@ import { idSchema } from "@/lib/validacao";
 import {
   carregarAlertasCabecalho,
   carregarAnamneses,
+  carregarFotos,
   carregarTermos,
 } from "../ficha/dados";
 import { ROTULO_ORIGEM, type OrigemCliente } from "../schemas";
@@ -110,7 +112,7 @@ export default async function ClientePage({
     supabase
       .from("agendamentos")
       .select(
-        "id, inicio, status, valor_previsto_centavos, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
+        "id, inicio, status, valor_previsto_centavos, servico_id, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
       )
       .eq("cliente_id", id)
       .order("inicio", { ascending: false }),
@@ -137,10 +139,12 @@ export default async function ClientePage({
     }),
   );
 
-  const [cabecalho, anamneses, termos] = await Promise.all([
+  const [cabecalho, anamneses, termos, fotos] = await Promise.all([
     carregarAlertasCabecalho(supabase, c.id),
     aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
     aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
+    // `abas` já exclui "fotos" para a recepção; o RLS barra de novo no banco.
+    aba === "fotos" ? carregarFotos(supabase, c.id) : Promise.resolve([]),
   ]);
 
   const origem = c.origem
@@ -180,7 +184,7 @@ export default async function ClientePage({
       ) : null}
 
       <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
-      {/* As demais abas clínicas (fotos, evoluções, pacotes) chegam nas Tasks 6–9. */}
+      {/* As demais abas clínicas (evoluções, pacotes) chegam nas Tasks 7–9. */}
       {aba === "anamnese" ? (
         <AbaAnamnese
           clienteId={c.id}
@@ -193,6 +197,19 @@ export default async function ClientePage({
           clienteId={c.id}
           termos={termos}
           podeColher={podeNaFicha(colaborador.perfil, "colher_termo")}
+        />
+      ) : null}
+      {aba === "fotos" ? (
+        <AbaFotos
+          clienteId={c.id}
+          fotos={fotos}
+          atendimentos={(agendamentosRes.data ?? []).map((a) => ({
+            id: a.id,
+            servicoId: a.servico_id,
+            rotulo: `${formatarNoFuso(a.inicio, "dd/MM/yyyy HH:mm")} · ${um(a.servicos)?.nome ?? "Serviço"}`,
+          }))}
+          podeAdicionar={podeNaFicha(colaborador.perfil, "adicionar_foto")}
+          podeArquivar={podeNaFicha(colaborador.perfil, "arquivar_foto")}
         />
       ) : null}
       {aba === "dados" ? (

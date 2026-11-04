@@ -6,7 +6,9 @@ import {
   type Pergunta,
   type Respostas,
 } from "@/lib/dominio/anamnese";
+import type { TipoFoto } from "@/lib/dominio/fotos";
 import { registrarAcesso, type Supabase } from "@/lib/ficha/acesso";
+import { BUCKET_FICHA, URL_ASSINADA_SEGUNDOS } from "@/lib/ficha/caminhos";
 
 export type AnamneseFicha = {
   id: string;
@@ -148,4 +150,51 @@ export async function carregarTermos(
     })),
     pendentes: [...pendentes].map(([modeloTermoId, titulo]) => ({ modeloTermoId, titulo })),
   };
+}
+
+export type FotoFicha = {
+  id: string;
+  tipo: TipoFoto;
+  tiradaEm: string;
+  servicoNome: string | null;
+  url: string;
+};
+
+/** Fotos não arquivadas da cliente, com URLs assinadas de 300 s. Audita antes de ler. */
+export async function carregarFotos(
+  supabase: Supabase,
+  clienteId: string,
+): Promise<FotoFicha[]> {
+  await registrarAcesso(supabase, { entidade: "fotos", clienteId });
+  const { data, error } = await supabase
+    .from("fotos")
+    .select("id, tipo, tirada_em, path, servicos(nome)")
+    .eq("cliente_id", clienteId)
+    .eq("arquivada", false)
+    .order("tirada_em", { ascending: false });
+  if (error) throw new Error(`Falha ao carregar as fotos: ${error.message}`);
+  const fotos = data ?? [];
+  if (fotos.length === 0) return [];
+
+  const { data: assinadas, error: erroUrl } = await supabase.storage
+    .from(BUCKET_FICHA)
+    .createSignedUrls(
+      fotos.map((f) => f.path),
+      URL_ASSINADA_SEGUNDOS,
+    );
+  if (erroUrl || !assinadas) throw new Error("Falha ao assinar as fotos");
+  const porPath = new Map(assinadas.map((a) => [a.path, a.signedUrl]));
+  return fotos.flatMap((f) => {
+    const url = porPath.get(f.path);
+    if (!url) return [];
+    return [
+      {
+        id: f.id,
+        tipo: f.tipo as TipoFoto,
+        tiradaEm: f.tirada_em,
+        servicoNome: um(f.servicos)?.nome ?? null,
+        url,
+      },
+    ];
+  });
 }
