@@ -1,5 +1,5 @@
 // Tipos do banco no formato gerado por `supabase gen types typescript`.
-// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0006);
+// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0007);
 // cada migração nova atualiza este arquivo. Regenerar com o CLI quando houver
 // um projeto Supabase real: `supabase gen types typescript --local`.
 
@@ -91,6 +91,13 @@ export type Database = {
             columns: ["profissional_id"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agendamentos_pacote_vendido_id_fkey"
+            columns: ["pacote_vendido_id"]
+            isOneToOne: false
+            referencedRelation: "pacotes_vendidos"
             referencedColumns: ["id"]
           },
           {
@@ -387,6 +394,82 @@ export type Database = {
           whatsapp?: string | null
         }
         Relationships: [
+        ]
+      }
+      cobrancas: {
+        Row: {
+          agendamento_id: string | null
+          caixa_id: string
+          cliente_id: string
+          desconto_centavos: number
+          id: string
+          lancada_em: string
+          lancada_por: string
+          origem: Database["public"]["Enums"]["origem_pagamento"]
+          pacote_vendido_id: string | null
+          valor_bruto_centavos: number
+        }
+        // Sem escrita direta: use registrar_cobranca / vender_pacote / registrar_pagamento.
+        Insert: {
+          agendamento_id?: string | null
+          caixa_id: string
+          cliente_id: string
+          desconto_centavos?: number
+          id?: string
+          lancada_em?: string
+          lancada_por: string
+          origem: Database["public"]["Enums"]["origem_pagamento"]
+          pacote_vendido_id?: string | null
+          valor_bruto_centavos: number
+        }
+        Update: {
+          agendamento_id?: string | null
+          caixa_id?: string
+          cliente_id?: string
+          desconto_centavos?: number
+          id?: string
+          lancada_em?: string
+          lancada_por?: string
+          origem?: Database["public"]["Enums"]["origem_pagamento"]
+          pacote_vendido_id?: string | null
+          valor_bruto_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cobrancas_agendamento_id_fkey"
+            columns: ["agendamento_id"]
+            isOneToOne: true
+            referencedRelation: "agendamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobrancas_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobrancas_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobrancas_lancada_por_fkey"
+            columns: ["lancada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cobrancas_pacote_vendido_id_fkey"
+            columns: ["pacote_vendido_id"]
+            isOneToOne: true
+            referencedRelation: "pacotes_vendidos"
+            referencedColumns: ["id"]
+          },
         ]
       }
       colaborador_servicos: {
@@ -824,12 +907,91 @@ export type Database = {
           },
         ]
       }
+      pacotes_vendidos: {
+        Row: {
+          atualizado_em: string
+          cancelado_em: string | null
+          cancelado_por: string | null
+          cliente_id: string
+          id: string
+          servico_id: string
+          sessoes_usadas: number
+          status: Database["public"]["Enums"]["status_pacote"]
+          total_sessoes: number
+          validade: string | null
+          valor_total_centavos: number
+          vendido_em: string
+          vendido_por: string | null
+        }
+        // Sem escrita direta: use vender_pacote / cancelar_pacote / expirar_pacotes; sessões pelo status do agendamento.
+        Insert: {
+          atualizado_em?: string
+          cancelado_em?: string | null
+          cancelado_por?: string | null
+          cliente_id: string
+          id?: string
+          servico_id: string
+          sessoes_usadas?: number
+          status?: Database["public"]["Enums"]["status_pacote"]
+          total_sessoes: number
+          validade?: string | null
+          valor_total_centavos: number
+          vendido_em?: string
+          vendido_por?: string | null
+        }
+        Update: {
+          atualizado_em?: string
+          cancelado_em?: string | null
+          cancelado_por?: string | null
+          cliente_id?: string
+          id?: string
+          servico_id?: string
+          sessoes_usadas?: number
+          status?: Database["public"]["Enums"]["status_pacote"]
+          total_sessoes?: number
+          validade?: string | null
+          valor_total_centavos?: number
+          vendido_em?: string
+          vendido_por?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pacotes_vendidos_cancelado_por_fkey"
+            columns: ["cancelado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_vendidos_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_vendidos_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pacotes_vendidos_vendido_por_fkey"
+            columns: ["vendido_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       pagamentos: {
         Row: {
           agendamento_id: string | null
           atualizado_em: string
           caixa_id: string
           cliente_id: string
+          cobranca_id: string
           criado_em: string
           desconto_centavos: number
           forma: Database["public"]["Enums"]["forma_pagamento"]
@@ -839,12 +1001,14 @@ export type Database = {
           parcelas: number
           valor_centavos: number
         }
-        // Sem escrita direta: use registrar_pagamento.
+        // Sem escrita direta: use registrar_pagamento / registrar_cobranca.
+        // 0007: uma linha por parte da cobrança (desconto na cobrança).
         Insert: {
           agendamento_id?: string | null
           atualizado_em?: string
           caixa_id: string
           cliente_id: string
+          cobranca_id: string
           criado_em?: string
           desconto_centavos?: number
           forma: Database["public"]["Enums"]["forma_pagamento"]
@@ -859,6 +1023,7 @@ export type Database = {
           atualizado_em?: string
           caixa_id?: string
           cliente_id?: string
+          cobranca_id?: string
           criado_em?: string
           desconto_centavos?: number
           forma?: Database["public"]["Enums"]["forma_pagamento"]
@@ -888,6 +1053,13 @@ export type Database = {
             columns: ["cliente_id"]
             isOneToOne: false
             referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pagamentos_cobranca_id_fkey"
+            columns: ["cobranca_id"]
+            isOneToOne: false
+            referencedRelation: "cobrancas"
             referencedColumns: ["id"]
           },
           {
@@ -1194,9 +1366,13 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      // 0007: só a dona; só pacote ativo.
+      cancelar_pacote: { Args: { p_pacote: string }; Returns: undefined }
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
       cliente_vinculada: { Args: { p_cliente: string }; Returns: boolean }
       colaborador_atual_id: { Args: never; Returns: string }
+      // 0007: ativo → expirado (validade passou, sessões restantes); devolve quantos.
+      expirar_pacotes: { Args: never; Returns: number }
       // 0006: usada pela política de leitura do Storage.
       foto_arquivada: { Args: { p_path: string }; Returns: boolean }
       // Retorna { total_por_forma: Record<forma_pagamento, number>,
@@ -1225,6 +1401,20 @@ export type Database = {
         }
         Returns: undefined
       }
+      // 0007: p_partes = 1 a 4 { forma, valor_centavos, parcelas, vencimentos?,
+      // valores_parcelas? } somando bruto − desconto; devolve o id da cobrança.
+      // Segunda cobrança do mesmo atendimento/pacote → 23505.
+      registrar_cobranca: {
+        Args: {
+          p_agendamento: string | null
+          p_desconto_centavos: number
+          p_origem: Database["public"]["Enums"]["origem_pagamento"]
+          p_pacote: string | null
+          p_partes: Json
+        }
+        Returns: string
+      }
+      // 0007: atalho de uma parte; cria a cobrança e devolve o id do pagamento.
       registrar_pagamento: {
         Args: {
           p_agendamento: string | null
@@ -1255,6 +1445,19 @@ export type Database = {
           tem_alerta: boolean
         }[]
       }
+      // 0007: cria o pacote e a cobrança dele; devolve o id do pacote.
+      vender_pacote: {
+        Args: {
+          p_cliente: string
+          p_desconto_centavos: number
+          p_partes: Json
+          p_servico: string
+          p_total_sessoes: number
+          p_validade: string | null
+          p_valor_total_centavos: number
+        }
+        Returns: string
+      }
     }
     Enums: {
       acao_auditoria: "visualizou" | "criou" | "alterou" | "arquivou"
@@ -1274,6 +1477,7 @@ export type Database = {
         | "atendido"
         | "faltou"
         | "cancelado"
+      status_pacote: "ativo" | "concluido" | "expirado" | "cancelado"
       tipo_foto: "antes" | "depois" | "evolucao"
     }
     CompositeTypes: {
@@ -1421,6 +1625,7 @@ export const Constants = {
         "faltou",
         "cancelado",
       ],
+      status_pacote: ["ativo", "concluido", "expirado", "cancelado"],
       tipo_foto: ["antes", "depois", "evolucao"],
     },
   },

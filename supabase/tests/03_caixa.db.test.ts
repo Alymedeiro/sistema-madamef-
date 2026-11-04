@@ -4,9 +4,11 @@ import {
   comoSuperusuario,
   comoUsuario,
   contar,
+  criarPacote,
   criarUsuario,
   esperarErroSql,
   fecharConexoes,
+  inserirPagamentoDireto,
   resetarBanco,
 } from "./helpers";
 
@@ -155,12 +157,23 @@ beforeAll(async () => {
       )
     ).rows[0].id;
     // Pagamento de ontem (dinheiro 3000 com 500 de desconto; pix 1000).
-    await c.query(
-      `insert into pagamentos (caixa_id, cliente_id, origem, forma, valor_centavos, desconto_centavos, lancado_por)
-       values ($1, $2, 'venda_produto', 'dinheiro', 3000, 500, $3),
-              ($1, $2, 'venda_produto', 'pix', 1000, 0, $3)`,
-      [caixaOntem, cli, recepcaoId],
-    );
+    await inserirPagamentoDireto(c, {
+      caixaId: caixaOntem,
+      clienteId: cli,
+      origem: "venda_produto",
+      forma: "dinheiro",
+      valor: 3000,
+      desconto: 500,
+      lancadoPor: recepcaoId,
+    });
+    await inserirPagamentoDireto(c, {
+      caixaId: caixaOntem,
+      clienteId: cli,
+      origem: "venda_produto",
+      forma: "pix",
+      valor: 1000,
+      lancadoPor: recepcaoId,
+    });
   });
 });
 
@@ -235,6 +248,7 @@ describe("estrutura", () => {
           "atualizado_em",
           "caixa_id",
           "cliente_id",
+          "cobranca_id",
           "criado_em",
           "desconto_centavos",
           "forma",
@@ -1151,14 +1165,18 @@ describe("agendamentos_sem_pagamento", () => {
 
   beforeAll(async () => {
     await comoSuperusuario(async (c) => {
-      const ag = async (inicio: string, fim: string, status: string, extra = "") =>
-        (
+      const ag = async (inicio: string, fim: string, status: string, extra = "") => {
+        const pacote = extra
+          ? await criarPacote(c, { clienteId: cli, servicoId })
+          : null;
+        return (
           await c.query<{ id: string }>(
-            `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status${extra ? ", pacote_vendido_id" : ""})
-             values ($1, $2, $3, $4, $5, $6${extra ? ", gen_random_uuid()" : ""}) returning id`,
-            [cli, profissionalId, servicoId, inicio, fim, status],
+            `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status, pacote_vendido_id)
+             values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+            [cli, profissionalId, servicoId, inicio, fim, status, pacote],
           )
         ).rows[0].id;
+      };
       atendidoSemPagamento = await ag(
         `${DIA}T09:00:00-03:00`,
         `${DIA}T10:00:00-03:00`,
@@ -1188,17 +1206,22 @@ describe("agendamentos_sem_pagamento", () => {
       // Dia anterior às 23:00 (02:00 UTC do dia): não entra.
       await ag("2030-03-03T23:00:00-03:00", "2030-03-03T23:50:00-03:00", "atendido");
       // Pagamento do atendido, lançado no caixa de ontem.
-      await c.query(
-        `insert into pagamentos (caixa_id, cliente_id, origem, agendamento_id, forma, valor_centavos, lancado_por)
-         values ($1, $2, 'agendamento', $3, 'pix', 25000, $4)`,
-        [caixaOntem, cli, atendidoPago, recepcaoId],
-      );
+      await inserirPagamentoDireto(c, {
+        caixaId: caixaOntem,
+        clienteId: cli,
+        origem: "agendamento",
+        agendamentoId: atendidoPago,
+        forma: "pix",
+        valor: 25000,
+        lancadoPor: recepcaoId,
+      });
     });
   });
 
   afterAll(async () => {
     await comoSuperusuario(async (c) => {
       await c.query("delete from pagamentos where agendamento_id is not null");
+      await c.query("delete from cobrancas where agendamento_id is not null");
       await c.query(
         "delete from agendamentos where inicio >= '2030-03-01' and inicio < '2030-04-01'",
       );
