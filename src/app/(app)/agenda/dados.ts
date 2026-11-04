@@ -39,7 +39,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       supabase
         .from("agendamentos")
         .select(
-          "id, profissional_id, cliente_id, servico_id, inicio, fim, status, observacoes, valor_previsto_centavos, clientes(nome)",
+          "id, profissional_id, cliente_id, servico_id, inicio, fim, status, observacoes, valor_previsto_centavos, pacote_vendido_id, clientes(nome), pacotes_vendidos(sessoes_usadas, total_sessoes)",
         )
         .lt("inicio", fim)
         .gt("fim", inicio)

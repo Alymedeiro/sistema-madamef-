@@ -7,6 +7,8 @@ import {
   type Respostas,
 } from "@/lib/dominio/anamnese";
 import { podeEditarEvolucao } from "@/lib/dominio/evolucoes";
+import { progressoPacote, statusEfetivoPacote, type StatusPacote } from "@/lib/dominio/pacotes";
+import { dataNoFuso } from "@/lib/dominio/tempo";
 import type { TipoFoto } from "@/lib/dominio/fotos";
 import { registrarAcesso, type Supabase } from "@/lib/ficha/acesso";
 import { BUCKET_FICHA, URL_ASSINADA_SEGUNDOS } from "@/lib/ficha/caminhos";
@@ -243,4 +245,73 @@ export async function carregarEvolucoes(
       ),
     };
   });
+}
+
+export type PacoteFicha = {
+  id: string;
+  servicoId: string;
+  servicoNome: string;
+  /** Status efetivo: ativo vencido aparece como expirado. */
+  status: StatusPacote;
+  validade: string | null;
+  sessoesUsadas: number;
+  totalSessoes: number;
+  valorTotalCentavos: number;
+  restantes: number;
+  percentual: number;
+};
+
+/** Pacotes da cliente, do mais recente para o mais antigo. Falha ao expirar é ignorada. */
+export async function carregarPacotes(
+  supabase: Supabase,
+  clienteId: string,
+  agora: Date = new Date(),
+): Promise<PacoteFicha[]> {
+  try {
+    await supabase.rpc("expirar_pacotes");
+  } catch {
+    // O status efetivo é recalculado abaixo; a tela não depende disso.
+  }
+  const { data, error } = await supabase
+    .from("pacotes_vendidos")
+    .select(
+      "id, servico_id, status, validade, sessoes_usadas, total_sessoes, valor_total_centavos, servicos(nome)",
+    )
+    .eq("cliente_id", clienteId)
+    .order("vendido_em", { ascending: false });
+  if (error) throw new Error(`Falha ao carregar os pacotes: ${error.message}`);
+
+  const hoje = dataNoFuso(agora);
+  return (data ?? []).map((p) => {
+    const resumo = {
+      id: p.id,
+      servicoId: p.servico_id,
+      status: p.status as StatusPacote,
+      validade: p.validade,
+      sessoesUsadas: p.sessoes_usadas,
+      totalSessoes: p.total_sessoes,
+    };
+    const { restantes, percentual } = progressoPacote(p.sessoes_usadas, p.total_sessoes);
+    return {
+      ...resumo,
+      servicoNome: um(p.servicos)?.nome ?? "Serviço",
+      status: statusEfetivoPacote(resumo, hoje),
+      valorTotalCentavos: p.valor_total_centavos,
+      restantes,
+      percentual,
+    };
+  });
+}
+
+/** Serviços ativos para a venda de pacote (nome e preço de tabela para a sugestão de valor). */
+export async function carregarServicosVenda(
+  supabase: Supabase,
+): Promise<{ id: string; nome: string; precoCentavos: number }[]> {
+  const { data, error } = await supabase
+    .from("servicos")
+    .select("id, nome, preco_centavos")
+    .eq("ativo", true)
+    .order("nome");
+  if (error) throw new Error(`Falha ao carregar os serviços: ${error.message}`);
+  return (data ?? []).map((s) => ({ id: s.id, nome: s.nome, precoCentavos: s.preco_centavos }));
 }

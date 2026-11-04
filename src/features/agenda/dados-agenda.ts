@@ -51,6 +51,10 @@ export type AgendamentoAgenda = {
   modeloTermoId: string | null;
   /** O serviço exige termo e a cliente ainda não assinou a versão atual. */
   termoPendente: boolean;
+  /** Sessão paga por pacote (já paga na venda do pacote). */
+  pacoteVendidoId: string | null;
+  /** Progresso do pacote usado (sessões já usadas, contando esta se atendida). */
+  pacote: { usadas: number; total: number } | null;
 };
 
 export type BloqueioAgenda = {
@@ -95,6 +99,11 @@ export type LinhasAgenda = {
     observacoes: string | null;
     valor_previsto_centavos: number;
     clientes: { nome: string } | null;
+    pacote_vendido_id?: string | null;
+    pacotes_vendidos?:
+      | { sessoes_usadas: number; total_sessoes: number }
+      | { sessoes_usadas: number; total_sessoes: number }[]
+      | null;
   }[];
   horarioFuncionamento: unknown;
   /** Ids de atendidos sem pagamento no período (agendamentos_sem_pagamento_periodo). */
@@ -104,6 +113,13 @@ export type LinhasAgenda = {
   /** Ids de atendimentos com termo pendente (agendamentos_com_termo_pendente). */
   termoPendente?: string[];
 };
+
+function progressoDoPacote(
+  p: LinhasAgenda["agendamentos"][number]["pacotes_vendidos"],
+): { usadas: number; total: number } | null {
+  const linha = Array.isArray(p) ? p[0] : p;
+  return linha ? { usadas: linha.sessoes_usadas, total: linha.total_sessoes } : null;
+}
 
 /**
  * Colunas, por nome: colaboradoras ativas que realizam ao menos um serviço
@@ -196,6 +212,8 @@ export function montarDadosAgenda(
         ),
         modeloTermoId: termoDoServico.get(a.servico_id) ?? null,
         termoPendente: termoPendente.has(a.id),
+        pacoteVendidoId: a.pacote_vendido_id ?? null,
+        pacote: progressoDoPacote(a.pacotes_vendidos),
       })),
     jornadas,
     bloqueios: linhas.bloqueios

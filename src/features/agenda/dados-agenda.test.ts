@@ -108,6 +108,35 @@ describe("montarDadosAgenda — atendidos sem pagamento", () => {
   });
 });
 
+describe("montarDadosAgenda — pacote", () => {
+  it("expõe o progresso do pacote usado pelo atendimento", () => {
+    const d = montarDadosAgenda(
+      {
+        ...linhas,
+        agendamentos: linhas.agendamentos.map((a) =>
+          a.id === "a2"
+            ? {
+                ...a,
+                pacote_vendido_id: "pk",
+                pacotes_vendidos: { sessoes_usadas: 3, total_sessoes: 10 },
+              }
+            : a,
+        ),
+      },
+      { perfil: "dona", colaboradorId: "x" },
+      AGORA,
+    );
+    expect(d.agendamentos.find((a) => a.id === "a2")).toMatchObject({
+      pacoteVendidoId: "pk",
+      pacote: { usadas: 3, total: 10 },
+    });
+    expect(d.agendamentos.find((a) => a.id === "a1")).toMatchObject({
+      pacoteVendidoId: null,
+      pacote: null,
+    });
+  });
+});
+
 describe("montarDadosAgenda — termo pendente", () => {
   it("marca termoPendente nos ids do banco e expõe o termo do serviço", () => {
     const d = montarDadosAgenda(

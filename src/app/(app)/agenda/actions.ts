@@ -51,6 +51,8 @@ export async function salvarAgendamento(dados: AgendamentoInput): Promise<Result
       inicio: aprovado.inicio.toISOString(),
       fim: aprovado.fim.toISOString(),
       observacoes: d.observacoes,
+      // Só grava quando informado: remarcar pelo formulário não desfaz o vínculo.
+      ...(d.pacoteVendidoId !== undefined ? { pacote_vendido_id: d.pacoteVendidoId } : {}),
     };
 
     let id: string;
@@ -149,7 +151,7 @@ export async function alterarStatus(
     const supabase = await createClient();
     const { data: atual, error: erroLeitura } = await supabase
       .from("agendamentos")
-      .select("id, status, profissional_id")
+      .select("id, status, profissional_id, pacote_vendido_id")
       .eq("id", d.id)
       .maybeSingle();
     if (erroLeitura) return erro(mensagemErroBanco(erroLeitura));
@@ -190,7 +192,9 @@ export async function alterarStatus(
     revalidatePath("/agenda");
     return {
       ok: true,
-      abrirPagamento: d.para === "atendido" && colaborador.perfil !== "profissional",
+      // Sessão de pacote já foi paga na venda do pacote.
+      abrirPagamento:
+        d.para === "atendido" && colaborador.perfil !== "profissional" && !atual.pacote_vendido_id,
       termoPendente,
     };
   } catch {

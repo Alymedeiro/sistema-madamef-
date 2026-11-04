@@ -24,6 +24,7 @@ const AG = "a0000000-0000-4000-8000-0000000000a1";
 const CLIENTE = "c1111111-1111-4111-8111-111111111111";
 const PROF = "b2222222-2222-4222-8222-222222222222";
 const SERVICO = "d3333333-3333-4333-8333-333333333333";
+const PACOTE = "f5555555-5555-4555-8555-555555555555";
 const OUTRO_SERVICO = "e4444444-4444-4444-8444-444444444444";
 
 // 2026-11-03 é terça (dia_semana 2). Jornada 09–12 e 13–18 (almoço 12–13).
@@ -117,6 +118,25 @@ describe("salvarAgendamento", () => {
       valor_previsto_centavos: 18000,
     });
     expect(revalidatePath).toHaveBeenCalledWith("/agenda");
+  });
+
+  it("grava pacote_vendido_id quando a sessão usa um pacote", async () => {
+    prepararContexto();
+    falso.responder("agendamentos", ok({ id: AG }));
+    const r = await salvarAgendamento({ ...novo, pacoteVendidoId: PACOTE });
+    expect(r).toEqual({ ok: true, id: AG });
+    const linha = falso.chamadasDe("agendamentos", "insert")[0].args[0];
+    expect(linha).toMatchObject({ pacote_vendido_id: PACOTE });
+  });
+
+  it("repassa o erro do banco sobre o pacote (P0001)", async () => {
+    prepararContexto();
+    falso.responder("agendamentos", {
+      data: null,
+      error: { code: "P0001", message: "Todas as sessões do pacote já foram usadas." },
+    });
+    const r = await salvarAgendamento({ ...novo, pacoteVendidoId: PACOTE });
+    expect(r).toEqual({ ok: false, erro: "Todas as sessões do pacote já foram usadas." });
   });
 
   it("busca o contexto da profissional no dia de São Paulo", async () => {
@@ -332,6 +352,19 @@ describe("alterarStatus", () => {
     expect(filtros).toContainEqual(["update", { status: "atendido" }]);
     expect(filtros).toContainEqual(["eq", "status", "confirmado"]);
     expect(revalidatePath).toHaveBeenCalledWith("/agenda");
+  });
+
+  it("sessão de pacote: não abre o pagamento", async () => {
+    falso.responder(
+      "agendamentos",
+      ok({ id: AG, status: "confirmado", profissional_id: PROF, pacote_vendido_id: PACOTE }),
+    );
+    falso.responder("agendamentos", ok([{ id: AG }]));
+    expect(await alterarStatus(AG, "atendido")).toEqual({
+      ok: true,
+      abrirPagamento: false,
+      termoPendente: false,
+    });
   });
 
   it("atendido com termo pendente: avisa, e o pagamento continua abrindo", async () => {

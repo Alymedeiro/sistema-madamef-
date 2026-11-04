@@ -15,6 +15,7 @@ import {
   type FormaPagamento,
 } from "@/lib/dominio/caixa";
 import {
+  erroDasPartes,
   MAX_PARTES,
   saldoCobranca,
   valorSugeridoNovaParte,
@@ -205,7 +206,10 @@ export function EditorPartes({
   }
 
   let rodape: { texto: string; tom: "ok" | "aviso" };
-  if (saldo.fecha) rodape = { texto: "Valor fechado", tom: "ok" };
+  // Valor fechado ainda pode ter outra regra quebrada (parcelas, vencimento...).
+  const problema = saldo.fecha ? erroDasPartes(liquidoCentavos, partesEditadasParaCobranca(partes)) : null;
+  if (saldo.fecha && problema) rodape = { texto: problema, tom: "aviso" };
+  else if (saldo.fecha) rodape = { texto: "Valor fechado", tom: "ok" };
   else if (saldo.sobraCentavos > 0) rodape = { texto: `Sobra ${formatarBRL(saldo.sobraCentavos)}`, tom: "aviso" };
   else if (saldo.faltaCentavos > 0) rodape = { texto: `Falta ${formatarBRL(saldo.faltaCentavos)}`, tom: "aviso" };
   else rodape = { texto: "Confira os valores informados.", tom: "aviso" };
@@ -223,7 +227,13 @@ export function EditorPartes({
       ))}
 
       {partes.length < MAX_PARTES && (
-        <Button type="button" variant="outline" className="self-start" onClick={adicionar}>
+        <Button
+          type="button"
+          variant="outline"
+          className="self-start"
+          onClick={adicionar}
+          disabled={saldo.faltaCentavos === 0}
+        >
           + Adicionar outra forma
         </Button>
       )}

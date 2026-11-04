@@ -51,7 +51,10 @@ export function ConteudoCartao({ agendamento: a }: { agendamento: AgendamentoAge
         {horaNoFuso(a.inicio)}–{horaNoFuso(a.fim)} · {a.clienteNome}
       </span>
       <span className="block truncate">{a.servicoNome}</span>
-      <span className="block truncate text-xs">{COR_STATUS[a.status].rotulo}</span>
+      <span className="block truncate text-xs">
+        {COR_STATUS[a.status].rotulo}
+        {a.pacote ? ` · Pacote ${a.pacote.usadas}/${a.pacote.total}` : ""}
+      </span>
       {a.alertaAnamnese || a.anamnesePendente || termoAberto(a) ? (
         <span className="block truncate text-xs font-medium">
           {[
@@ -95,7 +98,7 @@ export function CartaoAgendamento({
       {...(arrastavel ? listeners : {})}
       {...(arrastavel ? attributes : {})}
       onClick={onAbrir}
-      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}${agendamento.alertaAnamnese ? ", atenção na anamnese" : ""}${agendamento.anamnesePendente ? ", anamnese pendente" : ""}${termoAberto(agendamento) ? ", termo pendente" : ""}`}
+      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}${agendamento.alertaAnamnese ? ", atenção na anamnese" : ""}${agendamento.anamnesePendente ? ", anamnese pendente" : ""}${termoAberto(agendamento) ? ", termo pendente" : ""}${agendamento.pacote ? `, pacote ${agendamento.pacote.usadas} de ${agendamento.pacote.total}` : ""}`}
       data-status={agendamento.status}
       className={cn(
         CLASSE_CARTAO,
@@ -222,7 +225,16 @@ export function DetalhesAgendamento({
                 </Badge>
               </dd>
               <dt className="text-muted-foreground">Valor previsto</dt>
-              <dd>{formatarBRL(a.valorPrevistoCentavos)}</dd>
+              <dd>
+                {a.pacoteVendidoId ? (
+                  <>
+                    Sessão do pacote — já paga
+                    {a.pacote ? ` (${a.pacote.usadas}/${a.pacote.total})` : ""}
+                  </>
+                ) : (
+                  formatarBRL(a.valorPrevistoCentavos)
+                )}
+              </dd>
               {a.observacoes && (
                 <>
                   <dt className="text-muted-foreground">Observações</dt>

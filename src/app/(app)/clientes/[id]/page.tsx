@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
 import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
 import { AbaEvolucoes } from "@/features/ficha/evolucoes/aba-evolucoes";
+import { AbaPacotes } from "@/features/ficha/pacotes/aba-pacotes";
 import { AbaFotos } from "@/features/ficha/fotos/aba-fotos";
 import { AbaTermos } from "@/features/ficha/termos/aba-termos";
 import { formatarCPF } from "@/lib/dominio/cpf";
@@ -30,6 +31,8 @@ import {
   carregarAnamneses,
   carregarEvolucoes,
   carregarFotos,
+  carregarPacotes,
+  carregarServicosVenda,
   carregarTermos,
 } from "../ficha/dados";
 import { ROTULO_ORIGEM, type OrigemCliente } from "../schemas";
@@ -141,7 +144,7 @@ export default async function ClientePage({
     }),
   );
 
-  const [cabecalho, anamneses, termos, fotos, evolucoes] = await Promise.all([
+  const [cabecalho, anamneses, termos, fotos, evolucoes, pacotes, servicosVenda] = await Promise.all([
     carregarAlertasCabecalho(supabase, c.id),
     aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
     aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
@@ -149,6 +152,10 @@ export default async function ClientePage({
     aba === "fotos" ? carregarFotos(supabase, c.id) : Promise.resolve([]),
     aba === "evolucoes"
       ? carregarEvolucoes(supabase, c.id, colaborador.id)
+      : Promise.resolve([]),
+    aba === "pacotes" ? carregarPacotes(supabase, c.id) : Promise.resolve([]),
+    aba === "pacotes" && podeNaFicha(colaborador.perfil, "vender_pacote")
+      ? carregarServicosVenda(supabase)
       : Promise.resolve([]),
   ]);
 
@@ -189,7 +196,16 @@ export default async function ClientePage({
       ) : null}
 
       <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
-      {/* A aba de pacotes chega na Task 9. */}
+      {aba === "pacotes" ? (
+        <AbaPacotes
+          clienteId={c.id}
+          clienteNome={c.nome}
+          pacotes={pacotes}
+          servicos={servicosVenda}
+          podeVender={podeNaFicha(colaborador.perfil, "vender_pacote")}
+          podeCancelar={podeNaFicha(colaborador.perfil, "cancelar_pacote")}
+        />
+      ) : null}
       {aba === "anamnese" ? (
         <AbaAnamnese
           clienteId={c.id}

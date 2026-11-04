@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { salvarAgendamento } from "@/app/(app)/agenda/actions";
+import { pacotesDisponiveis } from "@/app/(app)/clientes/ficha/pacotes";
 import { agendamentoSchema, type AgendamentoInput } from "@/app/(app)/agenda/schemas";
 import { MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
@@ -129,12 +130,36 @@ function FormularioAgendamento({
   const [erroCliente, setErroCliente] = useState<string | undefined>();
   const [encaixe, setEncaixe] = useState(false);
   const [pendente, iniciar] = useTransition();
+  const [pacotes, setPacotes] = useState<{ id: string; restantes: number; validade: string | null }[]>([]);
+  const [usarPacote, setUsarPacote] = useState(true);
 
   const editando = estado.modo === "editar";
   const profissional = profissionais.find((p) => p.id === v.profissionalId);
   const servicosDaProfissional = servicos.filter(
     (s) => s.ativo && profissional?.servicoIds.includes(s.id),
   );
+
+  // Cliente + serviço escolhidos: procura pacote com sessão disponível (só em novo agendamento).
+  const clienteId = v.cliente?.id;
+  useEffect(() => {
+    if (editando || !clienteId || !v.servicoId) {
+      setPacotes([]);
+      return;
+    }
+    let ativo = true;
+    pacotesDisponiveis(clienteId, v.servicoId)
+      .then((lista) => {
+        if (!ativo) return;
+        setPacotes(lista);
+        setUsarPacote(true);
+      })
+      .catch(() => ativo && setPacotes([]));
+    return () => {
+      ativo = false;
+    };
+  }, [editando, clienteId, v.servicoId]);
+
+  const pacote = pacotes[0] ?? null;
 
   function dados(forcarForaJornada: boolean): AgendamentoInput {
     return {
@@ -146,6 +171,7 @@ function FormularioAgendamento({
       hora: v.hora,
       observacoes: v.observacoes,
       forcarForaJornada,
+      ...(!editando && pacote && usarPacote ? { pacoteVendidoId: pacote.id } : {}),
     };
   }
 
@@ -257,6 +283,18 @@ function FormularioAgendamento({
             <p className="text-sm text-muted-foreground">Esta profissional não tem serviços ativos.</p>
           )}
         </div>
+
+        {pacote && (
+          <label className="flex min-h-11 items-center gap-3 rounded-md border bg-blush p-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              className="size-5"
+              checked={usarPacote}
+              onChange={(e) => setUsarPacote(e.target.checked)}
+            />
+            Usar sessão do pacote (restam {pacote.restantes})
+          </label>
+        )}
 
         <div className="flex flex-col gap-2">
           <Label htmlFor={`${id}-obs`}>Observações</Label>

@@ -39,10 +39,10 @@ export type AtendimentoParaPagar = {
   valorPrevistoCentavos: number;
 };
 
-const CLASSE_ERRO =
+export const CLASSE_ERRO =
   "rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive";
 
-function AbrirCaixaAgora({ onAberto }: { onAberto: () => void }) {
+export function AbrirCaixaAgora({ onAberto }: { onAberto: () => void }) {
   const id = useId();
   const [valor, setValor] = useState("0,00");
   const [erro, setErro] = useState<string | null>(null);
