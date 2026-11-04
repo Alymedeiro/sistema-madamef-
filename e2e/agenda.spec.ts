@@ -148,7 +148,7 @@ test.beforeAll(async ({}, testInfo) => {
     `E2E da agenda pulado: ${ENV.url} não responde (sem backend Supabase alcançável — Ruling R3).`,
   );
   admin = createClient(ENV.url!, ENV.service!, { auth: { persistSession: false } });
-  const indice = ["desktop-1440", "tablet-1024", "mobile-390"].indexOf(testInfo.project.name);
+  const indice = ["computador", "tablet", "celular"].indexOf(testInfo.project.name);
   fx = await preparar(Math.max(0, indice));
 });
 

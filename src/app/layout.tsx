@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Cinzel, Great_Vibes, Montserrat } from "next/font/google";
 import "./globals.css";
 
@@ -24,6 +24,13 @@ const montserrat = Montserrat({
 export const metadata: Metadata = {
   title: "Madame Fê Clinic",
   description: "Gestão de agenda, clientes e caixa da Madame Fê Clinic.",
+  applicationName: "Madame Fê Clinic",
+  appleWebApp: { capable: true, title: "Madame Fê", statusBarStyle: "default" },
+  icons: { apple: "/icons/apple-touch-icon.png" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#986818",
 };
 
 export default function RootLayout({

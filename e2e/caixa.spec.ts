@@ -122,7 +122,7 @@ async function entrar(page: Page, email: string, senha: string) {
 
 test.beforeAll(async ({}, testInfo) => {
   test.skip(
-    testInfo.project.name !== "desktop-1440",
+    testInfo.project.name !== "computador",
     "E2E do caixa roda só no viewport desktop: há um único caixa por dia.",
   );
   test.skip(
