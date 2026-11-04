@@ -131,3 +131,49 @@ describe("modelo", () => {
     expect(precisaNovaVersao(P, P.map((p) => ({ ...p, alerta: p.alerta ?? false })), "T", "T")).toBe(false);
   });
 });
+
+describe("errosDasRespostas — forma por tipo", () => {
+  const q = (p: Partial<Pergunta> & Pick<Pergunta, "tipo">): Pergunta[] => [
+    { id: "x", texto: "Q?", obrigatoria: false, ...p },
+  ];
+  const invalida = (ps: Pergunta[], v: unknown) =>
+    errosDasRespostas(ps, { x: v as never }).x;
+
+  it("texto", () => {
+    const ps = q({ tipo: "texto" });
+    expect(errosDasRespostas(ps, { x: "ok" })).toEqual({});
+    expect(errosDasRespostas(ps, {})).toEqual({});
+    expect(invalida(ps, true)).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, ["a"])).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, "a".repeat(2001))).toBe("Resposta inválida: Q?");
+  });
+  it("sim_nao", () => {
+    const ps = q({ tipo: "sim_nao" });
+    expect(errosDasRespostas(ps, { x: false })).toEqual({});
+    expect(invalida(ps, "sim")).toBe("Resposta inválida: Q?");
+  });
+  it("sim_nao_detalhe", () => {
+    const ps = q({ tipo: "sim_nao_detalhe" });
+    expect(errosDasRespostas(ps, { x: { sim: false, detalhe: "" } })).toEqual({});
+    expect(errosDasRespostas(ps, { x: { sim: true, detalhe: "algo" } })).toEqual({});
+    expect(invalida(ps, true)).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, { sim: "s", detalhe: "" })).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, { sim: true, detalhe: 3 })).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, { sim: true, detalhe: "" })).toBe("Conte mais sobre: Q?");
+  });
+  it("multipla", () => {
+    const ps = q({ tipo: "multipla", opcoes: ["A", "B"] });
+    expect(errosDasRespostas(ps, { x: ["A", "B"] })).toEqual({});
+    expect(errosDasRespostas(ps, { x: [] })).toEqual({});
+    expect(invalida(ps, ["C"])).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, ["A", "A"])).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, "A")).toBe("Resposta inválida: Q?");
+  });
+  it("data", () => {
+    const ps = q({ tipo: "data" });
+    expect(errosDasRespostas(ps, { x: "2026-02-28" })).toEqual({});
+    expect(invalida(ps, "2026-02-30")).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, "09/03/2026")).toBe("Resposta inválida: Q?");
+    expect(invalida(ps, true)).toBe("Resposta inválida: Q?");
+  });
+});

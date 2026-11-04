@@ -16,7 +16,7 @@ export type Pergunta = {
 };
 
 /** texto: string; sim_nao: boolean; sim_nao_detalhe: objeto; multipla: string[]; data: yyyy-MM-dd. */
-export type ValorResposta = string | boolean | { sim: boolean; detalhe: string } | string[];
+export type ValorResposta = string | boolean | { sim: boolean; detalhe?: string } | string[];
 export type Respostas = Record<string, ValorResposta>;
 
 export const ROTULO_TIPO_PERGUNTA: Record<TipoPergunta, string> = {
@@ -88,7 +88,7 @@ export function precisaNovaVersao(
   return JSON.stringify(anteriores.map(normalizar)) !== JSON.stringify(novas.map(normalizar));
 }
 
-function objetoSimDetalhe(v: ValorResposta | undefined): { sim: boolean; detalhe: string } | null {
+function objetoSimDetalhe(v: ValorResposta | undefined): { sim: boolean; detalhe?: string } | null {
   return v && typeof v === "object" && !Array.isArray(v) ? v : null;
 }
 
@@ -106,6 +106,46 @@ function respondida(p: Pergunta, v: ValorResposta | undefined): boolean {
   }
 }
 
+const MAX_TEXTO_RESPOSTA = 2000;
+
+function dataValida(v: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+  if (!m) return false;
+  const [ano, mes, dia] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const d = new Date(Date.UTC(ano, mes - 1, dia));
+  return d.getUTCFullYear() === ano && d.getUTCMonth() === mes - 1 && d.getUTCDate() === dia;
+}
+
+/** Forma da resposta conforme o tipo da pergunta; "vazio" equivale a não respondida. */
+function formaDaResposta(p: Pergunta, v: ValorResposta): "ok" | "vazio" | "invalida" {
+  switch (p.tipo) {
+    case "texto":
+      if (typeof v !== "string" || v.length > MAX_TEXTO_RESPOSTA) return "invalida";
+      return v.trim() === "" ? "vazio" : "ok";
+    case "data":
+      if (typeof v !== "string") return "invalida";
+      if (v === "") return "vazio";
+      return dataValida(v) ? "ok" : "invalida";
+    case "sim_nao":
+      return typeof v === "boolean" ? "ok" : "invalida";
+    case "sim_nao_detalhe": {
+      const o = objetoSimDetalhe(v);
+      if (!o || typeof o.sim !== "boolean") return "invalida";
+      if (o.detalhe !== undefined && (typeof o.detalhe !== "string" || o.detalhe.length > MAX_TEXTO_RESPOSTA))
+        return "invalida";
+      return "ok";
+    }
+    case "multipla": {
+      if (!Array.isArray(v)) return "invalida";
+      if (v.length === 0) return "vazio";
+      const opcoes = p.opcoes ?? [];
+      const unicas = new Set(v);
+      if (unicas.size !== v.length) return "invalida";
+      return v.every((o) => typeof o === "string" && opcoes.includes(o)) ? "ok" : "invalida";
+    }
+  }
+}
+
 export function errosDasRespostas(
   perguntas: Pergunta[],
   respostas: Respostas,
@@ -113,8 +153,13 @@ export function errosDasRespostas(
   const erros: Record<string, string> = {};
   for (const p of perguntas) {
     const v = respostas[p.id];
-    if (p.obrigatoria && !respondida(p, v)) {
-      erros[p.id] = `Responda: ${p.texto}`;
+    const forma = v === undefined ? "vazio" : formaDaResposta(p, v);
+    if (forma === "invalida") {
+      erros[p.id] = `Resposta inválida: ${p.texto}`;
+      continue;
+    }
+    if (forma === "vazio") {
+      if (p.obrigatoria) erros[p.id] = `Responda: ${p.texto}`;
       continue;
     }
     const o = p.tipo === "sim_nao_detalhe" ? objetoSimDetalhe(v) : null;

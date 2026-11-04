@@ -33,7 +33,7 @@ const respostasSchema = z.record(
   z.union([
     z.string().max(2000),
     z.boolean(),
-    z.object({ sim: z.boolean(), detalhe: z.string().max(2000) }),
+    z.object({ sim: z.boolean(), detalhe: z.string().max(2000).optional() }),
     z.array(z.string().max(200)).max(50),
   ]),
 );
