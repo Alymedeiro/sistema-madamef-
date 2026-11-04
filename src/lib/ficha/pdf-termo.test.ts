@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from "pdf-lib";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -77,5 +77,51 @@ describe("gerarPdfTermo", () => {
 
   it("palavra gigante sem espaços quebra sem estourar", async () => {
     await expect(gerarPdfTermo({ ...d, texto: "x".repeat(2000) })).resolves.toBeTruthy();
+  });
+});
+
+/** Texto desenhado (operadores Tj, em hex) e contagem de imagens, lidos do próprio PDF. */
+async function conteudo(pdf: Uint8Array) {
+  const doc = await PDFDocument.load(pdf);
+  let texto = "";
+  let imagens = 0;
+  for (const pagina of doc.getPages()) {
+    const res = pagina.node.Resources() as PDFDict;
+    const xo = res.lookupMaybe(PDFName.of("XObject"), PDFDict);
+    for (const [, ref] of xo?.entries() ?? []) {
+      const o = doc.context.lookup(ref) as PDFRawStream;
+      if (o.dict.get(PDFName.of("Subtype")) === PDFName.of("Image")) imagens++;
+    }
+    const cont = pagina.node.Contents();
+    const fluxos = cont instanceof PDFArray ? cont.asArray().map((r) => doc.context.lookup(r)) : [cont];
+    for (const f of fluxos) {
+      const bytes = decodePDFRawStream(f as PDFRawStream).decode();
+      const bruto = Buffer.from(bytes).toString("latin1");
+      for (const m of bruto.matchAll(/<([0-9A-Fa-f]+)>\s*Tj/g)) {
+        // Fontes padrão: cada par hex é um byte WinAnsi (latin1 nos caracteres usados aqui).
+        texto += Buffer.from(m[1], "hex").toString("latin1") + "\n";
+      }
+    }
+  }
+  return { texto, imagens };
+}
+
+describe("conteúdo do PDF", () => {
+  it("traz título, texto, cliente, CPF, rodapé e exatamente uma imagem", async () => {
+    const { pdf } = await gerarPdfTermo(d);
+    const { texto, imagens } = await conteudo(pdf);
+    expect(imagens).toBe(1);
+    for (const esperado of [
+      "Termo Peeling",
+      "Riscos",
+      "Vermelhid\u00e3o.",
+      "Li e concordo com os termos acima.",
+      "Cliente: Ana Souza \u2014 CPF 529.982.247-25".replace("\u2014", "\u0097"),
+      "Assinado em 04/11/2026 \u00e0s 10:30 (hor\u00e1rio de Bras\u00edlia)",
+      "Dispositivo: iPad \u00b7 Safari",
+      `Identificador: ${U}`,
+    ]) {
+      expect(texto).toContain(esperado);
+    }
   });
 });

@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { MolduraTablet } from "@/features/ficha/moldura-tablet";
 import { TelaTermo } from "@/features/ficha/termos/tela-termo";
 import { formatarCPF } from "@/lib/dominio/cpf";
+import { destinoInterno } from "@/lib/ficha/destino";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
@@ -13,14 +14,6 @@ export const metadata = { title: "Termo de consentimento | Madame Fê Clinic" };
 type Busca = { modelo?: string | string[]; agendamento?: string | string[]; voltar?: string | string[] };
 
 const primeiro = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-
-/** Só caminhos internos: evita redirecionar a cliente para outro site. */
-function destinoSeguro(voltar: string | undefined, padrao: string): string {
-  if (!voltar || !voltar.startsWith("/") || voltar.startsWith("//") || voltar.includes("\\")) {
-    return padrao;
-  }
-  return voltar;
-}
 
 export default async function TabletTermoPage({
   params,
@@ -35,7 +28,7 @@ export default async function TabletTermoPage({
   if (!idSchema.safeParse(clienteId).success) notFound();
   const busca = await searchParams;
   const padrao = `/clientes/${clienteId}?aba=termos`;
-  const voltarPara = destinoSeguro(primeiro(busca.voltar), padrao);
+  const voltarPara = destinoInterno(primeiro(busca.voltar), padrao);
   const modeloId = primeiro(busca.modelo);
   const agendamentoParam = primeiro(busca.agendamento);
   const agendamentoId =
