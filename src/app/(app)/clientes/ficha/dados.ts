@@ -6,6 +6,7 @@ import {
   type Pergunta,
   type Respostas,
 } from "@/lib/dominio/anamnese";
+import { podeEditarEvolucao } from "@/lib/dominio/evolucoes";
 import type { TipoFoto } from "@/lib/dominio/fotos";
 import { registrarAcesso, type Supabase } from "@/lib/ficha/acesso";
 import { BUCKET_FICHA, URL_ASSINADA_SEGUNDOS } from "@/lib/ficha/caminhos";
@@ -196,5 +197,50 @@ export async function carregarFotos(
         url,
       },
     ];
+  });
+}
+
+export type EvolucaoFicha = {
+  id: string;
+  texto: string;
+  criadoEm: string;
+  profissionalNome: string;
+  servicoNome: string;
+  atendimentoEm: string;
+  editavel: boolean;
+};
+
+/** Evoluções da cliente, da mais recente para a mais antiga. Audita antes de ler. */
+export async function carregarEvolucoes(
+  supabase: Supabase,
+  clienteId: string,
+  colaboradorId: string,
+  agora: Date = new Date(),
+): Promise<EvolucaoFicha[]> {
+  await registrarAcesso(supabase, { entidade: "evolucoes", clienteId });
+  const { data, error } = await supabase
+    .from("evolucoes")
+    .select(
+      "id, texto, criado_em, profissional_id, colaboradores!evolucoes_profissional_id_fkey(nome), agendamentos(inicio, servicos(nome))",
+    )
+    .eq("cliente_id", clienteId)
+    .order("criado_em", { ascending: false });
+  if (error) throw new Error(`Falha ao carregar as evoluções: ${error.message}`);
+
+  return (data ?? []).map((e) => {
+    const ag = um(e.agendamentos);
+    return {
+      id: e.id,
+      texto: e.texto,
+      criadoEm: e.criado_em,
+      profissionalNome: um(e.colaboradores)?.nome ?? "—",
+      servicoNome: um(ag?.servicos)?.nome ?? "Serviço",
+      atendimentoEm: ag?.inicio ?? e.criado_em,
+      editavel: podeEditarEvolucao(
+        { profissionalId: e.profissional_id, criadoEm: e.criado_em },
+        colaboradorId,
+        agora,
+      ),
+    };
   });
 }

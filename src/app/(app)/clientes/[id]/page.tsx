@@ -10,6 +10,7 @@ import { FormularioCliente } from "@/features/clientes/formulario-cliente";
 import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
 import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
+import { AbaEvolucoes } from "@/features/ficha/evolucoes/aba-evolucoes";
 import { AbaFotos } from "@/features/ficha/fotos/aba-fotos";
 import { AbaTermos } from "@/features/ficha/termos/aba-termos";
 import { formatarCPF } from "@/lib/dominio/cpf";
@@ -27,6 +28,7 @@ import { idSchema } from "@/lib/validacao";
 import {
   carregarAlertasCabecalho,
   carregarAnamneses,
+  carregarEvolucoes,
   carregarFotos,
   carregarTermos,
 } from "../ficha/dados";
@@ -112,7 +114,7 @@ export default async function ClientePage({
     supabase
       .from("agendamentos")
       .select(
-        "id, inicio, status, valor_previsto_centavos, servico_id, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
+        "id, inicio, status, valor_previsto_centavos, servico_id, profissional_id, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
       )
       .eq("cliente_id", id)
       .order("inicio", { ascending: false }),
@@ -139,12 +141,15 @@ export default async function ClientePage({
     }),
   );
 
-  const [cabecalho, anamneses, termos, fotos] = await Promise.all([
+  const [cabecalho, anamneses, termos, fotos, evolucoes] = await Promise.all([
     carregarAlertasCabecalho(supabase, c.id),
     aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
     aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
     // `abas` já exclui "fotos" para a recepção; o RLS barra de novo no banco.
     aba === "fotos" ? carregarFotos(supabase, c.id) : Promise.resolve([]),
+    aba === "evolucoes"
+      ? carregarEvolucoes(supabase, c.id, colaborador.id)
+      : Promise.resolve([]),
   ]);
 
   const origem = c.origem
@@ -184,7 +189,7 @@ export default async function ClientePage({
       ) : null}
 
       <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
-      {/* As demais abas clínicas (evoluções, pacotes) chegam nas Tasks 7–9. */}
+      {/* A aba de pacotes chega na Task 9. */}
       {aba === "anamnese" ? (
         <AbaAnamnese
           clienteId={c.id}
@@ -210,6 +215,19 @@ export default async function ClientePage({
           }))}
           podeAdicionar={podeNaFicha(colaborador.perfil, "adicionar_foto")}
           podeArquivar={podeNaFicha(colaborador.perfil, "arquivar_foto")}
+        />
+      ) : null}
+      {aba === "evolucoes" ? (
+        <AbaEvolucoes
+          evolucoes={evolucoes}
+          // O mais recente primeiro (padrão do seletor); só os dela, a RLS barra o resto.
+          atendimentos={(agendamentosRes.data ?? [])
+            .filter((a) => a.profissional_id === colaborador.id)
+            .map((a) => ({
+              id: a.id,
+              rotulo: `${formatarNoFuso(a.inicio, "dd/MM/yyyy HH:mm")} · ${um(a.servicos)?.nome ?? "Serviço"}`,
+            }))}
+          podeAdicionar={podeNaFicha(colaborador.perfil, "adicionar_evolucao")}
         />
       ) : null}
       {aba === "dados" ? (

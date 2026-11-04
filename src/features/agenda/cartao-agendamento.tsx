@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { alterarStatus } from "@/app/(app)/agenda/actions";
+import { SecaoEvolucaoAtendimento } from "@/features/ficha/evolucoes/secao-evolucao-atendimento";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import { COR_STATUS, transicaoPermitida, type StatusAgendamento } from "@/lib/dominio/status";
@@ -229,6 +230,14 @@ export function DetalhesAgendamento({
                 </>
               )}
             </dl>
+
+            {a.status !== "cancelado" && (
+              <SecaoEvolucaoAtendimento
+                key={a.id}
+                agendamentoId={a.id}
+                podeAdicionar={perfil === "profissional"}
+              />
+            )}
 
             {termoAberto(a) && (
               <div
