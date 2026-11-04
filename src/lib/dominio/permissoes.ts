@@ -82,3 +82,68 @@ export function dividirMenuInferior(itens: ItemMenu[]): { principais: ItemMenu[]
     mais: itens.filter((i) => !PRINCIPAIS_INFERIOR.includes(i.recurso)),
   };
 }
+
+// ---------------------------------------------------------------------------
+// Ficha clínica (spec §3)
+// ---------------------------------------------------------------------------
+
+export type AbaFicha =
+  | "dados"
+  | "anamnese"
+  | "termos"
+  | "fotos"
+  | "evolucoes"
+  | "pacotes"
+  | "historico";
+
+export const ROTULO_ABA: Record<AbaFicha, string> = {
+  dados: "Dados",
+  anamnese: "Anamnese",
+  termos: "Termos",
+  fotos: "Fotos",
+  evolucoes: "Evoluções",
+  pacotes: "Pacotes",
+  historico: "Histórico",
+};
+
+const ORDEM_ABAS: readonly AbaFicha[] = [
+  "dados",
+  "anamnese",
+  "termos",
+  "fotos",
+  "evolucoes",
+  "pacotes",
+  "historico",
+];
+
+/** Abas visíveis, na ordem; a recepção não vê fotos. */
+export function abasDaFicha(perfil: Perfil): AbaFicha[] {
+  return ORDEM_ABAS.filter((a) => !(a === "fotos" && perfil === "recepcao"));
+}
+
+export type AcaoFicha =
+  | "aplicar_anamnese"
+  | "colher_termo"
+  | "adicionar_foto"
+  | "arquivar_foto"
+  | "adicionar_evolucao"
+  | "vender_pacote"
+  | "cancelar_pacote"
+  | "exportar"
+  | "ver_acessos";
+
+const ACAO_FICHA: Record<AcaoFicha, readonly Perfil[]> = {
+  aplicar_anamnese: ["dona", "recepcao"],
+  colher_termo: ["dona", "recepcao", "profissional"],
+  adicionar_foto: ["dona", "profissional"],
+  arquivar_foto: ["dona"],
+  adicionar_evolucao: ["profissional"],
+  vender_pacote: ["dona", "recepcao"],
+  cancelar_pacote: ["dona"],
+  exportar: ["dona"],
+  ver_acessos: ["dona"],
+};
+
+export function podeNaFicha(perfil: Perfil, acao: AcaoFicha): boolean {
+  return ACAO_FICHA[acao].includes(perfil);
+}
