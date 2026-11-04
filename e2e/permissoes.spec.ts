@@ -38,3 +38,22 @@ test.describe("profissional", () => {
     expect(resposta?.status()).toBe(404);
   });
 });
+
+test.describe("dona no celular", () => {
+  test.use({ storageState: ARQUIVO_ESTADO("dona") });
+
+  test("barra inferior sem rolagem: 4 itens + Mais com o resto", async ({ page }, info) => {
+    test.skip(info.project.name !== "celular", "Barra inferior só aparece abaixo de 1024 px");
+    await page.goto("/inicio");
+    const barra = page.locator("nav[aria-label='Menu principal']").last();
+    for (const nome of ["Início", "Agenda", "Clientes", "Caixa"]) {
+      await expect(barra.getByRole("link", { name: nome })).toBeVisible();
+    }
+    await expect(barra.getByRole("link", { name: "Equipe" })).toHaveCount(0);
+    expect(await barra.evaluate((n) => n.scrollWidth <= n.clientWidth)).toBe(true);
+
+    await barra.getByRole("button", { name: "Mais" }).click();
+    await barra.getByRole("link", { name: "Equipe" }).click();
+    await expect(page).toHaveURL(/\/equipe$/);
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  dividirMenuInferior,
   ITENS_MENU,
   perfisComAcesso,
   podeAcessar,
@@ -80,5 +81,28 @@ describe("perfisComAcesso", () => {
   it("devolve uma cópia (não expõe a tabela interna)", () => {
     perfisComAcesso("equipe").push("recepcao");
     expect(perfisComAcesso("equipe")).toEqual(["dona"]);
+  });
+});
+
+describe("dividirMenuInferior (barra do celular)", () => {
+  const menuDe = (perfil: Perfil) => ITENS_MENU.filter((i) => podeAcessar(perfil, i.recurso));
+  const recursos = (itens: { recurso: Recurso }[]) => itens.map((i) => i.recurso);
+
+  it("dona (8 itens): Início, Agenda, Clientes, Caixa + Mais com o resto", () => {
+    const r = dividirMenuInferior(menuDe("dona"));
+    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "caixa"]);
+    expect(recursos(r.mais)).toEqual(["servicos", "produtos", "equipe", "configuracoes"]);
+  });
+
+  it("recepção (6 itens): mesmos 4 + Mais com Serviços e Produtos", () => {
+    const r = dividirMenuInferior(menuDe("recepcao"));
+    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "caixa"]);
+    expect(recursos(r.mais)).toEqual(["servicos", "produtos"]);
+  });
+
+  it("profissional (5 itens): cabe tudo, sem Mais", () => {
+    const r = dividirMenuInferior(menuDe("profissional"));
+    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "servicos", "produtos"]);
+    expect(r.mais).toEqual([]);
   });
 });

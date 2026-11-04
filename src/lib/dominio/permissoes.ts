@@ -64,3 +64,21 @@ export const ITENS_MENU: ItemMenu[] = [
     icone: "Settings",
   },
 ];
+
+/** Itens fixos da barra inferior (os mais usados), nesta ordem. */
+const PRINCIPAIS_INFERIOR: readonly Recurso[] = ["inicio", "agenda", "clientes", "caixa"];
+/** Até este número de itens, todos cabem na barra de 390 px. */
+const MAX_ITENS_INFERIOR = 5;
+
+/**
+ * Barra inferior do celular: sem rolagem horizontal. Com até 5 itens mostra
+ * todos; com mais, os 4 mais usados e o resto no menu "Mais".
+ */
+export function dividirMenuInferior(itens: ItemMenu[]): { principais: ItemMenu[]; mais: ItemMenu[] } {
+  if (itens.length <= MAX_ITENS_INFERIOR) return { principais: itens, mais: [] };
+  const principais = PRINCIPAIS_INFERIOR.flatMap((r) => itens.filter((i) => i.recurso === r));
+  return {
+    principais,
+    mais: itens.filter((i) => !PRINCIPAIS_INFERIOR.includes(i.recurso)),
+  };
+}
