@@ -206,8 +206,9 @@ function FormularioAgendamento({
             onChange={(e) => setV((x) => ({ ...x, profissionalId: e.target.value, servicoId: "" }))}
           >
             {profissionais.map((p) => (
-              <option key={p.id} value={p.id}>
+              <option key={p.id} value={p.id} disabled={!p.aceitaAgendamento}>
                 {p.nome}
+                {p.aceitaAgendamento ? "" : p.ativa ? " (sem serviços ativos)" : " (inativa)"}
               </option>
             ))}
           </Select>

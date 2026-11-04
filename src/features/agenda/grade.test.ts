@@ -7,6 +7,7 @@ import {
   horaDaLinha,
   hrefAgenda,
   idDoHorario,
+  intervalosOcupados,
   lerIdDoHorario,
   navegar,
   linhasDoDia,
@@ -223,5 +224,46 @@ describe("navegação e alvos do arrastar", () => {
     const id = idDoHorario("p1", "2026-11-03", "09:15");
     expect(lerIdDoHorario(id)).toEqual({ profissionalId: "p1", data: "2026-11-03", hora: "09:15" });
     expect(lerIdDoHorario("outra-coisa")).toBeNull();
+  });
+});
+
+describe("intervalosOcupados / linhas com atendimentos fora do horário", () => {
+  const horario = [{ inicio: "09:00", fim: "19:00" }];
+  const at = (data: string, ini: string, fimData: string, fim: string, status = "pendente") => ({
+    inicio: sp(data, ini),
+    fim: sp(fimData, fim),
+    status,
+  });
+
+  it("encaixe às 19:00 alarga a grade até o fim dele (arredondado para 15 min)", () => {
+    const ocupados = intervalosOcupados([at("2026-11-03", "19:00", "2026-11-03", "19:50")], "2026-11-03");
+    expect(ocupados).toEqual([{ inicio: "19:00", fim: "19:50" }]);
+    const linhas = linhasDoDia([...horario, ...ocupados], 15);
+    expect(linhas[0]).toBe("09:00");
+    expect(linhas.at(-1)).toBe("19:45");
+  });
+
+  it("encaixe antes da abertura também aparece", () => {
+    const ocupados = intervalosOcupados([at("2026-11-03", "07:40", "2026-11-03", "08:40")], "2026-11-03");
+    expect(linhasDoDia([...horario, ...ocupados], 15)[0]).toBe("07:30");
+  });
+
+  it("dia fechado com atendimento: a grade cobre só o atendimento", () => {
+    const ocupados = intervalosOcupados([at("2026-11-08", "10:00", "2026-11-08", "11:00")], "2026-11-08");
+    expect(linhasDoDia(ocupados, 15)).toEqual(["10:00", "10:15", "10:30", "10:45"]);
+  });
+
+  it("ignora cancelados e outros dias; corta na meia-noite de São Paulo", () => {
+    expect(
+      intervalosOcupados(
+        [
+          at("2026-11-03", "20:00", "2026-11-03", "21:00", "cancelado"),
+          at("2026-11-04", "10:00", "2026-11-04", "11:00"),
+          at("2026-11-03", "23:30", "2026-11-04", "00:30"),
+        ],
+        "2026-11-03",
+      ),
+    ).toEqual([{ inicio: "23:30", fim: "24:00" }]);
+    expect(linhasDoDia([{ inicio: "23:30", fim: "24:00" }], 15)).toEqual(["23:30", "23:45"]);
   });
 });

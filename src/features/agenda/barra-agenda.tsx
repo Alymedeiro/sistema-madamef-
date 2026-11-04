@@ -110,6 +110,9 @@ export function BarraAgenda({ data, datas, visao, profissionais, selecionada, on
             >
               <span aria-hidden className="size-3 rounded-full border" style={{ backgroundColor: p.cor }} />
               {p.nome}
+              {!p.aceitaAgendamento && (
+                <span className="font-normal">{p.ativa ? " (sem serviços ativos)" : " (inativa)"}</span>
+              )}
             </button>
           ))}
         </div>

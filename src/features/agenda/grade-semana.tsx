@@ -4,7 +4,7 @@ import { chaveDia, type Intervalo } from "@/lib/dominio/intervalos";
 import { combinarDataHora, dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
 import { ColunaAgenda } from "./coluna-agenda";
-import { ReguaHoras, type PropsGrade } from "./grade-dia";
+import { ocupadosNoDia, ReguaHoras, sufixoProfissional, type PropsGrade } from "./grade-dia";
 import { diaDaSemana, linhasDoDia, PASSO_MIN } from "./grade";
 
 type Props = PropsGrade & {
@@ -24,10 +24,13 @@ export function GradeSemana({
   onAbrir,
 }: Props) {
   const profissional = dados.profissionais.find((p) => p.id === profissionalId);
-  // Linhas da semana: do menor início ao maior fim de funcionamento entre os dias.
-  const todos: Intervalo[] = datas.flatMap(
-    (d) => dados.horarioFuncionamento[chaveDia(diaDaSemana(d))],
-  );
+  const doProfissional = agendamentos.filter((a) => a.profissionalId === profissionalId);
+  // Linhas da semana: do menor início ao maior fim entre o funcionamento dos
+  // dias e os atendimentos dela (encaixes fora do horário continuam visíveis).
+  const todos: Intervalo[] = datas.flatMap((d) => [
+    ...dados.horarioFuncionamento[chaveDia(diaDaSemana(d))],
+    ...ocupadosNoDia(doProfissional, d),
+  ]);
   const linhas = linhasDoDia(todos, PASSO_MIN);
 
   if (!profissional) return null;
@@ -40,53 +43,60 @@ export function GradeSemana({
   }
 
   const hoje = dataNoFuso(new Date());
-  const doProfissional = agendamentos.filter((a) => a.profissionalId === profissional.id);
   const bloqueios = dados.bloqueios.filter((b) => b.profissionalId === profissional.id);
 
   return (
-    <div className="overflow-x-auto rounded-xl border bg-card">
-      <div className="flex min-w-fit">
-        <div className="sticky left-0 z-20 bg-card">
-          <div className="h-12 border-b" />
-          <ReguaHoras linhas={linhas} />
-        </div>
-        {datas.map((data) => {
-          const dia = chaveDia(diaDaSemana(data));
-          const meioDia = combinarDataHora(data, "12:00");
-          const rotulo = formatarNoFuso(meioDia, "EEEE, dd/MM");
-          return (
-            <section
-              key={data}
-              aria-label={`Agenda de ${rotulo}`}
-              className="min-w-28 flex-1 border-l"
-            >
-              <h2
-                className={cn(
-                  "flex h-12 flex-col items-center justify-center border-b bg-card text-sm leading-tight",
-                  data === hoje && "bg-blush font-semibold text-ouro-escuro",
-                )}
+    <div className="flex flex-col gap-3">
+      {sufixoProfissional(profissional) && (
+        <p role="status" className="rounded-xl border bg-card p-3 text-center text-sm font-medium">
+          {profissional.nome}
+          {sufixoProfissional(profissional)}: não recebe novos agendamentos.
+        </p>
+      )}
+      <div className="overflow-x-auto rounded-xl border bg-card">
+        <div className="flex min-w-fit">
+          <div className="sticky left-0 z-20 bg-card">
+            <div className="h-12 border-b" />
+            <ReguaHoras linhas={linhas} />
+          </div>
+          {datas.map((data) => {
+            const dia = chaveDia(diaDaSemana(data));
+            const meioDia = combinarDataHora(data, "12:00");
+            const rotulo = formatarNoFuso(meioDia, "EEEE, dd/MM");
+            return (
+              <section
+                key={data}
+                aria-label={`Agenda de ${rotulo}`}
+                className="min-w-28 flex-1 border-l"
               >
-                <span className="capitalize">{formatarNoFuso(meioDia, "EEE")}</span>
-                <span>{formatarNoFuso(meioDia, "dd/MM")}</span>
-              </h2>
-              <ColunaAgenda
-                profissionalId={profissional.id}
-                corProfissional={profissional.cor}
-                rotulo={`${profissional.nome} em ${rotulo}`}
-                data={data}
-                linhas={linhas}
-                jornadaDoDia={dados.jornadas[profissional.id]?.[dia] ?? []}
-                fechado={dados.horarioFuncionamento[dia].length === 0}
-                agendamentos={doProfissional}
-                bloqueios={bloqueios}
-                podeAgendar={podeAgendar}
-                podeArrastar={podeArrastar}
-                onNovo={onNovo}
-                onAbrir={onAbrir}
-              />
-            </section>
-          );
-        })}
+                <h2
+                  className={cn(
+                    "flex h-12 flex-col items-center justify-center border-b bg-card text-sm leading-tight",
+                    data === hoje && "bg-blush font-semibold text-ouro-escuro",
+                  )}
+                >
+                  <span className="capitalize">{formatarNoFuso(meioDia, "EEE")}</span>
+                  <span>{formatarNoFuso(meioDia, "dd/MM")}</span>
+                </h2>
+                <ColunaAgenda
+                  profissionalId={profissional.id}
+                  corProfissional={profissional.cor}
+                  rotulo={`${profissional.nome} em ${rotulo}`}
+                  data={data}
+                  linhas={linhas}
+                  jornadaDoDia={dados.jornadas[profissional.id]?.[dia] ?? []}
+                  fechado={dados.horarioFuncionamento[dia].length === 0}
+                  agendamentos={doProfissional}
+                  bloqueios={bloqueios}
+                  podeAgendar={podeAgendar && profissional.aceitaAgendamento}
+                  podeArrastar={podeArrastar}
+                  onNovo={onNovo}
+                  onAbrir={onAbrir}
+                />
+              </section>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

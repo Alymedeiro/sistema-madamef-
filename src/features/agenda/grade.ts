@@ -36,6 +36,29 @@ export function linhasDoDia(horario: readonly Intervalo[], passoMin: number): st
   return linhas;
 }
 
+/**
+ * Trechos "HH:mm" do dia `data` (São Paulo) ocupados por atendimentos não
+ * cancelados, cortados na meia-noite (fim pode ser "24:00"). Somados ao
+ * horário de funcionamento em linhasDoDia, garantem que encaixes fora do
+ * horário (ou em dia fechado) continuem visíveis na grade.
+ */
+export function intervalosOcupados(
+  itens: readonly { inicio: Date; fim: Date; status?: string }[],
+  data: string,
+): Intervalo[] {
+  const meiaNoite = combinarDataHora(data, "00:00").getTime();
+  const dia = 24 * 60;
+  const resultado: Intervalo[] = [];
+  for (const item of itens) {
+    if (item.status === "cancelado") continue;
+    const ini = Math.max(0, Math.floor((item.inicio.getTime() - meiaNoite) / 60_000));
+    const fim = Math.min(dia, Math.ceil((item.fim.getTime() - meiaNoite) / 60_000));
+    if (fim <= ini) continue;
+    resultado.push({ inicio: paraHora(ini), fim: paraHora(fim) });
+  }
+  return resultado;
+}
+
 /** Hora em que a grade termina (fim da última linha). */
 export function fimDaGrade(linhas: readonly string[], passoMin: number): string | null {
   const ultima = linhas.at(-1);

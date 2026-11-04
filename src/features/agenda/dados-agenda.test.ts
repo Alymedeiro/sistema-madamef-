@@ -88,3 +88,64 @@ describe("montarDadosAgenda", () => {
     expect(d.agendamentos.find((a) => a.id === "a2")?.clienteNome).toBe("Cliente");
   });
 });
+
+describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
+  const comInativa: LinhasAgenda = {
+    ...linhas,
+    agendamentos: [
+      ...linhas.agendamentos,
+      {
+        id: "a3",
+        profissional_id: "p-inativa",
+        cliente_id: "c3",
+        servico_id: "s1",
+        inicio: "2026-11-03T15:00:00+00:00",
+        fim: "2026-11-03T16:00:00+00:00",
+        status: "confirmado",
+        observacoes: null,
+        valor_previsto_centavos: 18000,
+        clientes: { nome: "Joana" },
+      },
+      {
+        id: "a4",
+        profissional_id: "p-recepcao",
+        cliente_id: "c4",
+        servico_id: "s1",
+        inicio: "2026-11-03T15:00:00+00:00",
+        fim: "2026-11-03T16:00:00+00:00",
+        status: "cancelado",
+        observacoes: null,
+        valor_previsto_centavos: 18000,
+        clientes: { nome: "Lia" },
+      },
+    ],
+  };
+
+  it("inativa com atendimento não cancelado ganha coluna, sem aceitar novos agendamentos", () => {
+    const d = montarDadosAgenda(comInativa, { perfil: "recepcao", colaboradorId: "p-recepcao" });
+    expect(d.profissionais.map((p) => p.id)).toEqual(["p-ana", "p-bia", "p-inativa"]);
+    const inativa = d.profissionais.find((p) => p.id === "p-inativa")!;
+    expect(inativa).toMatchObject({ ativa: false, aceitaAgendamento: false });
+    expect(d.profissionais.find((p) => p.id === "p-ana")).toMatchObject({ ativa: true, aceitaAgendamento: true });
+    expect(d.agendamentos.map((a) => a.id)).toContain("a3");
+  });
+
+  it("só agendamento cancelado não cria coluna", () => {
+    const d = montarDadosAgenda(comInativa, { perfil: "dona", colaboradorId: "x" });
+    expect(d.profissionais.map((p) => p.id)).not.toContain("p-recepcao");
+  });
+
+  it("ativa sem serviço ativo, mas com atendimento, aparece sem aceitar novos", () => {
+    const d = montarDadosAgenda(
+      {
+        ...linhas,
+        agendamentos: [{ ...linhas.agendamentos[0], id: "a5", profissional_id: "p-so-inativo" }],
+      },
+      { perfil: "dona", colaboradorId: "x" },
+    );
+    expect(d.profissionais.find((p) => p.id === "p-so-inativo")).toMatchObject({
+      ativa: true,
+      aceitaAgendamento: false,
+    });
+  });
+});

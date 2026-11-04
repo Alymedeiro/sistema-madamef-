@@ -15,6 +15,9 @@ export type ProfissionalAgenda = {
   nome: string;
   cor: string;
   servicoIds: string[];
+  ativa: boolean;
+  /** false: coluna só aparece porque já há atendimentos (inativa ou sem serviço ativo). */
+  aceitaAgendamento: boolean;
 };
 
 export type ServicoAgenda = {
@@ -79,8 +82,11 @@ export type LinhasAgenda = {
 };
 
 /**
- * Colunas: colaboradoras ativas que realizam ao menos um serviço ativo, por
- * nome. A profissional logada vê só a própria coluna (o RLS também limita os
+ * Colunas, por nome: colaboradoras ativas que realizam ao menos um serviço
+ * ativo (aceitam agendamento) e também qualquer colaboradora — inativa ou sem
+ * serviço ativo — com atendimento não cancelado no período, para que ninguém
+ * perca de vista (nem deixe de remarcar/cancelar) o que já está marcado.
+ * A profissional logada vê só a própria coluna (o RLS também limita os
  * agendamentos dela).
  */
 export function montarDadosAgenda(
@@ -94,14 +100,26 @@ export function montarDadosAgenda(
     servicosPorColab.set(v.colaborador_id, [...(servicosPorColab.get(v.colaborador_id) ?? []), v.servico_id]);
   }
 
+  const comAtendimento = new Set(
+    linhas.agendamentos.filter((a) => a.status !== "cancelado").map((a) => a.profissional_id),
+  );
+  const aceita = (c: { id: string; ativo: boolean }) =>
+    c.ativo && (servicosPorColab.get(c.id)?.length ?? 0) > 0;
+
   const profissionais = linhas.colaboradores
-    .filter((c) => c.ativo)
     .filter((c) =>
       sessao.perfil === "profissional"
         ? c.id === sessao.colaboradorId
-        : (servicosPorColab.get(c.id)?.length ?? 0) > 0,
+        : aceita(c) || comAtendimento.has(c.id),
     )
-    .map((c) => ({ id: c.id, nome: c.nome, cor: c.cor, servicoIds: servicosPorColab.get(c.id) ?? [] }))
+    .map((c) => ({
+      id: c.id,
+      nome: c.nome,
+      cor: c.cor,
+      servicoIds: servicosPorColab.get(c.id) ?? [],
+      ativa: c.ativo,
+      aceitaAgendamento: aceita(c),
+    }))
     .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
   const visiveis = new Set(profissionais.map((p) => p.id));
 

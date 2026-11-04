@@ -25,7 +25,8 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
   const supabase = await createClient();
   const [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config] =
     await Promise.all([
-      supabase.from("colaboradores").select("id, nome, cor, ativo").eq("ativo", true).order("nome"),
+      // Inclui inativas: quem tem atendimento no período continua com coluna.
+      supabase.from("colaboradores").select("id, nome, cor, ativo").order("nome"),
       supabase.from("colaborador_servicos").select("colaborador_id, servico_id"),
       supabase.from("servicos").select("id, nome, duracao_min, preco_centavos, ativo"),
       supabase.from("jornadas").select("colaborador_id, dia_semana, hora_inicio, hora_fim"),
