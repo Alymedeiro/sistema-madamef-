@@ -1,5 +1,6 @@
 import { dataValida } from "@/features/agenda/grade";
-import { FORMAS_PAGAMENTO, formaParcelada, MAX_PARCELAS } from "@/lib/dominio/caixa";
+import { FORMAS_PAGAMENTO, formaParcelada, type FormaPagamento } from "@/lib/dominio/caixa";
+import type { ParteCobranca } from "@/lib/dominio/cobranca";
 import { parseBRL } from "@/lib/dominio/dinheiro";
 import { dataNoFuso } from "@/lib/dominio/tempo";
 import { idSchema, MENSAGEM_VALOR_INVALIDO } from "@/lib/validacao";
@@ -25,59 +26,60 @@ export const valorTextoSchema = z
     return c;
   });
 
-export const pagamentoSchema = z
+/** Desconto em texto; vazio vale 0. */
+export const descontoTextoSchema = z.string(MENSAGEM_VALOR_INVALIDO).transform((v, ctx) => {
+  const c = dinheiro(v, 0);
+  if (c === null) {
+    ctx.addIssue({ code: "custom", message: MENSAGEM_VALOR_INVALIDO });
+    return z.NEVER;
+  }
+  return c;
+});
+
+const parteSchema = z
   .object({
-    // Informado pela tela, mas a action usa a cliente do agendamento.
-    clienteId: z.string().optional(),
-    agendamentoId: idSchema,
     forma: z.enum(FORMAS_PAGAMENTO as [string, ...string[]], "Escolha a forma de pagamento.") as z.ZodType<
-      (typeof FORMAS_PAGAMENTO)[number]
+      FormaPagamento
     >,
     valor: valorTextoSchema,
-    desconto: z.string(MENSAGEM_VALOR_INVALIDO).transform((v, ctx) => {
-      const c = dinheiro(v, 0);
-      if (c === null) {
-        ctx.addIssue({ code: "custom", message: MENSAGEM_VALOR_INVALIDO });
-        return z.NEVER;
-      }
-      return c;
-    }),
     parcelas: z.number("Número de parcelas inválido.").int("Número de parcelas inválido."),
     primeiroVencimento: z.string().optional(),
   })
-  .superRefine((d, ctx) => {
-    if (d.valor <= 0) {
-      ctx.addIssue({ code: "custom", path: ["valor"], message: "O valor deve ser maior que zero." });
-    }
-    if (d.desconto > d.valor) {
+  .superRefine((p, ctx) => {
+    // Vencimento ausente ou inválido é tratado por erroDasPartes.
+    if (
+      p.forma === "a_receber" &&
+      p.primeiroVencimento &&
+      dataValida(p.primeiroVencimento) &&
+      p.primeiroVencimento < dataNoFuso(new Date())
+    ) {
       ctx.addIssue({
         code: "custom",
-        path: ["desconto"],
-        message: "O desconto não pode ser maior que o valor.",
+        path: ["primeiroVencimento"],
+        message: "O primeiro vencimento não pode ser anterior a hoje.",
       });
     }
-    if (formaParcelada(d.forma) && (d.parcelas < 2 || d.parcelas > MAX_PARCELAS)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["parcelas"],
-        message: `Informe de 2 a ${MAX_PARCELAS} parcelas.`,
-      });
-    }
-    if (d.forma === "a_receber") {
-      if (!d.primeiroVencimento || !dataValida(d.primeiroVencimento)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["primeiroVencimento"],
-          message: "Informe o primeiro vencimento.",
-        });
-      } else if (d.primeiroVencimento < dataNoFuso(new Date())) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["primeiroVencimento"],
-          message: "O primeiro vencimento não pode ser anterior a hoje.",
-        });
-      }
-    }
-  });
+  })
+  .transform(
+    (p): ParteCobranca => ({
+      forma: p.forma,
+      valorCentavos: p.valor,
+      parcelas: formaParcelada(p.forma) ? p.parcelas : 1,
+      ...(p.forma === "a_receber" ? { primeiroVencimento: p.primeiroVencimento } : {}),
+    }),
+  );
 
-export type PagamentoInput = z.input<typeof pagamentoSchema>;
+/**
+ * Partes digitadas na tela (valores em texto) → ParteCobranca[]. Quantidade,
+ * valor > 0, parcelas e soma ficam com erroDasPartes, que conhece o líquido.
+ * Reutilizado pela venda de pacote.
+ */
+export const partesSchema = z.array(parteSchema, "Informe as formas de pagamento.");
+
+export const cobrancaSchema = z.object({
+  agendamentoId: idSchema,
+  desconto: descontoTextoSchema,
+  partes: partesSchema,
+});
+
+export type CobrancaInput = z.input<typeof cobrancaSchema>;

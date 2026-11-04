@@ -1,14 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { gerarParcelas, formaParcelada } from "@/lib/dominio/caixa";
-import { dataNoFuso } from "@/lib/dominio/tempo";
+import { erroDasPartes, partesParaRpc } from "@/lib/dominio/cobranca";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema, MENSAGEM_VALOR_INVALIDO } from "@/lib/validacao";
-import { pagamentoSchema, valorTextoSchema, type PagamentoInput } from "./schemas";
+import { cobrancaSchema, valorTextoSchema, type CobrancaInput } from "./schemas";
 
 // exigirPerfil redireciona lançando; por isso fica fora dos try/catch.
 
@@ -20,7 +19,8 @@ export type ResultadoFechamento =
 
 const CAIXA_JA_EXISTE = "Já existe caixa para hoje";
 const ATENDIMENTO_NAO_CONCLUIDO = "Só é possível lançar pagamento de atendimento concluído.";
-const JA_PAGO = "Este atendimento já foi pago.";
+const SESSAO_DE_PACOTE = "Sessão de pacote: já paga na venda do pacote.";
+const DESCONTO_MAIOR = "O desconto não pode ser maior que o valor.";
 const CAIXA_FECHADO = "O caixa de hoje já foi fechado.";
 
 function valorCentavos(texto: string): number | null {
@@ -80,58 +80,42 @@ export async function estadoCaixaHoje(): Promise<
 }
 
 /**
- * Lança o pagamento de um atendimento. A cliente vem do agendamento (a enviada
- * pela tela é ignorada). Fase 1: sempre com agendamento (Ruling R12).
+ * Cobra um atendimento concluído com 1 a 4 formas (pagamento dividido). O
+ * bruto é o valor previsto do agendamento (o banco também o lê de lá); a soma
+ * das partes deve ser bruto − desconto. A segunda cobrança do mesmo atendimento
+ * falha no banco (cobrancas_agendamento_unico) com "Este atendimento já foi pago.".
  */
-export async function registrarPagamento(dados: PagamentoInput): Promise<Resultado> {
+export async function registrarCobranca(dados: CobrancaInput): Promise<Resultado> {
   await exigirPerfil("dona", "recepcao");
 
-  const parsed = pagamentoSchema.safeParse(dados);
+  const parsed = cobrancaSchema.safeParse(dados);
   if (!parsed.success) return erro(parsed.error.issues[0].message);
   const d = parsed.data;
-  const parcelas = formaParcelada(d.forma) ? d.parcelas : 1;
 
   try {
     const supabase = await createClient();
 
     const { data: agendamento, error: erroAg } = await supabase
       .from("agendamentos")
-      .select("id, cliente_id, status, inicio, pacote_vendido_id")
+      .select("id, status, valor_previsto_centavos, pacote_vendido_id")
       .eq("id", d.agendamentoId)
       .maybeSingle();
     if (erroAg) return erro(mensagemErroBanco(erroAg));
     if (!agendamento) return erro("Agendamento não encontrado.");
     if (agendamento.status !== "atendido") return erro(ATENDIMENTO_NAO_CONCLUIDO);
+    if (agendamento.pacote_vendido_id) return erro(SESSAO_DE_PACOTE);
 
-    // Já pago? A RPC (security definer) enxerga pagamentos de qualquer caixa, ao
-    // contrário de um select, que a recepção só faz sobre o caixa aberto de hoje.
-    // Atendimento de pacote não entra na RPC: nesse caso o banco decide.
-    if (!agendamento.pacote_vendido_id) {
-      const { data: pendentes, error: erroPend } = await supabase.rpc(
-        "agendamentos_sem_pagamento",
-        { p_data: dataNoFuso(agendamento.inicio) },
-      );
-      if (erroPend) return erro(mensagemErroBanco(erroPend));
-      if (!(pendentes ?? []).includes(agendamento.id)) return erro(JA_PAGO);
-    }
+    const bruto = agendamento.valor_previsto_centavos;
+    if (d.desconto > bruto) return erro(DESCONTO_MAIOR);
+    const problema = erroDasPartes(bruto - d.desconto, d.partes);
+    if (problema) return erro(problema);
 
-    let vencimentos: string[] | null = null;
-    let valoresParcelas: number[] | null = null;
-    if (d.forma === "a_receber") {
-      const lista = gerarParcelas(d.valor - d.desconto, parcelas, d.primeiroVencimento!);
-      vencimentos = lista.map((p) => p.vencimento);
-      valoresParcelas = lista.map((p) => p.valorCentavos);
-    }
-
-    const { error } = await supabase.rpc("registrar_pagamento", {
-      p_cliente: agendamento.cliente_id,
+    const { error } = await supabase.rpc("registrar_cobranca", {
+      p_origem: "agendamento",
       p_agendamento: agendamento.id,
-      p_forma: d.forma,
-      p_valor_centavos: d.valor,
+      p_pacote: null,
       p_desconto_centavos: d.desconto,
-      p_parcelas: parcelas,
-      p_vencimentos: vencimentos,
-      p_valores_parcelas: valoresParcelas,
+      p_partes: partesParaRpc(d.partes),
     });
     if (error) return erro(mensagemErroBanco(error));
 

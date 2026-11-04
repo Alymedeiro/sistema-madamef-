@@ -13,23 +13,23 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
 import {
   abrirCaixa,
   estadoCaixaHoje,
-  registrarPagamento,
+  registrarCobranca,
   type EstadoCaixaHoje,
 } from "@/app/(app)/caixa/actions";
-import {
-  FORMAS_PAGAMENTO,
-  formaParcelada,
-  gerarParcelas,
-  MAX_PARCELAS,
-  ROTULO_FORMA,
-  type FormaPagamento,
-} from "@/lib/dominio/caixa";
+import { erroDasPartes, saldoCobranca } from "@/lib/dominio/cobranca";
 import { formatarBRL, parseBRL } from "@/lib/dominio/dinheiro";
-import { dataNoFuso } from "@/lib/dominio/tempo";
+import { MENSAGEM_VALOR_INVALIDO } from "@/lib/validacao";
+import {
+  EditorPartes,
+  novaParte,
+  partesEditadasParaCobranca,
+  partesParaEnvio,
+  valoresDasPartes,
+  type ParteEditavel,
+} from "./editor-partes";
 import { centavosParaCampo } from "./formato";
 
 export type AtendimentoParaPagar = {
@@ -91,13 +91,11 @@ function FormularioPagamento({
   onFechar: () => void;
 }) {
   const id = useId();
+  const bruto = atendimento.valorPrevistoCentavos;
   const [caixa, setCaixa] = useState<"carregando" | EstadoCaixaHoje>("carregando");
   const [erroCaixa, setErroCaixa] = useState<string | null>(null);
-  const [forma, setForma] = useState<FormaPagamento>("pix");
-  const [valor, setValor] = useState(centavosParaCampo(atendimento.valorPrevistoCentavos));
   const [desconto, setDesconto] = useState("");
-  const [parcelas, setParcelas] = useState(2);
-  const [vencimento, setVencimento] = useState(dataNoFuso(new Date()));
+  const [partes, setPartes] = useState<ParteEditavel[]>(() => [novaParte("pix", bruto)]);
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
 
@@ -116,33 +114,38 @@ function FormularioPagamento({
     };
   }, [caixa]);
 
-  const parcelado = formaParcelada(forma);
-  const valorC = parseBRL(valor);
   const descontoC = desconto.trim() === "" ? 0 : parseBRL(desconto);
-  const liquido =
-    valorC !== null && descontoC !== null && descontoC <= valorC ? valorC - descontoC : null;
+  const erroDesconto =
+    descontoC === null
+      ? MENSAGEM_VALOR_INVALIDO
+      : descontoC > bruto
+        ? "O desconto não pode ser maior que o valor."
+        : null;
+  const liquido = erroDesconto === null && descontoC !== null ? bruto - descontoC : null;
 
-  let previa: ReturnType<typeof gerarParcelas> | null = null;
-  if (forma === "a_receber" && liquido !== null && Number.isInteger(parcelas)) {
-    try {
-      if (parcelas >= 2 && parcelas <= MAX_PARCELAS) previa = gerarParcelas(liquido, parcelas, vencimento);
-    } catch {
-      previa = null;
+  function mudarDesconto(texto: string) {
+    setDesconto(texto);
+    // Com uma forma só, ela acompanha o total com desconto.
+    const c = texto.trim() === "" ? 0 : parseBRL(texto);
+    if (partes.length === 1 && c !== null && c <= bruto) {
+      setPartes([{ ...partes[0], valor: centavosParaCampo(bruto - c) }]);
     }
   }
 
-  function lancar(e: React.FormEvent) {
+  const pronto =
+    liquido !== null &&
+    saldoCobranca(liquido, valoresDasPartes(partes)).fecha &&
+    erroDasPartes(liquido, partesEditadasParaCobranca(partes)) === null;
+
+  function confirmar(e: React.FormEvent) {
     e.preventDefault();
+    if (!pronto) return;
     setErro(null);
     iniciar(async () => {
-      const r = await registrarPagamento({
-        clienteId: atendimento.clienteId,
+      const r = await registrarCobranca({
         agendamentoId: atendimento.id,
-        forma,
-        valor,
         desconto,
-        parcelas: parcelado ? parcelas : 1,
-        primeiroVencimento: forma === "a_receber" ? vencimento : undefined,
+        partes: partesParaEnvio(partes),
       });
       if (r.ok) {
         toast.success("Pagamento registrado.");
@@ -155,9 +158,7 @@ function FormularioPagamento({
     <>
       <DialogHeader>
         <DialogTitle>Pagamento do atendimento</DialogTitle>
-        <DialogDescription>
-          {atendimento.clienteNome} · valor previsto {formatarBRL(atendimento.valorPrevistoCentavos)}
-        </DialogDescription>
+        <DialogDescription>{atendimento.clienteNome}</DialogDescription>
       </DialogHeader>
 
       {caixa === "carregando" && !erroCaixa && (
@@ -177,88 +178,35 @@ function FormularioPagamento({
       )}
 
       {caixa === "aberto" && (
-        <form onSubmit={lancar} className="flex flex-col gap-4" noValidate>
+        <form onSubmit={confirmar} className="flex flex-col gap-4" noValidate>
+          <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Total do atendimento</dt>
+            <dd className="text-right" data-testid="total-atendimento">
+              {formatarBRL(bruto)}
+            </dd>
+            {liquido !== null && liquido !== bruto && (
+              <>
+                <dt className="font-medium">Total com desconto</dt>
+                <dd className="text-right font-medium">{formatarBRL(liquido)}</dd>
+              </>
+            )}
+          </dl>
+
           <div className="flex flex-col gap-2">
-            <Label htmlFor={`${id}-forma`}>Forma de pagamento</Label>
-            <Select
-              id={`${id}-forma`}
-              value={forma}
-              onChange={(e) => setForma(e.target.value as FormaPagamento)}
-            >
-              {FORMAS_PAGAMENTO.map((f) => (
-                <option key={f} value={f}>
-                  {ROTULO_FORMA[f]}
-                </option>
-              ))}
-            </Select>
+            <Label htmlFor={`${id}-desconto`}>Desconto</Label>
+            <Input
+              id={`${id}-desconto`}
+              inputMode="decimal"
+              placeholder="0,00"
+              value={desconto}
+              aria-invalid={erroDesconto !== null}
+              onChange={(e) => mudarDesconto(e.target.value)}
+            />
+            {erroDesconto && <p className="text-sm text-destructive">{erroDesconto}</p>}
           </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-valor`}>Valor</Label>
-              <Input
-                id={`${id}-valor`}
-                inputMode="decimal"
-                value={valor}
-                onChange={(e) => setValor(e.target.value)}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-desconto`}>Desconto</Label>
-              <Input
-                id={`${id}-desconto`}
-                inputMode="decimal"
-                placeholder="0,00"
-                value={desconto}
-                onChange={(e) => setDesconto(e.target.value)}
-              />
-            </div>
-          </div>
-
-          {parcelado && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-parcelas`}>Número de parcelas</Label>
-              <Select
-                id={`${id}-parcelas`}
-                value={parcelas}
-                onChange={(e) => setParcelas(Number(e.target.value))}
-              >
-                {Array.from({ length: MAX_PARCELAS - 1 }, (_, i) => i + 2).map((n) => (
-                  <option key={n} value={n}>
-                    {n}x
-                  </option>
-                ))}
-              </Select>
-            </div>
-          )}
-
-          {forma === "a_receber" && (
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={`${id}-venc`}>Primeiro vencimento</Label>
-              <Input
-                id={`${id}-venc`}
-                type="date"
-                min={dataNoFuso(new Date())}
-                value={vencimento}
-                onChange={(e) => setVencimento(e.target.value)}
-              />
-              {previa && (
-                <ul className="text-sm text-muted-foreground" aria-label="Prévia das parcelas">
-                  {previa.map((p) => (
-                    <li key={p.numero}>
-                      {p.numero}ª: {formatarBRL(p.valorCentavos)} em{" "}
-                      {p.vencimento.split("-").reverse().join("/")}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
 
           {liquido !== null && (
-            <p className="text-sm">
-              Total a lançar: <strong>{formatarBRL(liquido)}</strong>
-            </p>
+            <EditorPartes liquidoCentavos={liquido} partes={partes} onMudar={setPartes} />
           )}
 
           {erro && (
@@ -271,8 +219,8 @@ function FormularioPagamento({
             <Button type="button" variant="outline" onClick={onFechar} disabled={pendente}>
               Pagar depois
             </Button>
-            <Button type="submit" disabled={pendente}>
-              Registrar pagamento
+            <Button type="submit" disabled={pendente || !pronto}>
+              Confirmar
             </Button>
           </DialogFooter>
         </form>

@@ -6,8 +6,8 @@
 // SUPABASE_SERVICE_ROLE_KEY, E2E_RECEPCAO_EMAIL, E2E_RECEPCAO_SENHA,
 // E2E_PROFISSIONAL_EMAIL.
 //
-// ATENÇÃO (só projeto de teste): a preparação APAGA pagamentos, contas a receber
-// e o caixa de hoje (fuso de São Paulo), pois só existe um caixa por dia. Por isso
+// ATENÇÃO (só projeto de teste): a preparação APAGA contas a receber, pagamentos,
+// cobranças e o caixa de hoje (fuso de São Paulo), pois só existe um caixa por dia. Por isso
 // roda apenas no projeto desktop do Playwright (os três viewports compartilhariam
 // o mesmo caixa). Cria uma cliente e um atendimento confirmado hoje às 14:00.
 
@@ -35,6 +35,12 @@ type Fixtures = {
 let admin: SupabaseClient;
 let fx: Fixtures;
 
+/** Limpeza que falha em silêncio deixaria o caixa de hoje sujo: estoura. */
+async function falhar(p: PromiseLike<{ error: unknown }>) {
+  const { error } = await p;
+  if (error) throw error;
+}
+
 async function preparar(): Promise<Fixtures> {
   const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
@@ -59,14 +65,16 @@ async function preparar(): Promise<Fixtures> {
     .single();
   if (es) throw es;
 
-  // Zera o caixa de hoje (um por dia): filhos primeiro.
+  // Zera o caixa de hoje (um por dia): filhos primeiro — contas a receber,
+  // pagamentos (partes) e depois as cobranças.
   const { data: caixa } = await admin.from("caixas").select("id").eq("data", hoje).maybeSingle();
   if (caixa) {
     const { data: pags } = await admin.from("pagamentos").select("id").eq("caixa_id", caixa.id);
     const ids = (pags ?? []).map((p) => p.id);
-    if (ids.length) await admin.from("contas_receber").delete().in("pagamento_id", ids);
-    await admin.from("pagamentos").delete().eq("caixa_id", caixa.id);
-    await admin.from("caixas").delete().eq("id", caixa.id);
+    if (ids.length) await falhar(admin.from("contas_receber").delete().in("pagamento_id", ids));
+    await falhar(admin.from("pagamentos").delete().eq("caixa_id", caixa.id));
+    await falhar(admin.from("cobrancas").delete().eq("caixa_id", caixa.id));
+    await falhar(admin.from("caixas").delete().eq("id", caixa.id));
   }
 
   const nome = `Cliente E2E Caixa ${Date.now()}`;
@@ -127,8 +135,10 @@ test("recepção marca Atendido, abre o caixa, lança Pix e fecha com diferença
   await expect(dialogo).toBeVisible();
   await dialogo.getByRole("button", { name: "Abrir caixa agora" }).click();
 
+  // Uma forma só (Pix) com o total do atendimento: o valor já fecha.
   await dialogo.getByLabel("Forma de pagamento").selectOption("pix");
-  await dialogo.getByRole("button", { name: "Registrar pagamento" }).click();
+  await expect(dialogo.getByTestId("saldo-cobranca")).toHaveText("Valor fechado");
+  await dialogo.getByRole("button", { name: "Confirmar" }).click();
   await expect(dialogo).toBeHidden();
 
   await page.goto("/caixa");

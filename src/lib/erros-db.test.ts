@@ -17,14 +17,29 @@ describe("mensagemErroBanco", () => {
     ).toBe("Já existe uma cliente cadastrada com este CPF.");
   });
 
-  it("segundo pagamento do mesmo atendimento (índice pagamentos_agendamento_unico)", () => {
+  it("segunda cobrança do mesmo atendimento (cobrancas_agendamento_unico)", () => {
     expect(
       mensagemErroBanco({
         code: "23505",
         message:
-          'duplicate key value violates unique constraint "pagamentos_agendamento_unico"',
+          'duplicate key value violates unique constraint "cobrancas_agendamento_unico"',
       }),
     ).toBe("Este atendimento já foi pago.");
+  });
+
+  it("segunda cobrança do mesmo pacote (cobrancas_pacote_unico)", () => {
+    expect(mensagemErroBanco({ code: "23505", message: '... "cobrancas_pacote_unico"' })).toBe(
+      "Este pacote já foi pago.",
+    );
+  });
+
+  it("o índice antigo pagamentos_agendamento_unico (removido na 0007) não tem regra própria", () => {
+    expect(
+      mensagemErroBanco({
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "pagamentos_agendamento_unico"',
+      }),
+    ).toBe("Já existe um registro com estes dados.");
   });
 
   it("duplicidade genérica", () => {
