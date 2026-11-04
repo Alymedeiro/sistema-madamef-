@@ -130,6 +130,7 @@ export async function registrarPagamento(dados: PagamentoInput): Promise<Resulta
 
     revalidatePath("/caixa");
     revalidatePath("/agenda");
+    revalidatePath("/inicio");
     return { ok: true };
   } catch {
     return erro(ERRO_INESPERADO);

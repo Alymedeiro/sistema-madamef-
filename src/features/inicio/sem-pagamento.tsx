@@ -7,7 +7,7 @@ import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import type { ItemSemPagamento } from "./dados";
 
-export function ListaSemPagamento({ itens }: { itens: ItemSemPagamento[] }) {
+export function ListaSemPagamento({ itens, hoje }: { itens: ItemSemPagamento[]; hoje: string }) {
   const [alvo, setAlvo] = useState<AtendimentoParaPagar | null>(null);
 
   return (
@@ -15,7 +15,9 @@ export function ListaSemPagamento({ itens }: { itens: ItemSemPagamento[] }) {
       <ul className="flex flex-col gap-2">
         {itens.map((a) => (
           <li key={a.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <span className="w-12 font-medium tabular-nums">{formatarNoFuso(a.inicio, "HH:mm")}</span>
+            <span className="w-24 font-medium tabular-nums">
+              {a.dia === hoje ? "hoje" : formatarNoFuso(a.inicio, "dd/MM")} {formatarNoFuso(a.inicio, "HH:mm")}
+            </span>
             <span className="min-w-0 flex-1">
               {a.clienteNome} · {a.servicoNome}
               <span className="text-muted-foreground"> · {formatarBRL(a.valorPrevistoCentavos)}</span>

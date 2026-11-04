@@ -1,7 +1,6 @@
 import "server-only";
-import { aniversariantes } from "@/lib/dominio/aniversario";
 import type { StatusAgendamento } from "@/lib/dominio/status";
-import { combinarDataHora } from "@/lib/dominio/tempo";
+import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
 import { createClient } from "@/lib/supabase/server";
 import { agruparPorHorario, estoqueBaixo, type ProdutoEstoque } from "./painel";
 
@@ -19,6 +18,8 @@ export type ItemAgenda = {
 export type ItemSemPagamento = {
   id: string;
   inicio: string;
+  /** Dia do atendimento em São Paulo (yyyy-MM-dd). */
+  dia: string;
   clienteId: string;
   clienteNome: string;
   servicoNome: string;
@@ -94,13 +95,18 @@ export async function aguardandoConfirmacao(
   return agruparPorHorario((data ?? []).map((l) => paraItem(l as unknown as LinhaAgenda)));
 }
 
-/** Atendidos de hoje ainda sem pagamento (a RPC só devolve algo para dona/recepção). */
+/**
+ * Atendidos de `de` a `ate` (dias de São Paulo) ainda sem pagamento. A RPC só
+ * devolve algo para dona/recepção.
+ */
 export async function atendidosSemPagamento(
   supabase: Supabase,
-  hoje: string,
+  de: string,
+  ate: string,
 ): Promise<ItemSemPagamento[]> {
-  const { data: ids, error: erroIds } = await supabase.rpc("agendamentos_sem_pagamento", {
-    p_data: hoje,
+  const { data: ids, error: erroIds } = await supabase.rpc("agendamentos_sem_pagamento_periodo", {
+    p_de: de,
+    p_ate: ate,
   });
   falhou("os atendimentos sem pagamento", erroIds);
   if (!ids || ids.length === 0) return [];
@@ -114,6 +120,7 @@ export async function atendidosSemPagamento(
   return (data ?? []).map((a) => ({
     id: a.id,
     inicio: a.inicio,
+    dia: dataNoFuso(a.inicio),
     clienteId: a.cliente_id,
     clienteNome: a.clientes?.nome ?? "—",
     servicoNome: a.servicos?.nome ?? "—",
@@ -121,27 +128,25 @@ export async function atendidosSemPagamento(
   }));
 }
 
+/**
+ * Aniversariantes do período, filtrados no banco (sem limite de linhas) e
+ * ordenados pelos dias até o aniversário a partir de `de` (virada de ano).
+ */
 export async function aniversariantesDaSemana(
   supabase: Supabase,
   de: string,
   ate: string,
 ): Promise<Aniversariante[]> {
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("id, nome, data_nascimento, whatsapp")
-    .eq("ativo", true)
-    .not("data_nascimento", "is", null);
+  const { data, error } = await supabase.rpc("aniversariantes_entre", { p_de: de, p_ate: ate });
   falhou("os aniversariantes", error);
-  return aniversariantes(
-    (data ?? []).map((c) => ({
+  return [...(data ?? [])]
+    .sort((a, b) => a.dias - b.dias || a.nome.localeCompare(b.nome, "pt-BR"))
+    .map((c) => ({
       id: c.id,
       nome: c.nome,
       dataNascimento: c.data_nascimento,
       whatsapp: c.whatsapp,
-    })),
-    de,
-    ate,
-  ).sort((a, b) => (a.dataNascimento ?? "").slice(5).localeCompare((b.dataNascimento ?? "").slice(5)));
+    }));
 }
 
 export async function produtosComEstoqueBaixo(supabase: Supabase) {

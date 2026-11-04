@@ -12,12 +12,15 @@ export function CartaoPainel({
   titulo,
   vazio,
   vazioTexto,
+  falhou = false,
   children,
 }: {
   id: string;
   titulo: string;
   vazio: boolean;
   vazioTexto: string;
+  /** O carregamento deste cartão falhou (os demais seguem normais). */
+  falhou?: boolean;
   children: ReactNode;
 }) {
   return (
@@ -25,7 +28,15 @@ export function CartaoPainel({
       <h2 id={id} className="font-titulo text-lg font-semibold text-ouro-escuro">
         {titulo}
       </h2>
-      {vazio ? <p className="text-sm text-muted-foreground">{vazioTexto}</p> : children}
+      {falhou ? (
+        <p role="alert" className="text-sm text-destructive">
+          Não foi possível carregar este quadro. Atualize a página para tentar de novo.
+        </p>
+      ) : vazio ? (
+        <p className="text-sm text-muted-foreground">{vazioTexto}</p>
+      ) : (
+        children
+      )}
     </section>
   );
 }

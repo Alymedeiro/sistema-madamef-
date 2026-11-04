@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   agruparPorHorario,
+  carregarCartao,
   diasDaSemana,
   estoqueBaixo,
   primeiroNome,
@@ -53,7 +54,26 @@ describe("diasDaSemana", () => {
       hoje: "2026-11-03",
       amanha: "2026-11-04",
       fimSemana: "2026-11-09",
+      seteDiasAtras: "2026-10-28",
     });
     expect(diasDaSemana(new Date("2026-12-29T15:00:00Z")).fimSemana).toBe("2027-01-04");
+  });
+});
+
+describe("carregarCartao", () => {
+  it("sucesso: ok com os dados", async () => {
+    expect(await carregarCartao(Promise.resolve([1, 2]))).toEqual({ ok: true, dados: [1, 2] });
+  });
+
+  it("falha de um cartão não derruba os outros: ok false", async () => {
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    const [a, b] = await Promise.all([
+      carregarCartao(Promise.reject(new Error("banco fora"))),
+      carregarCartao(Promise.resolve("x")),
+    ]);
+    expect(a).toEqual({ ok: false });
+    expect(b).toEqual({ ok: true, dados: "x" });
+    expect(erro).toHaveBeenCalled();
+    erro.mockRestore();
   });
 });
