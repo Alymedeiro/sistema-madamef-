@@ -1,0 +1,77 @@
+@import "tailwindcss";
+
+/* Identidade visual Madame Fê Clinic.
+   Texto dourado só em `ouro-escuro` (contraste AA sobre blush/branco). */
+@theme {
+  --color-blush: #feedf3;
+  --color-blush-forte: #f8d7e3;
+  --color-ouro: #986818;
+  --color-ouro-escuro: #805008;
+  --color-ouro-claro: #e8c979;
+  /* Borda de campos e cartões: ≥ 3:1 sobre branco (3,5:1) e sobre blush (3,1:1). */
+  --color-ouro-borda: #b08030;
+  --color-texto: #3d2b1f;
+  --color-branco: #ffffff;
+}
+
+/* Variáveis do shadcn/ui mapeadas para a paleta da marca. */
+:root {
+  --radius: 0.625rem;
+  --background: var(--color-blush);
+  --foreground: var(--color-texto);
+  --card: var(--color-branco);
+  --card-foreground: var(--color-texto);
+  --popover: var(--color-branco);
+  --popover-foreground: var(--color-texto);
+  --primary: var(--color-ouro);
+  --primary-foreground: var(--color-branco);
+  --secondary: var(--color-blush-forte);
+  --secondary-foreground: var(--color-texto);
+  --muted: var(--color-blush-forte);
+  --muted-foreground: #6b5546;
+  --accent: var(--color-blush-forte);
+  --accent-foreground: var(--color-texto);
+  --destructive: #b42318;
+  --border: var(--color-ouro-borda);
+  --input: var(--color-ouro-borda);
+  /* Foco bem visível: ouro-escuro opaco (6,8:1 sobre branco). */
+  --ring: var(--color-ouro-escuro);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --font-titulo: var(--font-cinzel), serif;
+  --font-script: var(--font-great-vibes), cursive;
+  --font-sans: var(--font-montserrat), ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+  }
+}

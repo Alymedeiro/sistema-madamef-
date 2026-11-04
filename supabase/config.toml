@@ -1,0 +1,43 @@
+# Configuração do Supabase CLI para desenvolvimento local.
+# Escrito à mão (Ruling R3) — compatível com `supabase start` / `supabase db reset`.
+project_id = "madame-fe"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+extra_search_path = ["public", "extensions"]
+max_rows = 1000
+
+[db]
+port = 54322
+shadow_port = 54320
+major_version = 16
+
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[studio]
+enabled = true
+port = 54323
+
+[inbucket]
+enabled = true
+port = 54324
+
+[auth]
+enabled = true
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000"]
+jwt_expiry = 3600
+# Contas só são criadas por convite da dona.
+enable_signup = false
+
+[auth.sessions]
+# Sessão expira após 12h de inatividade.
+inactivity_timeout = "12h"
+
+[auth.email]
+enable_signup = false
+enable_confirmations = false
