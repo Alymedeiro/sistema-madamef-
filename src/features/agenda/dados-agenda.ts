@@ -7,6 +7,7 @@ import {
   horarioDoBanco,
   type IntervalosPorDia,
 } from "@/lib/dominio/intervalos";
+import { anamnesePendente } from "@/lib/dominio/anamnese";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 
@@ -42,6 +43,10 @@ export type AgendamentoAgenda = {
   valorPrevistoCentavos: number;
   /** Atendido e ainda sem pagamento (só calculado para dona/recepção). */
   semPagamento: boolean;
+  /** A última anamnese da cliente tem resposta de alerta (só o indicador, sem as respostas). */
+  alertaAnamnese: boolean;
+  /** Sem anamnese ou a última tem mais de 12 meses. */
+  anamnesePendente: boolean;
 };
 
 export type BloqueioAgenda = {
@@ -83,6 +88,8 @@ export type LinhasAgenda = {
   horarioFuncionamento: unknown;
   /** Ids de atendidos sem pagamento no período (agendamentos_sem_pagamento_periodo). */
   semPagamento?: string[];
+  /** situacao_ficha das clientes do período. */
+  situacaoFicha?: { cliente_id: string; ultima_anamnese_em: string | null; tem_alerta: boolean }[];
 };
 
 /**
@@ -96,6 +103,7 @@ export type LinhasAgenda = {
 export function montarDadosAgenda(
   linhas: LinhasAgenda,
   sessao: { perfil: Perfil; colaboradorId: string },
+  agora: Date,
 ): DadosAgenda {
   const servicosAtivos = new Set(linhas.servicos.filter((s) => s.ativo).map((s) => s.id));
   const servicosPorColab = new Map<string, string[]>();
@@ -129,6 +137,7 @@ export function montarDadosAgenda(
 
   const nomeServico = new Map(linhas.servicos.map((s) => [s.id, s.nome]));
   const semPagamento = new Set(linhas.semPagamento ?? []);
+  const situacao = new Map((linhas.situacaoFicha ?? []).map((s) => [s.cliente_id, s]));
 
   const jornadas: Record<string, IntervalosPorDia> = {};
   for (const p of profissionais) {
@@ -165,6 +174,11 @@ export function montarDadosAgenda(
         observacoes: a.observacoes,
         valorPrevistoCentavos: a.valor_previsto_centavos,
         semPagamento: semPagamento.has(a.id),
+        alertaAnamnese: situacao.get(a.cliente_id)?.tem_alerta ?? false,
+        anamnesePendente: anamnesePendente(
+          situacao.get(a.cliente_id)?.ultima_anamnese_em ?? null,
+          agora,
+        ),
       })),
     jornadas,
     bloqueios: linhas.bloqueios

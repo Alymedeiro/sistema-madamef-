@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { montarDadosAgenda, type LinhasAgenda } from "./dados-agenda";
 
+const AGORA = new Date("2026-11-04T12:00:00Z");
+
 const linhas: LinhasAgenda = {
   colaboradores: [
     { id: "p-bia", nome: "Bia", cor: "#111111", ativo: true },
@@ -58,20 +60,20 @@ const linhas: LinhasAgenda = {
 
 describe("montarDadosAgenda", () => {
   it("colunas: ativas com ao menos um serviço ativo, por nome", () => {
-    const d = montarDadosAgenda(linhas, { perfil: "recepcao", colaboradorId: "p-recepcao" });
+    const d = montarDadosAgenda(linhas, { perfil: "recepcao", colaboradorId: "p-recepcao" }, AGORA);
     expect(d.profissionais.map((p) => p.id)).toEqual(["p-ana", "p-bia"]);
     expect(d.profissionais[0].servicoIds).toEqual(["s1"]);
   });
 
   it("profissional vê só a própria coluna e os próprios dados", () => {
-    const d = montarDadosAgenda(linhas, { perfil: "profissional", colaboradorId: "p-bia" });
+    const d = montarDadosAgenda(linhas, { perfil: "profissional", colaboradorId: "p-bia" }, AGORA);
     expect(d.profissionais.map((p) => p.id)).toEqual(["p-bia"]);
     expect(d.agendamentos.map((a) => a.id)).toEqual(["a2"]);
     expect(d.bloqueios.map((b) => b.id)).toEqual(["b1"]);
   });
 
   it("normaliza jornadas e horário de funcionamento para HH:mm", () => {
-    const d = montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" });
+    const d = montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" }, AGORA);
     expect(d.jornadas["p-ana"]["2"]).toEqual([
       { inicio: "09:00", fim: "12:00" },
       { inicio: "13:00", fim: "18:00" },
@@ -82,7 +84,7 @@ describe("montarDadosAgenda", () => {
   });
 
   it("nomeia cliente e serviço (inclusive serviço já desativado)", () => {
-    const d = montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" });
+    const d = montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" }, AGORA);
     const a1 = d.agendamentos.find((a) => a.id === "a1");
     expect(a1).toMatchObject({ clienteNome: "Maria", servicoNome: "Antigo", profissionalId: "p-ana" });
     expect(d.agendamentos.find((a) => a.id === "a2")?.clienteNome).toBe("Cliente");
@@ -94,13 +96,14 @@ describe("montarDadosAgenda — atendidos sem pagamento", () => {
     const d = montarDadosAgenda(
       { ...linhas, semPagamento: ["a2"] },
       { perfil: "recepcao", colaboradorId: "p-recepcao" },
+      AGORA,
     );
     expect(d.agendamentos.find((a) => a.id === "a2")?.semPagamento).toBe(true);
     expect(d.agendamentos.find((a) => a.id === "a1")?.semPagamento).toBe(false);
   });
 
   it("sem a lista (profissional), ninguém fica marcado", () => {
-    const d = montarDadosAgenda(linhas, { perfil: "profissional", colaboradorId: "p-bia" });
+    const d = montarDadosAgenda(linhas, { perfil: "profissional", colaboradorId: "p-bia" }, AGORA);
     expect(d.agendamentos.every((a) => a.semPagamento === false)).toBe(true);
   });
 });
@@ -138,7 +141,7 @@ describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
   };
 
   it("inativa com atendimento não cancelado ganha coluna, sem aceitar novos agendamentos", () => {
-    const d = montarDadosAgenda(comInativa, { perfil: "recepcao", colaboradorId: "p-recepcao" });
+    const d = montarDadosAgenda(comInativa, { perfil: "recepcao", colaboradorId: "p-recepcao" }, AGORA);
     expect(d.profissionais.map((p) => p.id)).toEqual(["p-ana", "p-bia", "p-inativa"]);
     const inativa = d.profissionais.find((p) => p.id === "p-inativa")!;
     expect(inativa).toMatchObject({ ativa: false, aceitaAgendamento: false });
@@ -147,7 +150,7 @@ describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
   });
 
   it("só agendamento cancelado não cria coluna", () => {
-    const d = montarDadosAgenda(comInativa, { perfil: "dona", colaboradorId: "x" });
+    const d = montarDadosAgenda(comInativa, { perfil: "dona", colaboradorId: "x" }, AGORA);
     expect(d.profissionais.map((p) => p.id)).not.toContain("p-recepcao");
   });
 
@@ -158,10 +161,33 @@ describe("montarDadosAgenda — quem tem atendimento sempre aparece", () => {
         agendamentos: [{ ...linhas.agendamentos[0], id: "a5", profissional_id: "p-so-inativo" }],
       },
       { perfil: "dona", colaboradorId: "x" },
+      AGORA,
     );
     expect(d.profissionais.find((p) => p.id === "p-so-inativo")).toMatchObject({
       ativa: true,
       aceitaAgendamento: false,
+    });
+  });
+});
+
+describe("situação da ficha (anamnese)", () => {
+  const agora = AGORA;
+  const montar = (extra: Partial<LinhasAgenda>) =>
+    montarDadosAgenda(
+      { ...linhas, ...extra },
+      { perfil: "dona", colaboradorId: "x" },
+      agora,
+    );
+
+  it("alerta e pendência por cliente", () => {
+    expect(
+      montar({
+        situacaoFicha: [{ cliente_id: "c1", ultima_anamnese_em: "2026-10-01T12:00:00Z", tem_alerta: true }],
+      }).agendamentos[0],
+    ).toMatchObject({ alertaAnamnese: true, anamnesePendente: false });
+    expect(montar({ situacaoFicha: [] }).agendamentos[0]).toMatchObject({
+      alertaAnamnese: false,
+      anamnesePendente: true,
     });
   });
 });

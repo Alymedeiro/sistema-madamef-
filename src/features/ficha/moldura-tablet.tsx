@@ -18,6 +18,10 @@ export function MolduraTablet({
   useEffect(() => {
     // Tela cheia é conveniência: se o navegador recusar, segue sem ela.
     document.documentElement.requestFullscreen?.().catch(() => {});
+    return () => {
+      // Cancelar ou concluir sai da tela cheia.
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    };
   }, []);
 
   function cancelar() {

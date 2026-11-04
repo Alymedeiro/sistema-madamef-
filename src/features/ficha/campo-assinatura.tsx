@@ -1,10 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import SignaturePad from "signature_pad";
 import { Button } from "@/components/ui/button";
+import { MAX_BYTES_ASSINATURA, bytesDaDataUrl } from "@/lib/ficha/assinatura";
 
 const ALTURA = 220;
+/** Largura máxima do PNG exportado: em tablets com DPR 3 o canvas passa de 200 KB. */
+const LARGURA_EXPORTADA = 1000;
+const ERRO_GRANDE = "Assinatura muito grande. Toque em Limpar e assine novamente.";
+
+/** PNG com fundo branco, reduzido a no máximo LARGURA_EXPORTADA px de largura. */
+function exportarReduzido(canvas: HTMLCanvasElement): string {
+  const escala = Math.min(1, LARGURA_EXPORTADA / canvas.width);
+  const saida = document.createElement("canvas");
+  saida.width = Math.max(1, Math.round(canvas.width * escala));
+  saida.height = Math.max(1, Math.round(canvas.height * escala));
+  const ctx = saida.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/png");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, saida.width, saida.height);
+  ctx.drawImage(canvas, 0, 0, saida.width, saida.height);
+  return saida.toDataURL("image/png");
+}
 
 export function CampoAssinatura({
   onMudar,
@@ -13,6 +31,7 @@ export function CampoAssinatura({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePad | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
   const onMudarRef = useRef(onMudar);
   useEffect(() => {
     onMudarRef.current = onMudar;
@@ -41,8 +60,21 @@ export function CampoAssinatura({
     const pad = new SignaturePad(canvas, { penColor: "#2b2118" });
     padRef.current = pad;
     ajustar();
-    const aoTerminar = () =>
-      onMudarRef.current(pad.isEmpty() ? null : pad.toDataURL("image/png"));
+    const aoTerminar = () => {
+      if (pad.isEmpty()) {
+        setErro(null);
+        onMudarRef.current(null);
+        return;
+      }
+      const png = exportarReduzido(canvas);
+      if (bytesDaDataUrl(png) > MAX_BYTES_ASSINATURA) {
+        setErro(ERRO_GRANDE);
+        onMudarRef.current(null);
+        return;
+      }
+      setErro(null);
+      onMudarRef.current(png);
+    };
     pad.addEventListener("endStroke", aoTerminar);
     const obs = new ResizeObserver(() => ajustar());
     if (canvas.parentElement) obs.observe(canvas.parentElement);
@@ -70,11 +102,17 @@ export function CampoAssinatura({
         className="min-h-11 self-start"
         onClick={() => {
           padRef.current?.clear();
+          setErro(null);
           onMudar(null);
         }}
       >
         Limpar
       </Button>
+      {erro ? (
+        <p role="alert" className="text-sm font-medium text-destructive">
+          {erro}
+        </p>
+      ) : null}
     </div>
   );
 }

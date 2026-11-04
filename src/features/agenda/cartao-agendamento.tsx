@@ -51,6 +51,13 @@ export function ConteudoCartao({ agendamento: a }: { agendamento: AgendamentoAge
       </span>
       <span className="block truncate">{a.servicoNome}</span>
       <span className="block truncate text-xs">{COR_STATUS[a.status].rotulo}</span>
+      {a.alertaAnamnese || a.anamnesePendente ? (
+        <span className="block truncate text-xs font-medium">
+          {a.alertaAnamnese ? "⚠ Atenção" : null}
+          {a.alertaAnamnese && a.anamnesePendente ? " · " : null}
+          {a.anamnesePendente ? "Anamnese pendente" : null}
+        </span>
+      ) : null}
     </>
   );
 }
@@ -78,7 +85,7 @@ export function CartaoAgendamento({
       {...(arrastavel ? listeners : {})}
       {...(arrastavel ? attributes : {})}
       onClick={onAbrir}
-      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}`}
+      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}${agendamento.alertaAnamnese ? ", atenção na anamnese" : ""}${agendamento.anamnesePendente ? ", anamnese pendente" : ""}`}
       data-status={agendamento.status}
       className={cn(
         CLASSE_CARTAO,

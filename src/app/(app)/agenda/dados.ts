@@ -54,7 +54,13 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
         : Promise.resolve({ data: [] as string[], error: null }),
     ]);
 
-  for (const r of [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
+  // Situação da ficha (alerta e pendência) das clientes do período: só indicadores.
+  const clienteIds = [...new Set((agendamentos.data ?? []).map((a) => a.cliente_id))];
+  const situacao = clienteIds.length
+    ? await supabase.rpc("situacao_ficha", { p_clientes: clienteIds })
+    : { data: [], error: null };
+
+  for (const r of [situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);
   }
 
@@ -68,7 +74,9 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       agendamentos: agendamentos.data ?? [],
       horarioFuncionamento: config.data?.horario_funcionamento ?? {},
       semPagamento: semPagamento.data ?? [],
+      situacaoFicha: situacao.data ?? [],
     },
     { perfil: colaborador.perfil, colaboradorId: colaborador.id },
+    new Date(),
   );
 }

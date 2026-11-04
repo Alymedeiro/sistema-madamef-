@@ -30,3 +30,11 @@ describe("decodificarAssinaturaPng", () => {
     ).toBeNull();
   });
 });
+
+describe("bytesDaDataUrl", () => {
+  it("calcula o tamanho decodificado", async () => {
+    const { bytesDaDataUrl } = await import("./assinatura");
+    const b64 = Buffer.from([1, 2, 3, 4, 5]).toString("base64");
+    expect(bytesDaDataUrl(`data:image/png;base64,${b64}`)).toBe(5);
+  });
+});

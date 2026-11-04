@@ -9,10 +9,12 @@ import { BotaoAtivoCliente } from "@/features/clientes/botao-ativo-cliente";
 import { FormularioCliente } from "@/features/clientes/formulario-cliente";
 import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
+import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
 import { formatarCPF } from "@/lib/dominio/cpf";
 import {
   abasDaFicha,
   perfisComAcesso,
+  podeNaFicha,
   type AbaFicha,
 } from "@/lib/dominio/permissoes";
 import { formatarTelefone } from "@/lib/dominio/telefone";
@@ -20,6 +22,10 @@ import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
+import {
+  carregarAlertasCabecalho,
+  carregarAnamneses,
+} from "../ficha/dados";
 import { ROTULO_ORIGEM, type OrigemCliente } from "../schemas";
 
 export const metadata = { title: "Cliente | Madame Fê Clinic" };
@@ -129,6 +135,11 @@ export default async function ClientePage({
     }),
   );
 
+  const [cabecalho, anamneses] = await Promise.all([
+    carregarAlertasCabecalho(supabase, c.id),
+    aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
+  ]);
+
   const origem = c.origem
     ? (ROTULO_ORIGEM[c.origem as OrigemCliente] ?? c.origem)
     : null;
@@ -147,8 +158,33 @@ export default async function ClientePage({
         ) : null}
       </div>
 
+      {cabecalho.alertas.length > 0 || cabecalho.pendente ? (
+        <div className="flex flex-col gap-2">
+          {cabecalho.alertas.length > 0 ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm font-medium"
+            >
+              ⚠ Atenção: {cabecalho.alertas.join("; ")}
+            </p>
+          ) : null}
+          {cabecalho.pendente ? (
+            <p className="rounded-lg border bg-muted p-3 text-sm font-medium">
+              Anamnese pendente
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
-      {/* As abas clínicas (anamnese, termos, fotos, evoluções, pacotes) chegam nas Tasks 4–9. */}
+      {/* As demais abas clínicas (termos, fotos, evoluções, pacotes) chegam nas Tasks 5–9. */}
+      {aba === "anamnese" ? (
+        <AbaAnamnese
+          clienteId={c.id}
+          anamneses={anamneses}
+          podePreencher={podeNaFicha(colaborador.perfil, "aplicar_anamnese")}
+        />
+      ) : null}
       {aba === "dados" ? (
         <div className="flex flex-col gap-5">
           <section

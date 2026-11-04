@@ -22,3 +22,11 @@ export function decodificarAssinaturaPng(dataUrl: string): Uint8Array | null {
     return null;
   return ASSINATURA_PNG.every((b, i) => bytes[i] === b) ? bytes : null;
 }
+
+/** Tamanho aproximado, em bytes, do PNG de uma data URL (sem decodificar). */
+export function bytesDaDataUrl(dataUrl: string): number {
+  const i = dataUrl.indexOf(",");
+  const b64 = i >= 0 ? dataUrl.slice(i + 1) : dataUrl;
+  const preenchimento = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  return Math.floor((b64.length * 3) / 4) - preenchimento;
+}
