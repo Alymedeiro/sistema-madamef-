@@ -35,6 +35,12 @@ export default async function ConfiguracoesPage() {
         >
           Termos
         </Link>
+        <Link
+          href="/configuracoes/acessos"
+          className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+        >
+          Registro de acessos
+        </Link>
       </nav>
       <FormularioConfiguracoes
         inicial={{

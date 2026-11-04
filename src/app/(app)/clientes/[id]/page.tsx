@@ -170,9 +170,28 @@ export default async function ClientePage({
       <div className="flex flex-wrap items-center gap-3">
         <Titulo>{c.nome}</Titulo>
         {!c.ativo ? <Badge variant="destructive">Inativa</Badge> : null}
-        {podeEditar ? (
-          <div className="ml-auto">
-            <BotaoAtivoCliente id={c.id} nome={c.nome} ativo={c.ativo} />
+        {podeEditar || podeNaFicha(colaborador.perfil, "ver_acessos") ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {podeNaFicha(colaborador.perfil, "ver_acessos") ? (
+              <Link
+                href={`/configuracoes/acessos?cliente=${c.id}`}
+                className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+              >
+                Registro de acessos
+              </Link>
+            ) : null}
+            {podeNaFicha(colaborador.perfil, "exportar") ? (
+              // Download direto (rota, não página): <a> evita o prefetch do Link.
+              <a
+                href={`/clientes/${c.id}/exportar`}
+                className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+              >
+                Exportar dados da cliente
+              </a>
+            ) : null}
+            {podeEditar ? (
+              <BotaoAtivoCliente id={c.id} nome={c.nome} ativo={c.ativo} />
+            ) : null}
           </div>
         ) : null}
       </div>
