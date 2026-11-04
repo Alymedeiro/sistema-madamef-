@@ -1,6 +1,7 @@
 // Utilidades compartilhadas pelos E2E que dependem de um projeto Supabase de teste.
 // Sem as variáveis/backend, os testes são pulados com mensagem explícita (Ruling R3).
 import { test } from "@playwright/test";
+import { avaliarGuarda } from "./guarda";
 
 export const AMBIENTE = {
   url: process.env.NEXT_PUBLIC_SUPABASE_URL,
@@ -36,12 +37,6 @@ export type PerfilE2E = "dona" | "recepcao" | "profissional";
 export const ARQUIVO_ESTADO = (perfil: PerfilE2E) => `e2e/.auth/${perfil}.json`;
 export const ARQUIVO_FIXTURES = "e2e/.auth/fixtures.json";
 
-export function variaveisFaltando(): string[] {
-  return Object.entries(AMBIENTE)
-    .filter(([, v]) => !v)
-    .map(([k]) => ({ url: "NEXT_PUBLIC_SUPABASE_URL", anon: "NEXT_PUBLIC_SUPABASE_ANON_KEY", service: "SUPABASE_SERVICE_ROLE_KEY" })[k]!);
-}
-
 export async function backendAlcancavel(): Promise<boolean> {
   try {
     const r = await fetch(`${AMBIENTE.url}/auth/v1/health`, {
@@ -54,13 +49,20 @@ export async function backendAlcancavel(): Promise<boolean> {
   }
 }
 
-/** Pula o bloco atual com mensagem clara quando não há backend de teste. */
+/**
+ * Guarda única de todos os E2E que escrevem no backend: exige autorização explícita do
+ * projeto (E2E_PERMITIR_PROJETO, ver guarda.ts) e que ele responda. Senão, pula.
+ */
 export async function pularSemBackend(nome: string): Promise<void> {
-  const faltando = variaveisFaltando();
-  test.skip(
-    faltando.length > 0,
-    `${nome} pulado: defina ${faltando.join(", ")} (projeto Supabase de teste, Ruling R3).`,
-  );
+  const g = avaliarGuarda({
+    url: AMBIENTE.url,
+    anon: AMBIENTE.anon,
+    service: AMBIENTE.service,
+    permitirProjeto: process.env.E2E_PERMITIR_PROJETO,
+    baseUrl: process.env.E2E_BASE_URL,
+    baseUrlPermitida: process.env.E2E_BASE_URL_PERMITIDA,
+  });
+  test.skip(!g.permitido, `${nome} pulado: ${g.permitido ? "" : g.motivo} (Ruling R3).`);
   test.skip(
     !(await backendAlcancavel()),
     `${nome} pulado: ${AMBIENTE.url} não responde (sem backend Supabase alcançável, Ruling R3).`,

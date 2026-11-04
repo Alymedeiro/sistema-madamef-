@@ -12,19 +12,15 @@
 
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { AMBIENTE, USUARIOS, pularSemBackend } from "./suporte";
 
 const ENV = {
-  url: process.env.NEXT_PUBLIC_SUPABASE_URL,
-  anon: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-  service: process.env.SUPABASE_SERVICE_ROLE_KEY,
-  recepcaoEmail: process.env.E2E_RECEPCAO_EMAIL,
-  recepcaoSenha: process.env.E2E_RECEPCAO_SENHA,
-  profissionalEmail: process.env.E2E_PROFISSIONAL_EMAIL,
-  profissionalSenha: process.env.E2E_PROFISSIONAL_SENHA,
+  ...AMBIENTE,
+  recepcaoEmail: USUARIOS.recepcao.email,
+  recepcaoSenha: USUARIOS.recepcao.senha,
+  profissionalEmail: USUARIOS.profissional.email,
+  profissionalSenha: USUARIOS.profissional.senha,
 };
-const faltando = Object.entries(ENV)
-  .filter(([, v]) => !v)
-  .map(([k]) => k);
 
 test.describe.configure({ mode: "serial" });
 
@@ -37,18 +33,6 @@ type Fixtures = {
 
 let admin: SupabaseClient;
 let fx: Fixtures;
-
-async function backendAlcancavel(): Promise<boolean> {
-  try {
-    const r = await fetch(`${ENV.url}/auth/v1/health`, {
-      headers: { apikey: ENV.anon! },
-      signal: AbortSignal.timeout(5000),
-    });
-    return r.ok;
-  } catch {
-    return false;
-  }
-}
 
 /** Próxima terça (≥ 2 dias à frente), uma semana a mais por projeto para não colidirem. */
 function dataDoTeste(indiceProjeto: number): string {
@@ -139,14 +123,7 @@ async function preencherAgendamento(page: Page, hora?: string) {
 }
 
 test.beforeAll(async ({}, testInfo) => {
-  test.skip(
-    faltando.length > 0,
-    `E2E da agenda pulado: defina ${faltando.join(", ")} (projeto Supabase de teste — Ruling R3).`,
-  );
-  test.skip(
-    !(await backendAlcancavel()),
-    `E2E da agenda pulado: ${ENV.url} não responde (sem backend Supabase alcançável — Ruling R3).`,
-  );
+  await pularSemBackend("E2E da agenda");
   admin = createClient(ENV.url!, ENV.service!, { auth: { persistSession: false } });
   const indice = ["computador", "tablet", "celular"].indexOf(testInfo.project.name);
   fx = await preparar(Math.max(0, indice));

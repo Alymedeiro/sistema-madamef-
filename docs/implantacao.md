@@ -123,18 +123,19 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa` e `permissoes` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção**: a preparação apaga o caixa de hoje e cria usuários e clientes de teste.
+Os specs `agenda`, `caixa` e `permissoes` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
 export NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 export SUPABASE_SERVICE_ROLE_KEY=...
+export E2E_PERMITIR_PROJETO=<ref>   # obrigatório: o ref do projeto de TESTES, o mesmo da URL acima
 # opcionais (padrões e2e-*@madamefe.test / E2e-Senha-123!):
 # E2E_DONA_EMAIL, E2E_RECEPCAO_EMAIL, E2E_PROFISSIONAL_EMAIL, E2E_PROFISSIONAL2_EMAIL e as respectivas *_SENHA
 pnpm e2e
 ```
 
-O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin e salva a sessão de cada perfil em `e2e/.auth/` (ignorado pelo Git). Os specs `agenda` e `caixa` leem `E2E_RECEPCAO_EMAIL`, `E2E_RECEPCAO_SENHA` e `E2E_PROFISSIONAL_EMAIL`: defina-as com os mesmos valores usados na preparação (ou deixe os padrões nas duas pontas exportando-os). O Playwright constrói e sobe o sistema (`pnpm build && pnpm start`) com essas variáveis; para testar um endereço já publicado, use `E2E_BASE_URL=https://...`.
+O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin e salva a sessão de cada perfil em `e2e/.auth/` (ignorado pelo Git). Os specs `agenda` e `caixa` leem `E2E_RECEPCAO_EMAIL`, `E2E_RECEPCAO_SENHA` e `E2E_PROFISSIONAL_EMAIL`: defina-as com os mesmos valores usados na preparação (ou deixe os padrões nas duas pontas exportando-os). O Playwright constrói e sobe o sistema (`pnpm build && pnpm start`) com essas variáveis; para testar um endereço já publicado, use `E2E_BASE_URL=https://...` **e** `E2E_BASE_URL_PERMITIDA=https://...` (mesmo valor), garantindo que o site e a chave de serviço são do mesmo ambiente de testes.
 
 ### Lista de conferência pós-deploy
 
