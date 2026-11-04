@@ -35,8 +35,21 @@ const base = {
   parcelas: 1,
 };
 
-function agendamentoExiste() {
-  falso.responder("agendamentos", ok({ id: AG, cliente_id: CLIENTE_DO_AG }));
+const INICIO_AG = "2026-11-04T13:00:00Z";
+
+function agendamentoExiste(extra: Record<string, unknown> = {}, semPagamento = true) {
+  falso.responder(
+    "agendamentos",
+    ok({
+      id: AG,
+      cliente_id: CLIENTE_DO_AG,
+      status: "atendido",
+      inicio: INICIO_AG,
+      pacote_vendido_id: null,
+      ...extra,
+    }),
+  );
+  falso.responder("rpc:agendamentos_sem_pagamento", ok(semPagamento ? [AG] : []));
 }
 
 beforeEach(() => {
@@ -174,6 +187,43 @@ describe("registrarPagamento", () => {
       ok: false,
       erro: "Abra o caixa do dia antes de lançar pagamentos",
     });
+  });
+
+  it("recusa atendimento que não está atendido", async () => {
+    agendamentoExiste({ status: "confirmado" });
+    const r = await registrarPagamento(base);
+    expect(r).toEqual({
+      ok: false,
+      erro: "Só é possível lançar pagamento de atendimento concluído.",
+    });
+    expect(falso.chamadasRpc("registrar_pagamento")).toHaveLength(0);
+  });
+
+  it("recusa atendimento que já foi pago (consulta pela data de São Paulo)", async () => {
+    agendamentoExiste({ inicio: "2026-11-05T01:30:00Z" }, false);
+    const r = await registrarPagamento(base);
+    expect(r).toEqual({ ok: false, erro: "Este atendimento já foi pago." });
+    expect(falso.chamadasRpc("agendamentos_sem_pagamento")[0].args[0]).toEqual({
+      p_data: "2026-11-04",
+    });
+    expect(falso.chamadasRpc("registrar_pagamento")).toHaveLength(0);
+  });
+
+  it("dona e recepção usam a mesma checagem", async () => {
+    perfilAtual = "dona";
+    agendamentoExiste({}, false);
+    expect((await registrarPagamento(base)).ok).toBe(false);
+  });
+
+  it("falha na checagem de pagamento é repassada", async () => {
+    falso.responder(
+      "agendamentos",
+      ok({ id: AG, cliente_id: CLIENTE_DO_AG, status: "atendido", inicio: INICIO_AG, pacote_vendido_id: null }),
+    );
+    falso.responder("rpc:agendamentos_sem_pagamento", falha("XX000", "boom"));
+    const r = await registrarPagamento(base);
+    expect(r.ok).toBe(false);
+    expect(falso.chamadasRpc("registrar_pagamento")).toHaveLength(0);
   });
 
   it("agendamento inexistente", async () => {

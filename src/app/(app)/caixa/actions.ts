@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { gerarParcelas, formaParcelada } from "@/lib/dominio/caixa";
+import { dataNoFuso } from "@/lib/dominio/tempo";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
@@ -18,6 +19,8 @@ export type ResultadoFechamento =
   | { ok: false; erro: string };
 
 const CAIXA_JA_EXISTE = "Já existe caixa para hoje";
+const ATENDIMENTO_NAO_CONCLUIDO = "Só é possível lançar pagamento de atendimento concluído.";
+const JA_PAGO = "Este atendimento já foi pago.";
 const CAIXA_FECHADO = "O caixa de hoje já foi fechado.";
 
 function valorCentavos(texto: string): number | null {
@@ -86,11 +89,24 @@ export async function registrarPagamento(dados: PagamentoInput): Promise<Resulta
 
     const { data: agendamento, error: erroAg } = await supabase
       .from("agendamentos")
-      .select("id, cliente_id")
+      .select("id, cliente_id, status, inicio, pacote_vendido_id")
       .eq("id", d.agendamentoId)
       .maybeSingle();
     if (erroAg) return erro(mensagemErroBanco(erroAg));
     if (!agendamento) return erro("Agendamento não encontrado.");
+    if (agendamento.status !== "atendido") return erro(ATENDIMENTO_NAO_CONCLUIDO);
+
+    // Já pago? A RPC (security definer) enxerga pagamentos de qualquer caixa, ao
+    // contrário de um select, que a recepção só faz sobre o caixa aberto de hoje.
+    // Atendimento de pacote não entra na RPC: nesse caso o banco decide.
+    if (!agendamento.pacote_vendido_id) {
+      const { data: pendentes, error: erroPend } = await supabase.rpc(
+        "agendamentos_sem_pagamento",
+        { p_data: dataNoFuso(agendamento.inicio) },
+      );
+      if (erroPend) return erro(mensagemErroBanco(erroPend));
+      if (!(pendentes ?? []).includes(agendamento.id)) return erro(JA_PAGO);
+    }
 
     let vencimentos: string[] | null = null;
     let valoresParcelas: number[] | null = null;
