@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  ehCortesia,
   erroDasPartes,
   MAX_PARTES,
   partesParaRpc,
@@ -69,6 +70,16 @@ describe("erroDasPartes", () => {
       "Informe de 1 a 4 formas de pagamento.",
     );
     expect(erroDasPartes(10000, [])).toBe("Informe de 1 a 4 formas de pagamento.");
+  });
+
+  it("cortesia: nenhuma forma só quando o total com desconto é zero", () => {
+    expect(erroDasPartes(0, [])).toBeNull();
+    expect(erroDasPartes(1, [])).toBe("Informe de 1 a 4 formas de pagamento.");
+    // Total zero com uma forma de R$ 0,00 continua errado (cada parte > 0).
+    expect(erroDasPartes(0, [pix(0)])).toBe("Cada forma de pagamento deve ter valor maior que zero.");
+    expect(ehCortesia(0)).toBe(true);
+    expect(ehCortesia(1)).toBe(false);
+    expect(ehCortesia(null)).toBe(false);
   });
 
   it("cada parte maior que zero", () => {

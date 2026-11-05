@@ -66,8 +66,20 @@ export function valorSugeridoNovaParte(
   return saldoCobranca(liquidoCentavos, valoresCentavos).faltaCentavos;
 }
 
-/** Primeira regra quebrada pelas partes, ou null quando a cobrança fecha. */
+/**
+ * Cortesia: total com desconto zero (valor previsto 0 ou desconto de 100%).
+ * A cobrança é registrada sem nenhuma forma de pagamento.
+ */
+export function ehCortesia(liquidoCentavos: number | null): boolean {
+  return liquidoCentavos === 0;
+}
+
+/**
+ * Primeira regra quebrada pelas partes, ou null quando a cobrança fecha.
+ * Nenhuma parte só vale na cortesia (líquido zero), como no banco (0008).
+ */
 export function erroDasPartes(liquidoCentavos: number, partes: ParteCobranca[]): string | null {
+  if (partes.length === 0 && ehCortesia(liquidoCentavos)) return null;
   if (partes.length < 1 || partes.length > MAX_PARTES) return MENSAGEM_QTD_PARTES;
   for (const p of partes) {
     if (!Number.isInteger(p.valorCentavos) || p.valorCentavos <= 0) return MENSAGEM_PARTE_ZERO;

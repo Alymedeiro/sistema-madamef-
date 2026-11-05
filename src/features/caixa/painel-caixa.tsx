@@ -375,6 +375,7 @@ export function PainelCaixa({ caixa, fechadoHoje, cobrancas }: Props) {
                     </TableCell>
                     <TableCell className="align-top">
                       <ul className="flex flex-col gap-0.5">
+                        {c.partes.length === 0 && <li>Cortesia</li>}
                         {c.partes.map((p, i) => (
                           <li key={i}>
                             {ROTULO_FORMA[p.forma]}

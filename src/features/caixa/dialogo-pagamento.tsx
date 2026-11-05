@@ -19,17 +19,11 @@ import {
   registrarCobranca,
   type EstadoCaixaHoje,
 } from "@/app/(app)/caixa/actions";
-import { erroDasPartes, saldoCobranca } from "@/lib/dominio/cobranca";
+import { ehCortesia } from "@/lib/dominio/cobranca";
 import { formatarBRL, parseBRL } from "@/lib/dominio/dinheiro";
 import { MENSAGEM_VALOR_INVALIDO } from "@/lib/validacao";
-import {
-  EditorPartes,
-  novaParte,
-  partesEditadasParaCobranca,
-  partesParaEnvio,
-  valoresDasPartes,
-  type ParteEditavel,
-} from "./editor-partes";
+import { BotaoConfirmarCobranca, cobrancaPronta, partesDaCobranca } from "./confirmar-cobranca";
+import { EditorPartes, novaParte, type ParteEditavel } from "./editor-partes";
 import { centavosParaCampo } from "./formato";
 
 export type AtendimentoParaPagar = {
@@ -132,23 +126,21 @@ function FormularioPagamento({
     }
   }
 
-  const pronto =
-    liquido !== null &&
-    saldoCobranca(liquido, valoresDasPartes(partes)).fecha &&
-    erroDasPartes(liquido, partesEditadasParaCobranca(partes)) === null;
+  const pronto = cobrancaPronta(liquido, partes);
+  const cortesia = ehCortesia(liquido);
 
   function confirmar(e: React.FormEvent) {
     e.preventDefault();
-    if (!pronto) return;
+    if (!pronto || liquido === null) return;
     setErro(null);
     iniciar(async () => {
       const r = await registrarCobranca({
         agendamentoId: atendimento.id,
         desconto,
-        partes: partesParaEnvio(partes),
+        partes: partesDaCobranca(liquido, partes),
       });
       if (r.ok) {
-        toast.success("Pagamento registrado.");
+        toast.success(ehCortesia(liquido) ? "Cortesia registrada." : "Pagamento registrado.");
         onFechar();
       } else setErro(r.erro);
     });
@@ -205,8 +197,14 @@ function FormularioPagamento({
             {erroDesconto && <p className="text-sm text-destructive">{erroDesconto}</p>}
           </div>
 
-          {liquido !== null && (
-            <EditorPartes liquidoCentavos={liquido} partes={partes} onMudar={setPartes} />
+          {cortesia ? (
+            <p role="status" data-testid="saldo-cobranca" className="rounded-md border bg-blush p-3 text-sm font-medium">
+              Total zero: a cortesia fica registrada no caixa, sem forma de pagamento.
+            </p>
+          ) : (
+            liquido !== null && (
+              <EditorPartes liquidoCentavos={liquido} partes={partes} onMudar={setPartes} />
+            )
           )}
 
           {erro && (
@@ -219,9 +217,7 @@ function FormularioPagamento({
             <Button type="button" variant="outline" onClick={onFechar} disabled={pendente}>
               Pagar depois
             </Button>
-            <Button type="submit" disabled={pendente || !pronto}>
-              Confirmar
-            </Button>
+            <BotaoConfirmarCobranca liquidoCentavos={liquido} pronto={pronto} pendente={pendente} />
           </DialogFooter>
         </form>
       )}

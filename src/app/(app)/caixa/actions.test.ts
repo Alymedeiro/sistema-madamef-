@@ -150,6 +150,28 @@ describe("registrarCobranca", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/inicio");
   });
 
+  it("cortesia (desconto de 100% ou valor 0): sem formas, RPC com p_partes []", async () => {
+    agendamentoExiste({ valor_previsto_centavos: 10000 });
+    agendamentoExiste({ valor_previsto_centavos: 0 });
+    falso.responder("rpc:registrar_cobranca", ok("cb1"), ok("cb2"));
+    expect(await registrarCobranca({ ...base, desconto: "100,00", partes: [] })).toEqual({ ok: true });
+    expect(await registrarCobranca({ ...base, desconto: "", partes: [] })).toEqual({ ok: true });
+    const chamadas = falso.chamadasRpc("registrar_cobranca");
+    expect(chamadas.map((c) => c.args[0])).toEqual([
+      expect.objectContaining({ p_desconto_centavos: 10000, p_partes: [] }),
+      expect.objectContaining({ p_desconto_centavos: 0, p_partes: [] }),
+    ]);
+  });
+
+  it("sem formas com total maior que zero: erro e nenhuma RPC", async () => {
+    agendamentoExiste();
+    expect(await registrarCobranca({ ...base, partes: [] })).toEqual({
+      ok: false,
+      erro: "Informe de 1 a 4 formas de pagamento.",
+    });
+    expect(falso.chamadasRpc("registrar_cobranca")).toHaveLength(0);
+  });
+
   it("o bruto vem do agendamento (valor previsto)", async () => {
     agendamentoExiste({ valor_previsto_centavos: 18000 });
     const r = await registrarCobranca(dividido);
