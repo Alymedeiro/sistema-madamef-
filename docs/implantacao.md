@@ -39,7 +39,7 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
 - `0006_ficha_clinica.sql`: modelos versionados de anamnese e de termo (com um modelo de anamnese e um termo genérico de exemplo), anamneses, termos assinados, fotos, evoluções, auditoria de acessos, funções de permissão e o bucket privado `ficha-clinica` (limite de 5 MB; JPEG, PNG e PDF) com suas duas políticas. **O bucket é criado pela própria migração: não o crie à mão nem o torne público.**
 - `0007_pacotes_cobranca.sql`: pacotes de sessões e cobranças com pagamento dividido (1 a 4 formas). Cada pagamento antigo vira uma cobrança, então o resultado do caixa não muda. Antes de converter, a migração presume que nenhum atendimento nem pagamento já esteja ligado a pacote (veja a conferência abaixo).
 
-**Estado atual:** a 0006 foi aplicada no projeto de testes (`myfpjwtmfonuvsrsvato`) em 2026-11-04. A 0007 ainda **não** foi aplicada no projeto de testes (a aplicação pela ferramenta pediu uma confirmação que ficou sem resposta). A produção ainda não recebeu nenhuma das duas.
+**Estado atual:** 0006 (2026-11-04) e 0007 (2026-11-05) aplicadas no projeto de testes (`myfpjwtmfonuvsrsvato`), com as conferências e os avisos do Supabase verificados (só os avisos esperados de funções chamáveis por usuário logado). A produção ainda não recebeu nenhuma das duas.
 
 **Passo manual na produção** (feito por quem tem acesso; nada disso é automático):
 
