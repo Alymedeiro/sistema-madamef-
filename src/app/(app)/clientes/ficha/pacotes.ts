@@ -42,6 +42,7 @@ export async function venderPacote(
       p_validade: d.validade,
       p_desconto_centavos: d.desconto,
       p_partes: partesParaRpc(d.partes),
+      p_id: d.id ?? null,
     });
     if (error) return erro(mensagemErroBanco(error));
     if (!data) return erro(ERRO_INESPERADO);

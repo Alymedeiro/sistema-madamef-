@@ -33,6 +33,15 @@ describe("mensagemErroBanco", () => {
     );
   });
 
+  it("venda de pacote repetida com o mesmo id (pacotes_vendidos_pkey, 0008)", () => {
+    expect(
+      mensagemErroBanco({
+        code: "23505",
+        message: 'duplicate key value violates unique constraint "pacotes_vendidos_pkey"',
+      }),
+    ).toBe("Este pacote já foi registrado.");
+  });
+
   it("o índice antigo pagamentos_agendamento_unico (removido na 0007) não tem regra própria", () => {
     expect(
       mensagemErroBanco({

@@ -60,6 +60,8 @@ function Formulario({
   const [erroCaixa, setErroCaixa] = useState<string | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [pendente, iniciar] = useTransition();
+  // Um id por venda: um segundo envio (duplo toque) falha no banco em vez de vender de novo.
+  const [idVenda] = useState(() => crypto.randomUUID());
 
   const servico = servicos.find((s) => s.id === servicoId);
   const nSessoes = sessoes.trim() === "" ? NaN : Number(sessoes);
@@ -138,6 +140,7 @@ function Formulario({
     setErro(null);
     iniciar(async () => {
       const r = await venderPacote({
+        id: idVenda,
         clienteId,
         servicoId,
         sessoes: nSessoes,

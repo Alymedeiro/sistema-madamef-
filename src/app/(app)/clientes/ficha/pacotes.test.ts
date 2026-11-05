@@ -67,6 +67,33 @@ describe("venderPacote", () => {
     ]);
   });
 
+  it("repassa o id gerado pela tela (idempotência) e sem id manda null", async () => {
+    const ID = "0b9a7c2e-1f3d-4e5a-9b8c-7d6e5f4a3b2c";
+    falso.responder("rpc:vender_pacote", { data: ID, error: null }, { data: PK, error: null });
+    expect(await venderPacote({ ...venda, id: ID })).toEqual({ ok: true, id: ID });
+    expect(await venderPacote(venda)).toEqual({ ok: true, id: PK });
+    const chamadas = falso.chamadasRpc("vender_pacote").map((c) => c.args[0] as Record<string, unknown>);
+    expect(chamadas[0].p_id).toBe(ID);
+    expect(chamadas[1].p_id).toBeNull();
+  });
+
+  it("segundo envio do mesmo id: 'Este pacote já foi registrado.'", async () => {
+    falso.responder("rpc:vender_pacote", {
+      data: null,
+      error: { code: "23505", message: 'duplicate key value violates unique constraint "pacotes_vendidos_pkey"' },
+    });
+    expect(await venderPacote({ ...venda, id: "0b9a7c2e-1f3d-4e5a-9b8c-7d6e5f4a3b2c" })).toEqual({
+      ok: false,
+      erro: "Este pacote já foi registrado.",
+    });
+  });
+
+  it("id que não é uuid é recusado sem RPC", async () => {
+    const r = await venderPacote({ ...venda, id: "x" });
+    expect(r.ok).toBe(false);
+    expect(falso.chamadasRpc("vender_pacote")).toHaveLength(0);
+  });
+
   it("desconta o desconto antes de conferir as partes", async () => {
     falso.responder("rpc:vender_pacote", { data: PK, error: null });
     const r = await venderPacote({ ...venda, desconto: "100,00" });

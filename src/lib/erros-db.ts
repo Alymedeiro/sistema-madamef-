@@ -22,6 +22,10 @@ export function mensagemErroBanco(erro: ErroBanco): string {
       if (erro.message?.includes("cobrancas_pacote_unico")) {
         return "Este pacote já foi pago.";
       }
+      // vender_pacote com o id já usado (0008): duplo toque em "Confirmar venda".
+      if (erro.message?.includes("pacotes_vendidos_pkey")) {
+        return "Este pacote já foi registrado.";
+      }
       return "Já existe um registro com estes dados.";
     case "42501":
       return "Você não tem permissão para esta ação.";

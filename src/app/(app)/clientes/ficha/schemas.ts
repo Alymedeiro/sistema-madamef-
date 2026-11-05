@@ -9,6 +9,8 @@ export const MENSAGEM_VALIDADE = "A validade não pode ser anterior a hoje.";
 
 /** Venda de pacote: o total é o bruto; as partes fecham com total − desconto. */
 export const vendaPacoteSchema = z.object({
+  /** Id do pacote gerado pela tela, um por venda: reenvio → "Este pacote já foi registrado.". */
+  id: z.uuid("Venda inválida. Feche e abra de novo.").optional(),
   clienteId: z.uuid("Escolha a cliente."),
   servicoId: z.uuid("Escolha o serviço."),
   sessoes: z
