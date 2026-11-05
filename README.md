@@ -38,7 +38,8 @@ pnpm test:db
 ## Testes de tela (`pnpm e2e`)
 
 - `e2e/visual.spec.ts` não precisa de backend: confere login e esqueci-senha nos 3 tamanhos e o manifest do PWA.
-- `agenda`, `caixa`, `permissoes` e `auth.setup` precisam de um projeto Supabase de teste; sem as variáveis de ambiente eles são pulados com uma mensagem. Veja a seção de e2e em [docs/implantacao.md](docs/implantacao.md).
+- `e2e/componentes.spec.ts` também roda sem backend (assinatura e conversor de foto, pela página de apoio `/e2e-harness`, ligada só no build do Playwright).
+- `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca` e `auth.setup` precisam de um projeto Supabase de teste; sem as variáveis de ambiente eles são pulados com uma mensagem. Veja a seção de e2e em [docs/implantacao.md](docs/implantacao.md).
 
 ## Documentação
 
