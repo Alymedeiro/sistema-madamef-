@@ -21,6 +21,12 @@ import { MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import type { AgendamentoAgenda, ProfissionalAgenda, ServicoAgenda } from "./dados-agenda";
+import {
+  pacoteMantido,
+  pacoteOferecido,
+  pacoteParaEnvio,
+  type PacoteOriginal,
+} from "./pacote-agendamento";
 import { SeletorCliente, type ClienteEscolhida } from "./seletor-cliente";
 
 export type EstadoDialogo =
@@ -139,13 +145,27 @@ function FormularioAgendamento({
     (s) => s.ativo && profissional?.servicoIds.includes(s.id),
   );
 
-  // Cliente + serviço escolhidos: procura pacote com sessão disponível (só em novo agendamento).
+  // Na edição: o pacote já vinculado e com qual cliente/serviço foi salvo.
+  const [original] = useState<PacoteOriginal | null>(() => {
+    if (estado.modo !== "editar") return null;
+    const a = estado.agendamento;
+    return {
+      pacoteId: a.pacoteVendidoId,
+      clienteId: a.clienteId,
+      servicoId: a.servicoId,
+      restantes: a.pacote ? Math.max(0, a.pacote.total - a.pacote.usadas) : null,
+    };
+  });
   const clienteId = v.cliente?.id;
+  const escolha = { original, clienteId, servicoId: v.servicoId };
+  const mantido = pacoteMantido(escolha);
+
+  // Cliente + serviço escolhidos (e sem pacote vinculado que continue valendo):
+  // procura pacote com sessão disponível. Trocar cliente/serviço limpa a lista antiga.
   useEffect(() => {
-    if (editando || !clienteId || !v.servicoId) {
-      setPacotes([]);
-      return;
-    }
+    setPacotes([]);
+    setUsarPacote(true);
+    if (mantido || !clienteId || !v.servicoId) return;
     let ativo = true;
     pacotesDisponiveis(clienteId, v.servicoId)
       .then((lista) => {
@@ -157,9 +177,10 @@ function FormularioAgendamento({
     return () => {
       ativo = false;
     };
-  }, [editando, clienteId, v.servicoId]);
+  }, [mantido, clienteId, v.servicoId]);
 
-  const pacote = pacotes[0] ?? null;
+  const pacote = pacoteOferecido({ ...escolha, disponiveis: pacotes });
+  const pacoteVendidoId = pacoteParaEnvio({ ...escolha, oferecido: pacote, usar: usarPacote });
 
   function dados(forcarForaJornada: boolean): AgendamentoInput {
     return {
@@ -171,7 +192,7 @@ function FormularioAgendamento({
       hora: v.hora,
       observacoes: v.observacoes,
       forcarForaJornada,
-      ...(!editando && pacote && usarPacote ? { pacoteVendidoId: pacote.id } : {}),
+      ...(pacoteVendidoId !== undefined ? { pacoteVendidoId } : {}),
     };
   }
 
@@ -292,7 +313,7 @@ function FormularioAgendamento({
               checked={usarPacote}
               onChange={(e) => setUsarPacote(e.target.checked)}
             />
-            Usar sessão do pacote (restam {pacote.restantes})
+            Usar sessão do pacote{pacote.restantes !== null ? ` (restam ${pacote.restantes})` : ""}
           </label>
         )}
 
