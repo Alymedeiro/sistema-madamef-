@@ -1,16 +1,27 @@
 // Pagamento dividido e pacotes ponta a ponta (só viewport desktop: há um único caixa por dia).
 // Roda contra o projeto Supabase de TESTES; sem E2E_PERMITIR_PROJETO/backend é pulado (Ruling R3).
-// ATENÇÃO: a preparação APAGA contas a receber, pagamentos, cobranças e o caixa de hoje.
+// ATENÇÃO: a preparação APAGA contas a receber, pagamentos, cobranças e o caixa de hoje, e os
+// agendamentos (não cancelados) da profissional de teste hoje 13:00–14:00 e em dataEm(6)
+// 10:00–11:00 — assim o spec roda de novo no mesmo dia. Clientes, serviços e pacotes criados
+// ficam no projeto de testes.
 import { expect, test } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
-import { clienteAdmin, entrar, prepararFicha, dataEm, type FixtureFicha } from "./ficha-suporte";
+import {
+  clienteAdmin,
+  entrar,
+  prepararFicha,
+  profissionalDeTeste,
+  dataEm,
+  type FixtureFicha,
+} from "./ficha-suporte";
 
 test.describe.configure({ mode: "serial" });
 
 let admin: SupabaseClient;
 let fx: FixtureFicha;
 const hoje = dataEm(0);
+const diaPacote = dataEm(6);
 
 async function falhar(p: PromiseLike<{ error: unknown }>) {
   const { error } = await p;
@@ -30,6 +41,22 @@ test.beforeAll(async ({}, testInfo) => {
     await falhar(admin.from("pagamentos").delete().eq("caixa_id", caixa.id));
     await falhar(admin.from("cobrancas").delete().eq("caixa_id", caixa.id));
     await falhar(admin.from("caixas").delete().eq("id", caixa.id));
+  }
+  // Horários usados pelos testes, livres de execuções anteriores (restrição de sobreposição).
+  const profissional = await profissionalDeTeste(admin);
+  for (const [dia, de, ate] of [
+    [hoje, "13:00", "14:00"],
+    [diaPacote, "10:00", "11:00"],
+  ]) {
+    await falhar(
+      admin
+        .from("agendamentos")
+        .delete()
+        .eq("profissional_id", profissional.id)
+        .neq("status", "cancelado")
+        .gte("inicio", `${dia}T${de}:00-03:00`)
+        .lt("inicio", `${dia}T${ate}:00-03:00`),
+    );
   }
   fx = await prepararFicha(admin, "13");
   // Atendimento de hoje às 13:00 (a preparação usa hoje+5; move para hoje).
@@ -68,12 +95,16 @@ test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mos
   await page.goto("/caixa");
   const linha = page.getByRole("row", { name: new RegExp(fx.cliente.nome) });
   await expect(linha.first()).toBeVisible();
+  await expect(linha.first()).toContainText(/R\$\s*70,00/);
+  await expect(linha.first()).toContainText(/R\$\s*30,00/);
   await expect(page.getByText("Pix").first()).toBeVisible();
   await expect(page.getByText("Dinheiro").first()).toBeVisible();
   await expect(page.getByRole("heading", { name: "Resumo" })).toBeVisible();
 
-  // O atendimento já pago não volta a oferecer "Lançar pagamento".
+  // O atendimento já pago não volta a oferecer "Lançar pagamento". Controle positivo: a
+  // página e o cartão carregaram (senão a ausência abaixo passaria por engano).
   await page.goto("/inicio");
+  await expect(page.getByRole("heading", { name: "Atendidos sem pagamento" })).toBeVisible();
   await expect(page.getByText(fx.cliente.nome)).toHaveCount(0);
 });
 
@@ -94,7 +125,7 @@ test("pacote: venda dividida na ficha e 'Usar sessão do pacote' na agenda", asy
   await expect(page.getByText("0/3 sessões usadas")).toBeVisible();
 
   // Novo agendamento da cliente: a caixa de seleção do pacote aparece.
-  await page.goto(`/agenda?data=${dataEm(6)}&visao=dia&prof=${fx.profissional.id}`);
+  await page.goto(`/agenda?data=${diaPacote}&visao=dia&prof=${fx.profissional.id}`);
   await page.getByRole("button", { name: `Agendar ${fx.profissional.nome} às 10:00` }).click();
   const novo = page.getByRole("dialog");
   await novo.getByLabel("Cliente").fill(fx.cliente.nome);
