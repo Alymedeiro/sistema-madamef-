@@ -25,6 +25,7 @@ import {
   pacoteMantido,
   pacoteOferecido,
   pacoteParaEnvio,
+  usarPacotePorPadrao,
   type PacoteOriginal,
 } from "./pacote-agendamento";
 import { SeletorCliente, type ClienteEscolhida } from "./seletor-cliente";
@@ -137,7 +138,6 @@ function FormularioAgendamento({
   const [encaixe, setEncaixe] = useState(false);
   const [pendente, iniciar] = useTransition();
   const [pacotes, setPacotes] = useState<{ id: string; restantes: number; validade: string | null }[]>([]);
-  const [usarPacote, setUsarPacote] = useState(true);
 
   const editando = estado.modo === "editar";
   const profissional = profissionais.find((p) => p.id === v.profissionalId);
@@ -156,6 +156,8 @@ function FormularioAgendamento({
       restantes: a.pacote ? Math.max(0, a.pacote.total - a.pacote.usadas) : null,
     };
   });
+  const usarPorPadrao = usarPacotePorPadrao(original);
+  const [usarPacote, setUsarPacote] = useState(usarPorPadrao);
   const clienteId = v.cliente?.id;
   const escolha = { original, clienteId, servicoId: v.servicoId };
   const mantido = pacoteMantido(escolha);
@@ -164,20 +166,20 @@ function FormularioAgendamento({
   // procura pacote com sessão disponível. Trocar cliente/serviço limpa a lista antiga.
   useEffect(() => {
     setPacotes([]);
-    setUsarPacote(true);
+    setUsarPacote(usarPorPadrao);
     if (mantido || !clienteId || !v.servicoId) return;
     let ativo = true;
     pacotesDisponiveis(clienteId, v.servicoId)
       .then((lista) => {
         if (!ativo) return;
         setPacotes(lista);
-        setUsarPacote(true);
+        setUsarPacote(usarPorPadrao);
       })
       .catch(() => ativo && setPacotes([]));
     return () => {
       ativo = false;
     };
-  }, [mantido, clienteId, v.servicoId]);
+  }, [mantido, clienteId, v.servicoId, usarPorPadrao]);
 
   const pacote = pacoteOferecido({ ...escolha, disponiveis: pacotes });
   const pacoteVendidoId = pacoteParaEnvio({ ...escolha, oferecido: pacote, usar: usarPacote });

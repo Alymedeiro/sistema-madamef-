@@ -43,3 +43,12 @@ export function pacoteParaEnvio(
   // Pacote antigo de outra cliente/serviço (ou desmarcado): limpa.
   return e.original?.pacoteId ? null : undefined;
 }
+
+/**
+ * Estado inicial da caixa "Usar sessão do pacote": marcada em agendamento novo
+ * e na edição de um já vinculado; na edição de um sem pacote, a remarcação não
+ * deve consumir sessão sem querer — a caixa começa desmarcada (opt-in).
+ */
+export function usarPacotePorPadrao(original: PacoteOriginal | null): boolean {
+  return !original || !!original.pacoteId;
+}

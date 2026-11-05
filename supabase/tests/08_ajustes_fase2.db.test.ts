@@ -352,6 +352,58 @@ describe("atendimento ligado à ficha é da mesma cliente", () => {
   });
 });
 
+describe("trocar a cliente de atendimento com ficha", () => {
+  const msg = "Este atendimento já tem fotos, termo ou evolução; não é possível trocar a cliente.";
+
+  it("com foto, termo ou evolução: trocar cliente_id é recusado; sem eles, ou sem mudar, passa", async () => {
+    await comoSuperusuario(async (c) => {
+      await c.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ sub: recepcao, role: "authenticated" }),
+      ]);
+      const foto = caminho(cli, "fotos", "jpg");
+      const png = caminho(cli, "termos", "png");
+      const pdf = caminho(cli, "termos", "pdf");
+      for (const n of [foto, png, pdf]) await c.query(SQL_OBJ, [n]);
+      const comFoto = await agendar(c);
+      const comTermo = await agendar(c);
+      const comEvo = await agendar(c);
+      const livre = await agendar(c);
+      await c.query(
+        `insert into fotos (cliente_id, agendamento_id, tipo, path, enviada_por) values ($1, $2, 'antes', $3, $4)`,
+        [cli, comFoto, foto, profAId],
+      );
+      await c.query(INSERT_TERMO, [cli, termoV1, comTermo, png, pdf, HASH]);
+      await c.query(
+        `insert into evolucoes (cliente_id, agendamento_id, profissional_id, texto) values ($1, $2, $3, 'ok')`,
+        [cli, comEvo, profAId],
+      );
+      const trocar = "update agendamentos set cliente_id = $2 where id = $1";
+      for (const ag of [comFoto, comTermo, comEvo]) {
+        expect((await falha(c, trocar, [ag, outraCli])).message).toBe(msg);
+        // Mesma cliente (sem mudança real) continua permitido.
+        await c.query(trocar, [ag, cli]);
+        await c.query("update agendamentos set observacoes = 'x' where id = $1", [ag]);
+      }
+      await c.query(trocar, [livre, outraCli]);
+      throw new Error("ROLLBACK");
+    }).catch((e: Error) => {
+      if (e.message !== "ROLLBACK") throw e;
+    });
+  });
+
+  it("função do gatilho: ninguém executa diretamente", async () => {
+    const r = await comoSuperusuario((c) =>
+      c.query(
+        `select p.prosecdef as definer, p.proconfig as config,
+                has_function_privilege('authenticated', p.oid, 'execute') as auth,
+                has_function_privilege('anon', p.oid, 'execute') as anon
+         from pg_proc p where p.proname = 'agendamentos_cliente_com_ficha'`,
+      ),
+    );
+    expect(r.rows[0]).toEqual({ definer: true, config: ['search_path=""'], auth: false, anon: false });
+  });
+});
+
 describe("pacote em atendimento já cobrado", () => {
   it("vincular pacote depois da cobrança é recusado", async () => {
     await comoUsuario(recepcao, async (c) => {

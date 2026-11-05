@@ -38,7 +38,7 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
 
 - `0006_ficha_clinica.sql`: modelos versionados de anamnese e de termo (com um modelo de anamnese e um termo genérico de exemplo), anamneses, termos assinados, fotos, evoluções, auditoria de acessos, funções de permissão e o bucket privado `ficha-clinica` (limite de 5 MB; JPEG, PNG e PDF) com suas duas políticas. **O bucket é criado pela própria migração: não o crie à mão nem o torne público.**
 - `0007_pacotes_cobranca.sql`: pacotes de sessões e cobranças com pagamento dividido (1 a 4 formas). Cada pagamento antigo vira uma cobrança, então o resultado do caixa não muda. Antes de converter, a migração presume que nenhum atendimento nem pagamento já esteja ligado a pacote (veja a conferência abaixo).
-- `0008_ajustes_fase2.sql`: ajustes da revisão final — cortesia (atendimento de total zero é confirmado sem forma de pagamento e sai das listas "sem pagamento"); termos e anamneses só são gravados com os arquivos já no bucket, e cada arquivo serve a um único registro; a versão da anamnese tem de ser a do modelo; foto, termo e evolução ligados a um atendimento têm de ser da mesma cliente; pacote não pode ser usado em atendimento já cobrado; a venda de pacote não se repete num duplo toque.
+- `0008_ajustes_fase2.sql`: ajustes da revisão final — cortesia (atendimento de total zero é confirmado sem forma de pagamento e sai das listas "sem pagamento"); termos e anamneses só são gravados com os arquivos já no bucket, e cada arquivo serve a um único registro; a versão da anamnese tem de ser a do modelo; foto, termo e evolução ligados a um atendimento têm de ser da mesma cliente, e a cliente de um atendimento que já tem foto, termo ou evolução não pode ser trocada; pacote não pode ser usado em atendimento já cobrado; a venda de pacote não se repete num duplo toque.
 
 **Estado atual:** 0006 (2026-11-04) e 0007 (2026-11-05) aplicadas no projeto de testes (`myfpjwtmfonuvsrsvato`), com as conferências e os avisos do Supabase verificados (só os avisos esperados de funções chamáveis por usuário logado). A 0008 ainda não foi aplicada no projeto de testes. A produção ainda não recebeu nenhuma das três.
 
@@ -50,6 +50,12 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
    - `select count(*) from agendamentos where pacote_vendido_id is not null;`
    - `select count(*) from pagamentos where origem = 'pacote';`
    - Antes da 0008 (se 0006 já estiver aplicada; também devem devolver `0`): `select count(*) - count(distinct pdf_path) from termos_assinados;`, `select count(*) - count(distinct assinatura_path) from termos_assinados;` e `select count(*) - count(distinct assinatura_path) from anamneses;`
+   - Ainda antes da 0008 — registros ligados a atendimento de outra cliente (cada uma deve devolver `0`):
+     `select count(*) from termos_assinados x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;`,
+     `select count(*) from fotos x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;` e
+     `select count(*) from evolucoes x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;`
+   - E anamnese com versão que não existe no modelo (deve devolver `0`):
+     `select count(*) from anamneses x where not exists (select 1 from modelos_anamnese m where m.id = x.modelo_id and m.versao = x.modelo_versao);`
 3. Aplique `0006_ficha_clinica.sql`, depois `0007_pacotes_cobranca.sql` e, por fim, `0008_ajustes_fase2.sql` (SQL Editor, ou `pnpm supabase link --project-ref vxvrzhskytsbreexnbun && pnpm supabase db push`).
 4. Confira o resultado:
    - `select id, public, file_size_limit from storage.buckets where id = 'ficha-clinica';` deve dar `public = false` e `5242880`;
@@ -57,6 +63,8 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
    - `select count(*) from pg_policies where schemaname = 'storage' and policyname like 'ficha_clinica_%';` deve dar `2`;
    - `select versao, ativo from modelos_anamnese;` deve dar `1, true`;
    - `select pg_get_function_identity_arguments('public.vender_pacote'::regproc);` deve terminar em `p_id uuid` (0008).
+   - `select rolbypassrls from pg_roles where rolname = (select proowner::regrole::name from pg_proc where proname = 'arquivo_ficha_existe');` deve dar `t` (0008: a função que confere os arquivos do bucket precisa enxergar `storage.objects` sem RLS; se der `f`, toda anamnese e todo termo novo são recusados).
+   - **No projeto de testes, antes da produção:** depois de aplicar a 0008 lá, rode `pnpm e2e e2e/ficha.spec.ts -g "anamnese no tablet|termo: colhido"` (anamnese e termo gravados de ponta a ponta com os arquivos no bucket). Só siga para a produção com os dois passando.
 5. Revise com a clínica o texto do modelo de anamnese e do termo genérico (são exemplos) em Configurações.
 
 **Limitações aceitas**
@@ -64,6 +72,7 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
 - Auditoria: as leituras feitas pelo sistema são registradas. Uma pessoa autorizada que consulte o PostgREST ou o Storage diretamente, com o próprio login, **não** deixa registro de leitura (as escritas são sempre registradas por gatilho).
 - A exportação dos dados da cliente (`/clientes/<id>/exportar`) tem `maxDuration` de 60 s; uma ficha com muitas fotos pode estourar esse tempo.
 - `situacao_ficha` (data da última anamnese e "tem alerta") e `agendamentos_com_termo_pendente` devolvem só esses indicadores (datas e verdadeiro/falso) e são lidos **sem** registro na auditoria; o conteúdo da anamnese ou do termo só é entregue depois de `registrar_acesso`.
+- Termo: a `modelo_versao` gravada **não** é conferida contra o modelo num insert feito direto pelo PostgREST (a anamnese é conferida por gatilho). O servidor grava a versão correta, e mesmo num insert direto o PDF e a assinatura têm de ser arquivos que já existem no bucket (`arquivo_ficha_existe`), cada um usado uma única vez.
 - A entrega do tablet para a cliente (anamnese e termo em tela cheia) **não tem trava de saída**: a cliente pode sair da tela e navegar no sistema com o login de quem entregou. Entregue e receba o tablet em mãos.
 
 **Testes de tela da Fase 2:** `e2e/componentes.spec.ts` (assinatura e conversor de foto) roda sem backend, usando a página de apoio `/e2e-harness`, que só existe quando o build é feito com `NEXT_PUBLIC_E2E_HARNESS=1` (o Playwright liga essa variável sozinho; em qualquer outro build a rota responde 404 e o middleware não a libera). `ficha.spec.ts` e `cobranca.spec.ts` exigem o projeto de testes com 0006, 0007 e 0008 aplicadas.

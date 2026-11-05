@@ -40,9 +40,29 @@ export function arquivosDaExportacao(l: {
   ];
 }
 
-function ler<T>(res: { data: T[] | null; error: { message: string } | null }, o: string): T[] {
-  if (res.error) throw new Error(`Falha ao carregar ${o}: ${res.error.message}`);
-  return res.data ?? [];
+/** Linhas por página: o PostgREST do Supabase devolve no máximo 1000 por consulta. */
+export const PAGINA_EXPORTACAO = 1000;
+
+/**
+ * Lê todas as linhas de uma consulta, página por página (`range`), até uma
+ * página curta — sem isso o PostgREST corta em 1000 e o `dados.json` sairia
+ * incompleto sem aviso. A consulta deve ter ordem total (termina em `id`).
+ */
+async function lerTodas<T>(
+  pagina: (
+    de: number,
+    ate: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  o: string,
+): Promise<T[]> {
+  const todas: T[] = [];
+  for (let de = 0; ; de += PAGINA_EXPORTACAO) {
+    const res = await pagina(de, de + PAGINA_EXPORTACAO - 1);
+    if (res.error) throw new Error(`Falha ao carregar ${o}: ${res.error.message}`);
+    const linhas = res.data ?? [];
+    todas.push(...linhas);
+    if (linhas.length < PAGINA_EXPORTACAO) return todas;
+  }
 }
 
 /**
@@ -60,46 +80,136 @@ export async function gerarZipExportacao(
 ): Promise<{ nome: string; corpo: ReadableStream<Uint8Array> }> {
   await registrarAcesso(supabase, { entidade: "exportacao", clienteId });
 
-  const [cli, ag, an, te, fo, ev, pa, co, pg, cr, au] = await Promise.all([
+  const [
+    cli,
+    agendamentos,
+    anamneses,
+    termos,
+    fotos,
+    evolucoes,
+    pacotes,
+    cobrancas,
+    partes,
+    contasReceber,
+    auditoria,
+  ] = await Promise.all([
     supabase.from("clientes").select("*").eq("id", clienteId).maybeSingle(),
-    supabase.from("agendamentos").select("*").eq("cliente_id", clienteId).order("inicio"),
-    supabase
-      .from("anamneses")
-      .select("*, modelos_anamnese(perguntas)")
-      .eq("cliente_id", clienteId)
-      .order("preenchida_em"),
-    supabase
-      .from("termos_assinados")
-      .select("*, modelos_termo(titulo, texto)")
-      .eq("cliente_id", clienteId)
-      .order("assinado_em"),
-    supabase.from("fotos").select("*").eq("cliente_id", clienteId).order("tirada_em"),
-    supabase.from("evolucoes").select("*").eq("cliente_id", clienteId).order("criado_em"),
-    supabase.from("pacotes_vendidos").select("*").eq("cliente_id", clienteId).order("vendido_em"),
-    supabase.from("cobrancas").select("*").eq("cliente_id", clienteId).order("lancada_em"),
-    supabase.from("pagamentos").select("*").eq("cliente_id", clienteId).order("criado_em"),
-    supabase
-      .from("contas_receber")
-      .select("*")
-      .eq("cliente_id", clienteId)
-      .order("vencimento")
-      .order("numero"),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("agendamentos")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("inicio")
+          .order("id")
+          .range(de, ate),
+      "os agendamentos",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("anamneses")
+          .select("*, modelos_anamnese(perguntas)")
+          .eq("cliente_id", clienteId)
+          .order("preenchida_em")
+          .order("id")
+          .range(de, ate),
+      "as anamneses",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("termos_assinados")
+          .select("*, modelos_termo(titulo, texto)")
+          .eq("cliente_id", clienteId)
+          .order("assinado_em")
+          .order("id")
+          .range(de, ate),
+      "os termos",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("fotos")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("tirada_em")
+          .order("id")
+          .range(de, ate),
+      "as fotos",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("evolucoes")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("criado_em")
+          .order("id")
+          .range(de, ate),
+      "as evoluções",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("pacotes_vendidos")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("vendido_em")
+          .order("id")
+          .range(de, ate),
+      "os pacotes",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("cobrancas")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("lancada_em")
+          .order("id")
+          .range(de, ate),
+      "as cobranças",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("pagamentos")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("criado_em")
+          .order("id")
+          .range(de, ate),
+      "os pagamentos",
+    ),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("contas_receber")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("vencimento")
+          .order("numero")
+          .order("id")
+          .range(de, ate),
+      "as contas a receber",
+    ),
     // Registro de acessos à ficha (inclui o desta exportação, gravado acima).
-    supabase.from("auditoria").select("*").eq("cliente_id", clienteId).order("ocorrido_em"),
+    lerTodas(
+      (de, ate) =>
+        supabase
+          .from("auditoria")
+          .select("*")
+          .eq("cliente_id", clienteId)
+          .order("ocorrido_em")
+          .order("id")
+          .range(de, ate),
+      "o registro de acessos",
+    ),
   ]);
   if (cli.error) throw new Error(`Falha ao carregar a cliente: ${cli.error.message}`);
   if (!cli.data) throw new Error("Cliente não encontrada");
   const cliente = cli.data;
-  const agendamentos = ler(ag, "os agendamentos");
-  const anamneses = ler(an, "as anamneses");
-  const termos = ler(te, "os termos");
-  const fotos = ler(fo, "as fotos");
-  const evolucoes = ler(ev, "as evoluções");
-  const pacotes = ler(pa, "os pacotes");
-  const cobrancas = ler(co, "as cobranças");
-  const partes = ler(pg, "os pagamentos");
-  const contasReceber = ler(cr, "as contas a receber");
-  const auditoria = ler(au, "o registro de acessos");
 
   const um = <T,>(v: T | T[] | null | undefined): T | null =>
     Array.isArray(v) ? (v[0] ?? null) : (v ?? null);

@@ -10,7 +10,8 @@
 --      arquivo serve a um único registro. A versão da anamnese tem de ser a do
 --      modelo informado.
 --   3. Foto, termo e evolução ligados a um atendimento: o atendimento tem de
---      ser da mesma cliente.
+--      ser da mesma cliente; e a cliente de um atendimento que já tem foto,
+--      termo ou evolução não pode ser trocada.
 --   4. Pacote não pode ser vinculado a um atendimento que já tem cobrança.
 --   5. vender_pacote idempotente: p_id opcional gerado pela tela; repetir o
 --      mesmo id falha com 23505 (pacotes_vendidos_pkey) em vez de vender duas
@@ -406,6 +407,32 @@ begin
 end
 $$;
 
+-- O outro lado: atendimento que já tem foto, termo ou evolução não muda de
+-- cliente (os registros ficariam presos a um atendimento de outra pessoa).
+-- security definer: confere todas as linhas, mesmo as que a usuária não vê.
+create function public.agendamentos_cliente_com_ficha()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.cliente_id is distinct from old.cliente_id and (
+    exists (select 1 from public.fotos f where f.agendamento_id = new.id)
+    or exists (select 1 from public.termos_assinados t where t.agendamento_id = new.id)
+    or exists (select 1 from public.evolucoes e where e.agendamento_id = new.id)
+  ) then
+    raise exception 'Este atendimento já tem fotos, termo ou evolução; não é possível trocar a cliente.'
+      using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+create trigger agendamentos_cliente_com_ficha
+  before update of cliente_id on public.agendamentos
+  for each row execute function public.agendamentos_cliente_com_ficha();
+
 -- =============================================================================
 -- 5. Pacote em atendimento já cobrado
 -- =============================================================================
@@ -461,4 +488,5 @@ $$;
 -- =============================================================================
 revoke execute on function public.anamneses_valida_modelo() from public, anon, authenticated;
 revoke execute on function public.ficha_atendimento_da_cliente() from public, anon, authenticated;
+revoke execute on function public.agendamentos_cliente_com_ficha() from public, anon, authenticated;
 revoke execute on function public.agendamentos_pacote_valida() from public, anon, authenticated;

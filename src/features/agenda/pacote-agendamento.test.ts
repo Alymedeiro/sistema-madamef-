@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { pacoteOferecido, pacoteParaEnvio, type PacoteOriginal } from "./pacote-agendamento";
+import {
+  pacoteOferecido,
+  pacoteParaEnvio,
+  usarPacotePorPadrao,
+  type PacoteOriginal,
+} from "./pacote-agendamento";
 
 const C = "cliente-1";
 const S = "servico-1";
@@ -59,5 +64,21 @@ describe("pacoteParaEnvio", () => {
     expect(pacoteParaEnvio({ original: semPacote, clienteId: C, servicoId: S, oferecido, usar: true })).toBe(NOVO_P);
     expect(pacoteParaEnvio({ original: semPacote, clienteId: C, servicoId: S, oferecido, usar: false })).toBeUndefined();
     expect(pacoteOferecido({ original: semPacote, clienteId: C, servicoId: S, disponiveis })).toEqual(oferecido);
+  });
+});
+
+describe("usarPacotePorPadrao", () => {
+  it("novo agendamento e edição com pacote: caixa marcada por padrão", () => {
+    expect(usarPacotePorPadrao(null)).toBe(true);
+    expect(usarPacotePorPadrao(original)).toBe(true);
+  });
+
+  it("edição de agendamento sem pacote: caixa desmarcada por padrão", () => {
+    const semPacote: PacoteOriginal = { ...original, pacoteId: null, restantes: null };
+    const usar = usarPacotePorPadrao(semPacote);
+    expect(usar).toBe(false);
+    // Remarcar sem marcar a caixa não envia pacoteVendidoId.
+    const oferecido = pacoteOferecido({ original: semPacote, clienteId: C, servicoId: S, disponiveis });
+    expect(pacoteParaEnvio({ original: semPacote, clienteId: C, servicoId: S, oferecido, usar })).toBeUndefined();
   });
 });

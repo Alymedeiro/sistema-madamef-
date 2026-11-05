@@ -22,6 +22,7 @@ const METODOS = [
   "or",
   "order",
   "limit",
+  "range",
   "maybeSingle",
   "single",
 ];
