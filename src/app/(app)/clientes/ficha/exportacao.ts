@@ -60,7 +60,7 @@ export async function gerarZipExportacao(
 ): Promise<{ nome: string; corpo: ReadableStream<Uint8Array> }> {
   await registrarAcesso(supabase, { entidade: "exportacao", clienteId });
 
-  const [cli, ag, an, te, fo, ev, pa, co, pg] = await Promise.all([
+  const [cli, ag, an, te, fo, ev, pa, co, pg, cr, au] = await Promise.all([
     supabase.from("clientes").select("*").eq("id", clienteId).maybeSingle(),
     supabase.from("agendamentos").select("*").eq("cliente_id", clienteId).order("inicio"),
     supabase
@@ -78,6 +78,14 @@ export async function gerarZipExportacao(
     supabase.from("pacotes_vendidos").select("*").eq("cliente_id", clienteId).order("vendido_em"),
     supabase.from("cobrancas").select("*").eq("cliente_id", clienteId).order("lancada_em"),
     supabase.from("pagamentos").select("*").eq("cliente_id", clienteId).order("criado_em"),
+    supabase
+      .from("contas_receber")
+      .select("*")
+      .eq("cliente_id", clienteId)
+      .order("vencimento")
+      .order("numero"),
+    // Registro de acessos à ficha (inclui o desta exportação, gravado acima).
+    supabase.from("auditoria").select("*").eq("cliente_id", clienteId).order("ocorrido_em"),
   ]);
   if (cli.error) throw new Error(`Falha ao carregar a cliente: ${cli.error.message}`);
   if (!cli.data) throw new Error("Cliente não encontrada");
@@ -90,6 +98,8 @@ export async function gerarZipExportacao(
   const pacotes = ler(pa, "os pacotes");
   const cobrancas = ler(co, "as cobranças");
   const partes = ler(pg, "os pagamentos");
+  const contasReceber = ler(cr, "as contas a receber");
+  const auditoria = ler(au, "o registro de acessos");
 
   const um = <T,>(v: T | T[] | null | undefined): T | null =>
     Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
@@ -116,6 +126,8 @@ export async function gerarZipExportacao(
       ...c,
       partes: partes.filter((p) => p.cobranca_id === c.id),
     })),
+    contas_receber: contasReceber,
+    auditoria,
     arquivos_indisponiveis: indisponiveis,
   });
 

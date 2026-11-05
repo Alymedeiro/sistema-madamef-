@@ -41,6 +41,8 @@ function prepararFicha() {
   falso.responder("pacotes_vendidos", ok([{ id: "P1" }]));
   falso.responder("cobrancas", ok([{ id: "B1" }]));
   falso.responder("pagamentos", ok([{ id: "M1", cobranca_id: "B1", valor_centavos: 100 }]));
+  falso.responder("contas_receber", ok([{ id: "R1", numero: 1, valor_centavos: 100 }]));
+  falso.responder("auditoria", ok([{ id: "U1", acao: "visualizou", entidade: "exportacao" }]));
   admin.definirPadrao(ok(null));
 }
 
@@ -78,6 +80,12 @@ describe("GET /clientes/[id]/exportar", () => {
       { id: "M1", cobranca_id: "B1", valor_centavos: 100 },
     ]);
     expect(dados.anamneses[0].perguntas).toEqual([{ id: "q" }]);
+    // LGPD: contas a receber e o registro de acessos da cliente também saem.
+    expect(dados.contas_receber).toEqual([{ id: "R1", numero: 1, valor_centavos: 100 }]);
+    expect(dados.auditoria).toEqual([{ id: "U1", acao: "visualizou", entidade: "exportacao" }]);
+    for (const tabela of ["contas_receber", "auditoria"]) {
+      expect(falso.chamadasDe(tabela, "eq").map((c) => c.args)).toContainEqual(["cliente_id", C]);
+    }
     expect(dados.arquivos_indisponiveis).toEqual([]);
 
     expect(falso.chamadasRpc("registrar_acesso")[0].args[0]).toEqual({
