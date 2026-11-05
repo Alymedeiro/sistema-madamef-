@@ -50,10 +50,14 @@ const RESPOSTAS_NAO = {
   anticoagulante: false,
 };
 
-function insertAnamnese(
+// 0008: anamnese e termo só gravam com os arquivos já no bucket (o servidor
+// envia antes de inserir); os atalhos gravam os objetos antes, como superusuário.
+async function insertAnamnese(
   cliente: string,
   o: { pathDe?: string; respostas?: object } = {},
 ) {
+  const assinatura = png(o.pathDe ?? cliente, "anamneses");
+  await q(SQL_OBJ, [assinatura]);
   return {
     text: `insert into anamneses (cliente_id, modelo_id, modelo_versao, respostas, assinatura_path)
            select $1, id, versao, $2::jsonb, $3 from modelos_anamnese where ativo
@@ -61,7 +65,7 @@ function insertAnamnese(
     values: [
       cliente,
       JSON.stringify(o.respostas ?? RESPOSTAS_NAO),
-      png(o.pathDe ?? cliente, "anamneses"),
+      assinatura,
     ],
   };
 }
@@ -73,12 +77,19 @@ function insertEvolucao(ag: string, cliente: string, texto = "Pele reagiu bem") 
   };
 }
 
-function insertTermo(cliente: string, modelo: string, versao = 1) {
+async function insertTermo(
+  cliente: string,
+  modelo: string,
+  o: { pdfDe?: string; hash?: string } = {},
+) {
+  const assinatura = png(cliente, "termos");
+  const arquivo = pdf(o.pdfDe ?? cliente);
+  for (const n of [assinatura, arquivo]) await q(SQL_OBJ, [n]);
   return {
     text: `insert into termos_assinados
              (cliente_id, modelo_termo_id, modelo_versao, assinatura_path, pdf_path, hash_sha256, dispositivo)
            values ($1, $2, $3, $4, $5, $6, 'iPad') returning id`,
-    values: [cliente, modelo, versao, png(cliente, "termos"), pdf(cliente), HASH],
+    values: [cliente, modelo, 1, assinatura, arquivo, o.hash ?? HASH],
   };
 }
 
@@ -234,10 +245,10 @@ describe("anamneses", () => {
   });
 
   it("recepção aplica; profissional não; caminho de outra cliente viola o check", async () => {
-    await comoUsuario(recepcao, (c) => c.query(insertAnamnese(cli)));
-    await comoUsuario(profA, (c) => esperarErroSql(c.query(insertAnamnese(cli)), "42501"));
-    await comoUsuario(recepcao, (c) =>
-      esperarErroSql(c.query(insertAnamnese(cli, { pathDe: cli2 })), "23514"),
+    await comoUsuario(recepcao, async (c) => c.query(await insertAnamnese(cli)));
+    await comoUsuario(profA, async (c) => esperarErroSql(c.query(await insertAnamnese(cli)), "42501"));
+    await comoUsuario(recepcao, async (c) =>
+      esperarErroSql(c.query(await insertAnamnese(cli, { pathDe: cli2 })), "23514"),
     );
   });
 
@@ -252,21 +263,17 @@ describe("anamneses", () => {
 describe("termos assinados", () => {
   it("dona, recepção e profissional vinculada colhem; sem vínculo não", async () => {
     for (const uid of [dona, recepcao, profA]) {
-      await comoUsuario(uid, (c) => c.query(insertTermo(cli, termoV1)));
+      await comoUsuario(uid, async (c) => c.query(await insertTermo(cli, termoV1)));
     }
-    await comoUsuario(profB, (c) => esperarErroSql(c.query(insertTermo(cli, termoV1)), "42501"));
+    await comoUsuario(profB, async (c) => esperarErroSql(c.query(await insertTermo(cli, termoV1)), "42501"));
   });
 
   it("hash e caminhos são conferidos", async () => {
     await comoUsuario(dona, async (c) => {
-      const t = insertTermo(cli, termoV1);
-      t.values[5] = "XYZ";
-      await esperarErroSql(c.query(t), "23514");
+      await esperarErroSql(c.query(await insertTermo(cli, termoV1, { hash: "XYZ" })), "23514");
     });
     await comoUsuario(dona, async (c) => {
-      const t = insertTermo(cli, termoV1);
-      t.values[4] = pdf(cli2);
-      await esperarErroSql(c.query(t), "23514");
+      await esperarErroSql(c.query(await insertTermo(cli, termoV1, { pdfDe: cli2 })), "23514");
     });
   });
 });
@@ -275,8 +282,11 @@ describe("evoluções", () => {
   it("profissional registra no próprio atendimento; outros não", async () => {
     await comoUsuario(profA, (c) => c.query(insertEvolucao(agDeA, cli)));
     await comoUsuario(profA, (c) => esperarErroSql(c.query(insertEvolucao(agDeB, cli2)), "42501"));
-    // Atendimento dela, mas de outra cliente.
-    await comoUsuario(profA, (c) => esperarErroSql(c.query(insertEvolucao(agDeA, cli2)), "42501"));
+    // Atendimento dela, mas de outra cliente (0008: o gatilho recusa antes da política).
+    const outra = await comoUsuario(profA, (c) =>
+      esperarErroSql(c.query(insertEvolucao(agDeA, cli2)), "P0001"),
+    );
+    expect(outra.message).toBe("O atendimento é de outra cliente.");
     await comoUsuario(recepcao, (c) => esperarErroSql(c.query(insertEvolucao(agDeA, cli)), "42501"));
     await comoUsuario(profA, (c) => esperarErroSql(c.query(insertEvolucao(agDeA, cli, " ")), "23514"));
   });
@@ -351,6 +361,9 @@ describe("fotos", () => {
   });
 
   it("foto arquivada some para a profissional e gera auditoria 'arquivou'", async () => {
+    // Outros testes deixam objetos confirmados no bucket: compara antes e depois.
+    const objetosProfA = await comoUsuario(profA, (c) => contar(c, "storage.objects"));
+    const objetosDona = await comoUsuario(dona, (c) => contar(c, "storage.objects"));
     await comoUsuario(dona, async (c) => {
       await c.query("update fotos set arquivada = true where id = $1", [fotoId]);
       await c.query("set local role authenticated");
@@ -358,12 +371,12 @@ describe("fotos", () => {
         JSON.stringify({ sub: profA, role: "authenticated" }),
       ]);
       expect(await contar(c, "fotos")).toBe(0);
-      // O arquivo também some do Storage para ela (3 → 2); a dona ainda vê.
-      expect(await contar(c, "storage.objects")).toBe(2);
+      // O arquivo também some do Storage para ela (um a menos); a dona ainda vê.
+      expect(await contar(c, "storage.objects")).toBe(objetosProfA - 1);
       await c.query("select set_config('request.jwt.claims', $1, true)", [
         JSON.stringify({ sub: dona, role: "authenticated" }),
       ]);
-      expect(await contar(c, "storage.objects")).toBe(3);
+      expect(await contar(c, "storage.objects")).toBe(objetosDona);
       await comoSuper(c);
       const r = await c.query(
         "select acao, entidade, colaborador_id, cliente_id from auditoria where entidade_id = $1 and acao = 'arquivou'",
@@ -379,7 +392,7 @@ describe("fotos", () => {
 describe("auditoria", () => {
   it("inserir anamnese grava 'criou'", async () => {
     await comoUsuario(recepcao, async (c) => {
-      const id = (await c.query(insertAnamnese(cli))).rows[0].id;
+      const id = (await c.query(await insertAnamnese(cli))).rows[0].id;
       await comoSuper(c);
       const r = await c.query(
         "select acao, entidade, colaborador_id, cliente_id from auditoria where entidade_id = $1",
@@ -546,7 +559,7 @@ describe("pendências e alertas", () => {
   it("termo pendente até assinar a versão atual", async () => {
     await comoUsuario(dona, async (c) => {
       expect(await idsDe(c, SQL_PENDENTES, [[agTermo, agDeA]])).toEqual([agTermo]);
-      await c.query(insertTermo(cli, termoV1));
+      await c.query(await insertTermo(cli, termoV1));
       expect(await idsDe(c, SQL_PENDENTES, [[agTermo, agDeA]])).toEqual([]);
       await c.query("select salvar_modelo_termo($1, 'Termo', 'Texto v2')", [termoV1]);
       expect(await idsDe(c, SQL_PENDENTES, [[agTermo, agDeA]])).toEqual([agTermo]);
@@ -561,16 +574,16 @@ describe("pendências e alertas", () => {
         { cliente_id: cli, tem: true, tem_alerta: false },
         { cliente_id: cli2, tem: false, tem_alerta: false },
       ]);
-      await c.query(insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, gestante: true } }));
+      await c.query(await insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, gestante: true } }));
       expect((await situacao(c, [cli])).rows).toEqual([{ cliente_id: cli, tem: true, tem_alerta: true }]);
     });
     await comoUsuario(recepcao, async (c) => {
-      await c.query(insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, alergias: { sim: true, detalhe: "Dipirona" } } }));
+      await c.query(await insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, alergias: { sim: true, detalhe: "Dipirona" } } }));
       expect((await situacao(c, [cli])).rows).toEqual([{ cliente_id: cli, tem: true, tem_alerta: true }]);
     });
     await comoUsuario(recepcao, async (c) => {
       // "sim" em pergunta sem alerta não conta.
-      await c.query(insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, medicamentos: { sim: true }, sol: true } }));
+      await c.query(await insertAnamnese(cli, { respostas: { ...RESPOSTAS_NAO, medicamentos: { sim: true }, sol: true } }));
       expect((await situacao(c, [cli])).rows).toEqual([{ cliente_id: cli, tem: true, tem_alerta: false }]);
     });
     // Profissional B só enxerga a cliente vinculada a ela.
@@ -587,7 +600,7 @@ describe("pendências e alertas", () => {
     expect(await comoUsuario(dona, (c) => idsDe(c, sql, ["2030-07-11", "2030-07-31"]))).toEqual([]);
     expect(await comoUsuario(recepcao, (c) => idsDe(c, sql, ["2030-07-01", "2030-07-31"]))).toEqual([]);
     await comoUsuario(dona, async (c) => {
-      await c.query(insertTermo(cli, termoV1));
+      await c.query(await insertTermo(cli, termoV1));
       expect(await idsDe(c, sql, ["2030-07-01", "2030-07-31"])).toEqual([]);
     });
     const e = await comoUsuario(dona, (c) =>

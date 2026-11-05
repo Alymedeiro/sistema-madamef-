@@ -1,5 +1,5 @@
 // Tipos do banco no formato gerado por `supabase gen types typescript`.
-// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0007);
+// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0008);
 // cada migração nova atualiza este arquivo. Regenerar com o CLI quando houver
 // um projeto Supabase real: `supabase gen types typescript --local`.
 
@@ -1348,6 +1348,8 @@ export type Database = {
       }
       aniversario_no_ano: { Args: { p_nascimento: string; p_ano: number }; Returns: string }
       area_do_caminho: { Args: { p_nome: string }; Returns: string | null }
+      // 0008: o objeto existe no bucket ficha-clinica (usada pelas políticas de insert).
+      arquivo_ficha_existe: { Args: { p_nome: string }; Returns: boolean }
       // 0006: só a dona (demais: vazio); dias de São Paulo, no máximo 62 dias.
       atendimentos_sem_termo: { Args: { p_de: string; p_ate: string }; Returns: string[] }
       caixa_aberto_hoje_id: { Args: never; Returns: string | null }
@@ -1404,6 +1406,7 @@ export type Database = {
       // 0007: p_partes = 1 a 4 { forma, valor_centavos, parcelas, vencimentos?,
       // valores_parcelas? } somando bruto − desconto; devolve o id da cobrança.
       // Segunda cobrança do mesmo atendimento/pacote → 23505.
+      // 0008: cortesia — p_partes = [] quando bruto − desconto = 0.
       registrar_cobranca: {
         Args: {
           p_agendamento: string | null
@@ -1446,10 +1449,12 @@ export type Database = {
         }[]
       }
       // 0007: cria o pacote e a cobrança dele; devolve o id do pacote.
+      // 0008: p_id opcional (gerado pela tela); repetir o id → 23505 pacotes_vendidos_pkey.
       vender_pacote: {
         Args: {
           p_cliente: string
           p_desconto_centavos: number
+          p_id?: string | null
           p_partes: Json
           p_servico: string
           p_total_sessoes: number
