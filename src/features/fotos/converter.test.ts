@@ -1,7 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { MAX_BYTES_FOTO } from "@/lib/dominio/fotos";
-import { MENSAGEM_FOTO_ILEGIVEL } from "@/lib/dominio/fotos";
-import { comprimirAteCaber, precisaConverterHeic } from "./converter";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  MAX_BYTES_ENTRADA_FOTO,
+  MAX_BYTES_FOTO,
+  MENSAGEM_FOTO_GRANDE,
+  MENSAGEM_FOTO_ILEGIVEL,
+} from "@/lib/dominio/fotos";
+import { comprimirAteCaber, converterParaJpeg, precisaConverterHeic } from "./converter";
 
 const blob = (n: number) => ({ size: n }) as Blob;
 
@@ -40,5 +44,51 @@ describe("precisaConverterHeic", () => {
     expect(precisaConverterHeic({ type: "", name: "a.HEIF" })).toBe(true);
     expect(precisaConverterHeic({ type: "image/jpeg", name: "a.jpg" })).toBe(false);
     expect(precisaConverterHeic({ type: "application/pdf", name: "a.pdf" })).toBe(false);
+  });
+});
+
+describe("converterParaJpeg", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  /** Canvas falso que registra a ordem das operações de desenho. */
+  function prepararCanvas() {
+    const ops: string[] = [];
+    const ctx = {
+      set fillStyle(v: string) {
+        ops.push(`fillStyle=${v}`);
+      },
+      fillRect: (...a: number[]) => ops.push(`fillRect ${a.join(" ")}`),
+      drawImage: () => ops.push("drawImage"),
+    };
+    const canvas = {
+      width: 0,
+      height: 0,
+      getContext: () => ctx,
+      toBlob: (cb: (b: Blob | null) => void) => cb({ size: 1000, type: "image/jpeg" } as Blob),
+    };
+    const fechar = vi.fn();
+    const decodificar = vi.fn(async () => ({ width: 100, height: 50, close: fechar }));
+    vi.stubGlobal("document", { createElement: () => canvas });
+    vi.stubGlobal("createImageBitmap", decodificar);
+    return { ops, decodificar, fechar };
+  }
+
+  it("pinta o fundo de branco antes de desenhar (PNG transparente não fica preto)", async () => {
+    const { ops, fechar } = prepararCanvas();
+    const r = await converterParaJpeg(new File([new Uint8Array(10)], "a.png", { type: "image/png" }));
+    expect(r.size).toBe(1000);
+    expect(ops).toEqual(["fillStyle=#ffffff", "fillRect 0 0 100 50", "drawImage"]);
+    expect(fechar).toHaveBeenCalled();
+  });
+
+  it("arquivo acima de 30 MB é recusado antes de decodificar", async () => {
+    const { decodificar } = prepararCanvas();
+    expect(MAX_BYTES_ENTRADA_FOTO).toBe(30 * 1024 * 1024);
+    const grande = { name: "a.jpg", type: "image/jpeg", size: MAX_BYTES_ENTRADA_FOTO + 1 } as File;
+    await expect(converterParaJpeg(grande)).rejects.toThrow(MENSAGEM_FOTO_GRANDE);
+    expect(decodificar).not.toHaveBeenCalled();
+    // Exatamente 30 MB ainda passa.
+    const limite = { name: "a.jpg", type: "image/jpeg", size: MAX_BYTES_ENTRADA_FOTO } as File;
+    await expect(converterParaJpeg(limite)).resolves.toBeDefined();
   });
 });

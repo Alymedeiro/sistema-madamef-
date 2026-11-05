@@ -88,6 +88,23 @@ export async function carregarAlertasCabecalho(
   };
 }
 
+/**
+ * Cabeçalho da ficha para a página: uma falha (situação, leitura ou registro
+ * do acesso) não derruba a ficha inteira; a página avisa que os alertas não
+ * puderam ser carregados. Sem acesso registrado, nenhum alerta é entregue.
+ */
+export async function carregarCabecalhoFicha(
+  supabase: Supabase,
+  clienteId: string,
+  agora: Date = new Date(),
+): Promise<{ falhou: boolean; pendente: boolean; alertas: string[] }> {
+  try {
+    return { falhou: false, ...(await carregarAlertasCabecalho(supabase, clienteId, agora)) };
+  } catch {
+    return { falhou: true, pendente: false, alertas: [] };
+  }
+}
+
 export type TermosFicha = {
   assinados: {
     id: string;

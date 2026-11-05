@@ -14,6 +14,9 @@ export const ROTULO_TIPO_FOTO: Record<TipoFoto, string> = {
 export const MAX_LADO_FOTO = 2560;
 /** Tamanho máximo do JPEG enviado (igual ao limite do bucket). */
 export const MAX_BYTES_FOTO = 5 * 1024 * 1024;
+/** Maior arquivo aceito para conversão no navegador (decodificar mais que isso trava o celular). */
+export const MAX_BYTES_ENTRADA_FOTO = 30 * 1024 * 1024;
+export const MENSAGEM_FOTO_GRANDE = "A foto é grande demais (máximo 30 MB). Escolha outra foto.";
 /** Qualidades tentadas, da melhor para a menor, até caber em `MAX_BYTES_FOTO`. */
 export const QUALIDADES_JPEG = [0.85, 0.75, 0.65, 0.5];
 

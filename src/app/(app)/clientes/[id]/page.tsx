@@ -27,8 +27,8 @@ import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
 import {
-  carregarAlertasCabecalho,
   carregarAnamneses,
+  carregarCabecalhoFicha,
   carregarEvolucoes,
   carregarFotos,
   carregarPacotes,
@@ -145,7 +145,8 @@ export default async function ClientePage({
   );
 
   const [cabecalho, anamneses, termos, fotos, evolucoes, pacotes, servicosVenda] = await Promise.all([
-    carregarAlertasCabecalho(supabase, c.id),
+    // Falha no cabeçalho não derruba a ficha: vira um aviso abaixo.
+    carregarCabecalhoFicha(supabase, c.id),
     aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
     aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
     // `abas` já exclui "fotos" para a recepção; o RLS barra de novo no banco.
@@ -196,8 +197,13 @@ export default async function ClientePage({
         ) : null}
       </div>
 
-      {cabecalho.alertas.length > 0 || cabecalho.pendente ? (
+      {cabecalho.alertas.length > 0 || cabecalho.pendente || cabecalho.falhou ? (
         <div className="flex flex-col gap-2">
+          {cabecalho.falhou ? (
+            <p role="alert" className="rounded-lg border bg-muted p-3 text-sm font-medium">
+              Não foi possível carregar os alertas da anamnese
+            </p>
+          ) : null}
           {cabecalho.alertas.length > 0 ? (
             <p
               role="alert"

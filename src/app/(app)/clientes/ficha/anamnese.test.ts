@@ -19,7 +19,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.client
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => admin.cliente }));
 
 import { registrarAnamnese, urlAssinaturaAnamnese } from "./anamnese";
-import { carregarAlertasCabecalho, carregarAnamneses } from "./dados";
+import { carregarAlertasCabecalho, carregarAnamneses, carregarCabecalhoFicha } from "./dados";
 import type { Supabase } from "@/lib/ficha/acesso";
 
 const C = "5b0c1d52-3c4e-4f6a-8b7d-1a2b3c4d5e6f";
@@ -197,6 +197,42 @@ describe("dados da ficha", () => {
     expect(falso.chamadasRpc("registrar_acesso")[0].args[0]).toMatchObject({
       p_entidade: "anamneses",
       p_entidade_id: "a1",
+    });
+  });
+
+  it("cabeçalho da página: falha vira { falhou: true } em vez de derrubar a ficha", async () => {
+    const agora = new Date("2026-11-04T12:00:00Z");
+    falso.responder("rpc:situacao_ficha", { data: null, error: { code: "XX000", message: "boom" } });
+    expect(await carregarCabecalhoFicha(falso.cliente as unknown as Supabase, C, agora)).toEqual({
+      falhou: true,
+      pendente: false,
+      alertas: [],
+    });
+
+    // Auditoria da leitura falhou: o alerta não é entregue.
+    falso.responder("rpc:situacao_ficha", {
+      data: [{ cliente_id: C, ultima_anamnese_em: "2026-10-01T12:00:00Z", tem_alerta: true }],
+      error: null,
+    });
+    falso.responder("anamneses", {
+      data: { id: "a1", respostas: { gestante: true }, modelos_anamnese: { perguntas: P } },
+      error: null,
+    });
+    falso.responder("rpc:registrar_acesso", { data: null, error: { code: "P0001", message: "Acesso não autorizado" } });
+    expect(await carregarCabecalhoFicha(falso.cliente as unknown as Supabase, C, agora)).toEqual({
+      falhou: true,
+      pendente: false,
+      alertas: [],
+    });
+
+    falso.responder("rpc:situacao_ficha", {
+      data: [{ cliente_id: C, ultima_anamnese_em: null, tem_alerta: false }],
+      error: null,
+    });
+    expect(await carregarCabecalhoFicha(falso.cliente as unknown as Supabase, C, agora)).toEqual({
+      falhou: false,
+      pendente: true,
+      alertas: [],
     });
   });
 });

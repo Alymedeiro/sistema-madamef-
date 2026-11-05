@@ -1,5 +1,7 @@
 import {
+  MAX_BYTES_ENTRADA_FOTO,
   MAX_BYTES_FOTO,
+  MENSAGEM_FOTO_GRANDE,
   MENSAGEM_FOTO_ILEGIVEL,
   QUALIDADES_JPEG,
   dimensoesAlvo,
@@ -32,10 +34,12 @@ async function decodificar(arquivo: Blob): Promise<ImageBitmap> {
 }
 
 /**
- * Converte a foto escolhida em JPEG de no máximo 2560 px e 5 MB (navegador).
+ * Converte a foto escolhida em JPEG de no máximo 2560 px e 5 MB (navegador),
+ * com fundo branco. Arquivo de entrada acima de 30 MB é recusado.
  * HEIC/HEIF que o navegador não abre é convertido com `heic2any` (carregado sob demanda).
  */
 export async function converterParaJpeg(arquivo: File): Promise<Blob> {
+  if (arquivo.size > MAX_BYTES_ENTRADA_FOTO) throw new Error(MENSAGEM_FOTO_GRANDE);
   let imagem: ImageBitmap;
   try {
     imagem = await decodificar(arquivo);
@@ -57,6 +61,9 @@ export async function converterParaJpeg(arquivo: File): Promise<Blob> {
     canvas.height = altura;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error(MENSAGEM_FOTO_ILEGIVEL);
+    // JPEG não tem transparência: sem fundo, o transparente de um PNG vira preto.
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, largura, altura);
     ctx.drawImage(imagem, 0, 0, largura, altura);
     return await comprimirAteCaber(
       (q) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", q)),

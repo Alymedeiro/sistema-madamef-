@@ -17,6 +17,7 @@ import {
 } from "@/lib/dominio/fotos";
 import { BUCKET_FICHA, caminhoArquivo } from "@/lib/ficha/caminhos";
 import { createBrowserClient } from "@/lib/supabase/client";
+import { comProgresso } from "./progresso";
 
 export type AtendimentoOpcao = {
   id: string;
@@ -55,42 +56,47 @@ export function AdicionarFotos({
     const validos = arquivos.filter(arquivoDeImagemAceito);
     if (validos.length === 0) return;
 
-    const atendimento = atendimentos.find((a) => a.id === atendimentoId);
-    const supabase = createBrowserClient();
-    const enviadas: string[] = [];
+    try {
+      await comProgresso(setProgresso, async () => {
+        const atendimento = atendimentos.find((a) => a.id === atendimentoId);
+        const supabase = createBrowserClient();
+        const enviadas: string[] = [];
 
-    for (const [i, arquivo] of validos.entries()) {
-      setProgresso(`Enviando foto ${i + 1} de ${validos.length}…`);
-      try {
-        const blob = await converterParaJpeg(arquivo as File);
-        const path = caminhoArquivo(clienteId, "fotos", crypto.randomUUID(), "jpg");
-        const { error } = await supabase.storage
-          .from(BUCKET_FICHA)
-          .upload(path, blob, { contentType: "image/jpeg", upsert: false });
-        if (error) throw new Error("Não foi possível enviar a foto. Tente novamente.");
-        enviadas.push(path);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Não foi possível enviar a foto.");
-      }
-    }
+        for (const [i, arquivo] of validos.entries()) {
+          setProgresso(`Enviando foto ${i + 1} de ${validos.length}…`);
+          try {
+            const blob = await converterParaJpeg(arquivo as File);
+            const path = caminhoArquivo(clienteId, "fotos", crypto.randomUUID(), "jpg");
+            const { error } = await supabase.storage
+              .from(BUCKET_FICHA)
+              .upload(path, blob, { contentType: "image/jpeg", upsert: false });
+            if (error) throw new Error("Não foi possível enviar a foto. Tente novamente.");
+            enviadas.push(path);
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Não foi possível enviar a foto.");
+          }
+        }
 
-    if (enviadas.length > 0) {
-      setProgresso("Salvando…");
-      const r = await registrarFotos(
-        clienteId,
-        enviadas.map((path) => ({
-          path,
-          tipo,
-          servicoId: atendimento?.servicoId ?? null,
-          agendamentoId: atendimento?.id ?? null,
-        })),
-      );
-      if (r.ok) {
-        toast.success(enviadas.length === 1 ? "Foto adicionada." : `${enviadas.length} fotos adicionadas.`);
-        router.refresh();
-      } else toast.error(r.erro);
+        if (enviadas.length > 0) {
+          setProgresso("Salvando…");
+          const r = await registrarFotos(
+            clienteId,
+            enviadas.map((path) => ({
+              path,
+              tipo,
+              servicoId: atendimento?.servicoId ?? null,
+              agendamentoId: atendimento?.id ?? null,
+            })),
+          );
+          if (r.ok) {
+            toast.success(enviadas.length === 1 ? "Foto adicionada." : `${enviadas.length} fotos adicionadas.`);
+            router.refresh();
+          } else toast.error(r.erro);
+        }
+      });
+    } catch {
+      toast.error("Não foi possível salvar as fotos. Tente novamente.");
     }
-    setProgresso(null);
   }
 
   return (
