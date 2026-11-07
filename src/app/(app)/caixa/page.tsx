@@ -1,4 +1,4 @@
-import { CaixasNaoFechados, PainelCaixa, type LancamentoPainel } from "@/features/caixa/painel-caixa";
+import { CaixasNaoFechados, PainelCaixa, type CobrancaPainel } from "@/features/caixa/painel-caixa";
 import type { FormaPagamento } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
@@ -26,22 +26,30 @@ export default async function CaixaPage() {
   const caixaHoje = hoje?.id ? hoje : null;
   const aberto = caixaHoje && !caixaHoje.fechado_em ? caixaHoje : null;
 
-  let lancamentos: LancamentoPainel[] = [];
+  let cobrancas: CobrancaPainel[] = [];
   if (aberto) {
     const { data, error } = await supabase
-      .from("pagamentos")
-      .select("id, forma, parcelas, valor_centavos, desconto_centavos, criado_em, clientes(nome)")
+      .from("cobrancas")
+      .select(
+        "id, origem, valor_bruto_centavos, desconto_centavos, lancada_em, clientes(nome), pagamentos(forma, parcelas, valor_centavos, desconto_centavos)",
+      )
       .eq("caixa_id", aberto.id)
-      .order("criado_em", { ascending: true });
+      .order("lancada_em", { ascending: true });
     if (error) throw new Error(`Falha ao carregar os lançamentos: ${error.message}`);
-    lancamentos = (data ?? []).map((p) => ({
-      id: p.id,
-      hora: formatarNoFuso(p.criado_em, "HH:mm"),
-      clienteNome: p.clientes?.nome ?? "—",
-      forma: p.forma as FormaPagamento,
-      parcelas: p.parcelas,
-      valorCentavos: p.valor_centavos,
-      descontoCentavos: p.desconto_centavos,
+    cobrancas = (data ?? []).map((c) => ({
+      id: c.id,
+      hora: formatarNoFuso(c.lancada_em, "HH:mm"),
+      clienteNome: c.clientes?.nome ?? "—",
+      origem: c.origem,
+      brutoCentavos: c.valor_bruto_centavos,
+      descontoCentavos: c.desconto_centavos,
+      // As partes de uma cobrança são gravadas na mesma transação (mesmo criado_em).
+      partes: (c.pagamentos ?? []).map((p) => ({
+        forma: p.forma as FormaPagamento,
+        parcelas: p.parcelas,
+        valorCentavos: p.valor_centavos,
+        descontoCentavos: p.desconto_centavos,
+      })),
     }));
   }
 
@@ -101,7 +109,7 @@ export default async function CaixaPage() {
       <PainelCaixa
         caixa={aberto ? { id: aberto.id, valorInicialCentavos: aberto.valor_inicial_centavos } : null}
         fechadoHoje={!!caixaHoje && !aberto}
-        lancamentos={lancamentos}
+        cobrancas={cobrancas}
       />
 
       {ehDona && <CaixasNaoFechados caixas={naoFechados} />}

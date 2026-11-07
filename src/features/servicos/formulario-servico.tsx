@@ -24,10 +24,13 @@ type Valores = {
   diasRetorno: string;
   permiteOnline: boolean;
   exigeAvaliacao: boolean;
+  modeloTermoId: string;
 };
 
 type Props = {
   categorias: CategoriaOpcao[];
+  /** Termos de consentimento ativos. */
+  termos?: { id: string; titulo: string }[];
   /** Presente na edição. */
   servico?: {
     id: string;
@@ -39,6 +42,7 @@ type Props = {
     diasRetorno: number | null;
     permiteOnline: boolean;
     exigeAvaliacao: boolean;
+    modeloTermoId: string | null;
   };
 };
 
@@ -49,11 +53,12 @@ const CAMPOS_ERRO: Record<string, keyof Valores> = {
   duracaoMin: "duracaoMin",
   precoCentavos: "preco",
   diasRetorno: "diasRetorno",
+  modeloTermoId: "modeloTermoId",
 };
 
 const texto = (n: number) => (Number.isFinite(n) ? String(n) : "");
 
-export function FormularioServico({ categorias, servico }: Props) {
+export function FormularioServico({ categorias, termos = [], servico }: Props) {
   const router = useRouter();
   const idBase = useId();
   const editando = servico !== undefined;
@@ -67,6 +72,7 @@ export function FormularioServico({ categorias, servico }: Props) {
     diasRetorno: servico?.diasRetorno ? texto(servico.diasRetorno) : "",
     permiteOnline: servico?.permiteOnline ?? false,
     exigeAvaliacao: servico?.exigeAvaliacao ?? false,
+    modeloTermoId: servico?.modeloTermoId ?? "",
   });
   const [erros, setErros] = useState<Partial<Record<keyof Valores, string>>>({});
   const [pendente, iniciar] = useTransition();
@@ -87,6 +93,7 @@ export function FormularioServico({ categorias, servico }: Props) {
       diasRetorno: valores.diasRetorno.trim() === "" ? null : Number(valores.diasRetorno),
       permiteOnline: valores.permiteOnline,
       exigeAvaliacao: valores.exigeAvaliacao,
+      modeloTermoId: valores.modeloTermoId,
     };
     const check = servicoSchema.safeParse(dados);
     if (!check.success) {
@@ -224,6 +231,27 @@ export function FormularioServico({ categorias, servico }: Props) {
           Depois de quantos dias a cliente deve voltar. Deixe vazio se não há retorno.
         </p>
         {erroDe("diasRetorno")}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={campo("modeloTermoId")}>Termo de consentimento</Label>
+        <Select
+          id={campo("modeloTermoId")}
+          value={valores.modeloTermoId}
+          onChange={(e) => definir("modeloTermoId", e.target.value)}
+          {...aria("modeloTermoId")}
+        >
+          <option value="">Nenhum</option>
+          {termos.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.titulo}
+            </option>
+          ))}
+        </Select>
+        <p className="text-sm text-muted-foreground">
+          Se escolhido, a agenda avisa quando a cliente ainda não assinou este termo.
+        </p>
+        {erroDe("modeloTermoId")}
       </div>
 
       <fieldset className="flex flex-col gap-2">

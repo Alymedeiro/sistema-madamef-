@@ -22,6 +22,7 @@ const METODOS = [
   "or",
   "order",
   "limit",
+  "range",
   "maybeSingle",
   "single",
 ];
@@ -53,6 +54,36 @@ export function criarSupabaseFalso() {
   return {
     cliente: {
       from: (tabela: string) => consulta(tabela),
+      storage: {
+        from: (bucket: string) => {
+          const tabela = `storage:${bucket}`;
+          const chamar = (metodo: string, args: unknown[], padraoResp: Resposta) => {
+            chamadas.push({ tabela, metodo, args });
+            return Promise.resolve(filas.get(`${tabela}:${metodo}`)?.shift() ?? padraoResp);
+          };
+          return {
+            upload: (path: string, corpo: unknown, opcoes?: unknown) =>
+              chamar("upload", [path, corpo, opcoes], { data: { path }, error: null }),
+            remove: (paths: string[]) => chamar("remove", [paths], { data: [], error: null }),
+            createSignedUrl: (path: string, segundos: number) =>
+              chamar("createSignedUrl", [path, segundos], {
+                data: { signedUrl: `https://assinada/${path}` },
+                error: null,
+              }),
+            createSignedUrls: (paths: string[], segundos: number) =>
+              chamar("createSignedUrls", [paths, segundos], {
+                data: paths.map((path) => ({
+                  path,
+                  signedUrl: `https://assinada/${path}`,
+                  error: null,
+                })),
+                error: null,
+              }),
+            download: (path: string) =>
+              chamar("download", [path], { data: new Blob([]), error: null }),
+          };
+        },
+      },
       // RPCs usam a fila "rpc:<nome>" e ficam em `chamadas` com tabela "rpc:<nome>".
       rpc: (nome: string, args?: unknown) => {
         chamadas.push({ tabela: `rpc:${nome}`, metodo: "rpc", args: [args] });

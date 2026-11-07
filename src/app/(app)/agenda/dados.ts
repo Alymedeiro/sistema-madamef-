@@ -29,7 +29,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       // Inclui inativas: quem tem atendimento no período continua com coluna.
       supabase.from("colaboradores").select("id, nome, cor, ativo").order("nome"),
       supabase.from("colaborador_servicos").select("colaborador_id, servico_id"),
-      supabase.from("servicos").select("id, nome, duracao_min, preco_centavos, ativo"),
+      supabase.from("servicos").select("id, nome, duracao_min, preco_centavos, ativo, modelo_termo_id"),
       supabase.from("jornadas").select("colaborador_id, dia_semana, hora_inicio, hora_fim"),
       supabase
         .from("bloqueios_agenda")
@@ -39,7 +39,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       supabase
         .from("agendamentos")
         .select(
-          "id, profissional_id, cliente_id, servico_id, inicio, fim, status, observacoes, valor_previsto_centavos, clientes(nome)",
+          "id, profissional_id, cliente_id, servico_id, inicio, fim, status, observacoes, valor_previsto_centavos, pacote_vendido_id, clientes(nome), pacotes_vendidos(sessoes_usadas, total_sessoes)",
         )
         .lt("inicio", fim)
         .gt("fim", inicio)
@@ -54,7 +54,19 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
         : Promise.resolve({ data: [] as string[], error: null }),
     ]);
 
-  for (const r of [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
+  // Situação da ficha (alerta e pendência) das clientes do período: só indicadores.
+  const clienteIds = [...new Set((agendamentos.data ?? []).map((a) => a.cliente_id))];
+  const situacao = clienteIds.length
+    ? await supabase.rpc("situacao_ficha", { p_clientes: clienteIds })
+    : { data: [], error: null };
+
+  // Atendimentos do período cujo serviço exige termo ainda não assinado (só o indicador).
+  const agendamentoIds = (agendamentos.data ?? []).map((a) => a.id);
+  const termos = agendamentoIds.length
+    ? await supabase.rpc("agendamentos_com_termo_pendente", { p_ids: agendamentoIds })
+    : { data: [] as string[], error: null };
+
+  for (const r of [termos, situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);
   }
 
@@ -68,7 +80,10 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       agendamentos: agendamentos.data ?? [],
       horarioFuncionamento: config.data?.horario_funcionamento ?? {},
       semPagamento: semPagamento.data ?? [],
+      situacaoFicha: situacao.data ?? [],
+      termoPendente: termos.data ?? [],
     },
     { perfil: colaborador.perfil, colaboradorId: colaborador.id },
+    new Date(),
   );
 }

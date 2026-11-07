@@ -4,7 +4,7 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => null }));
 
-import { aniversariantesDaSemana, atendidosSemPagamento } from "./dados";
+import { aniversariantesDaSemana, atendidosSemPagamento, atendidosSemTermo } from "./dados";
 
 const ok = (data: unknown) => ({ data, error: null });
 
@@ -96,5 +96,45 @@ describe("atendidosSemPagamento", () => {
     falso.responder("rpc:agendamentos_sem_pagamento_periodo", ok([]));
     expect(await atendidosSemPagamento(falso.cliente as never, "2026-10-28", "2026-11-03")).toEqual([]);
     expect(falso.chamadasDe("agendamentos")).toHaveLength(0);
+  });
+});
+
+describe("atendidosSemTermo", () => {
+  it("consulta o período, devolve o atendimento com a cliente e pula a segunda consulta se vazio", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:atendimentos_sem_termo", ok(["a1"]));
+    falso.responder(
+      "agendamentos",
+      ok([
+        {
+          id: "a1",
+          inicio: "2026-11-03T15:00:00+00:00",
+          cliente_id: "c1",
+          clientes: { nome: "Ana" },
+          servicos: { nome: "Peeling" },
+        },
+      ]),
+    );
+    const r = await atendidosSemTermo(falso.cliente as never, "2026-10-06", "2026-11-04");
+    expect(falso.chamadasRpc("atendimentos_sem_termo")[0].args[0]).toEqual({
+      p_de: "2026-10-06",
+      p_ate: "2026-11-04",
+    });
+    expect(r).toEqual([
+      { id: "a1", inicio: "2026-11-03T15:00:00+00:00", clienteId: "c1", clienteNome: "Ana", servicoNome: "Peeling" },
+    ]);
+
+    const vazio = criarSupabaseFalso();
+    vazio.responder("rpc:atendimentos_sem_termo", ok([]));
+    expect(await atendidosSemTermo(vazio.cliente as never, "2026-10-06", "2026-11-04")).toEqual([]);
+    expect(vazio.chamadasDe("agendamentos")).toHaveLength(0);
+  });
+
+  it("erro do banco é lançado", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:atendimentos_sem_termo", { data: null, error: { message: "x" } });
+    await expect(atendidosSemTermo(falso.cliente as never, "a", "b")).rejects.toThrow(
+      "Falha ao carregar os atendimentos sem termo",
+    );
   });
 });

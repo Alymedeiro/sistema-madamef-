@@ -39,6 +39,11 @@ export const servicoSchema = z.object({
     .max(3650, "O retorno pode ter no máximo 3650 dias.")
     .nullish()
     .transform((v) => v ?? null),
+  // Termo de consentimento exigido pelo serviço ("" ou ausente = nenhum).
+  modeloTermoId: z
+    .union([z.literal(""), z.uuid("Escolha um termo válido."), z.null()])
+    .optional()
+    .transform((v) => v || null),
 });
 
 export type ServicoInput = z.input<typeof servicoSchema>;

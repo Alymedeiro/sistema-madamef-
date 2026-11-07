@@ -2,9 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useDraggable } from "@dnd-kit/core";
-import { CalendarClock, FileUser, Wallet } from "lucide-react";
+import { CalendarClock, FileSignature, FileUser, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { alterarStatus } from "@/app/(app)/agenda/actions";
+import { SecaoEvolucaoAtendimento } from "@/features/ficha/evolucoes/secao-evolucao-atendimento";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import { COR_STATUS, transicaoPermitida, type StatusAgendamento } from "@/lib/dominio/status";
@@ -50,9 +51,28 @@ export function ConteudoCartao({ agendamento: a }: { agendamento: AgendamentoAge
         {horaNoFuso(a.inicio)}–{horaNoFuso(a.fim)} · {a.clienteNome}
       </span>
       <span className="block truncate">{a.servicoNome}</span>
-      <span className="block truncate text-xs">{COR_STATUS[a.status].rotulo}</span>
+      <span className="block truncate text-xs">
+        {COR_STATUS[a.status].rotulo}
+        {a.pacote ? ` · Pacote ${a.pacote.usadas}/${a.pacote.total}` : ""}
+      </span>
+      {a.alertaAnamnese || a.anamnesePendente || termoAberto(a) ? (
+        <span className="block truncate text-xs font-medium">
+          {[
+            a.alertaAnamnese ? "⚠ Atenção" : null,
+            a.anamnesePendente ? "Anamnese pendente" : null,
+            termoAberto(a) ? "Termo pendente" : null,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+      ) : null}
     </>
   );
+}
+
+/** Termo ainda por assinar num atendimento que não foi cancelado nem faltou. */
+function termoAberto(a: AgendamentoAgenda): boolean {
+  return a.termoPendente && a.status !== "cancelado" && a.status !== "faltou";
 }
 
 const CLASSE_CARTAO =
@@ -78,7 +98,7 @@ export function CartaoAgendamento({
       {...(arrastavel ? listeners : {})}
       {...(arrastavel ? attributes : {})}
       onClick={onAbrir}
-      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}`}
+      aria-label={`${horaNoFuso(agendamento.inicio)} ${agendamento.clienteNome}, ${agendamento.servicoNome}, ${COR_STATUS[agendamento.status].rotulo}${agendamento.alertaAnamnese ? ", atenção na anamnese" : ""}${agendamento.anamnesePendente ? ", anamnese pendente" : ""}${termoAberto(agendamento) ? ", termo pendente" : ""}${agendamento.pacote ? `, pacote ${agendamento.pacote.usadas} de ${agendamento.pacote.total}` : ""}`}
       data-status={agendamento.status}
       className={cn(
         CLASSE_CARTAO,
@@ -133,12 +153,22 @@ export function DetalhesAgendamento({
   onAbrirPagamento,
 }: PropsDetalhes) {
   const router = useRouter();
+  const pathname = usePathname();
+  const busca = useSearchParams().toString();
   const [pendente, iniciar] = useTransition();
   const [confirmandoCancelamento, setConfirmandoCancelamento] = useState(false);
 
   function fechar() {
     setConfirmandoCancelamento(false);
     onFechar();
+  }
+
+  /** Tablet do termo; ao concluir, volta para esta mesma agenda (mesma data e visão). */
+  function hrefTermo(ag: AgendamentoAgenda): string {
+    const voltar = busca ? `${pathname}?${busca}` : pathname;
+    const q = new URLSearchParams({ agendamento: ag.id, voltar });
+    if (ag.modeloTermoId) q.set("modelo", ag.modeloTermoId);
+    return `/tablet/termo/${ag.clienteId}?${q.toString()}`;
   }
 
   function mudar(para: StatusAgendamento) {
@@ -156,6 +186,12 @@ export function DetalhesAgendamento({
       }
       toast.success(`Status alterado para ${COR_STATUS[para].rotulo.toLowerCase()}.`);
       fechar();
+      if (r.termoPendente) {
+        toast.warning(`Termo pendente: ${a.clienteNome} ainda não assinou o termo deste serviço.`, {
+          duration: 15_000,
+          action: { label: "Colher assinatura", onClick: () => router.push(hrefTermo(a)) },
+        });
+      }
       if (r.abrirPagamento) onAbrirPagamento(a);
     });
   }
@@ -189,7 +225,16 @@ export function DetalhesAgendamento({
                 </Badge>
               </dd>
               <dt className="text-muted-foreground">Valor previsto</dt>
-              <dd>{formatarBRL(a.valorPrevistoCentavos)}</dd>
+              <dd>
+                {a.pacoteVendidoId ? (
+                  <>
+                    Sessão do pacote — já paga
+                    {a.pacote ? ` (${a.pacote.usadas}/${a.pacote.total})` : ""}
+                  </>
+                ) : (
+                  formatarBRL(a.valorPrevistoCentavos)
+                )}
+              </dd>
               {a.observacoes && (
                 <>
                   <dt className="text-muted-foreground">Observações</dt>
@@ -197,6 +242,29 @@ export function DetalhesAgendamento({
                 </>
               )}
             </dl>
+
+            {a.status !== "cancelado" && (
+              <SecaoEvolucaoAtendimento
+                key={a.id}
+                agendamentoId={a.id}
+                podeAdicionar={perfil === "profissional"}
+              />
+            )}
+
+            {termoAberto(a) && (
+              <div
+                role="alert"
+                className="flex flex-wrap items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm"
+              >
+                <p className="font-semibold">Termo pendente</p>
+                <Button asChild size="sm" className="ml-auto">
+                  <Link href={hrefTermo(a)}>
+                    <FileSignature aria-hidden />
+                    Colher assinatura
+                  </Link>
+                </Button>
+              </div>
+            )}
 
             {destinos.length > 0 && (
               <div className="flex flex-col gap-2">

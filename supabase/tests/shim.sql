@@ -80,3 +80,91 @@ alter default privileges in schema public
   grant all on sequences to anon, authenticated, service_role;
 alter default privileges in schema public
   grant all on functions to anon, authenticated, service_role;
+
+-- =============================================================================
+-- Storage — SOMENTE PARA TESTES — no Supabase real o schema storage já existe
+-- (mantido por supabase_storage_admin, com RLS ligado em storage.objects).
+--
+-- Modelo mínimo com as mesmas colunas, chaves e funções auxiliares do Supabase
+-- (storage.foldername / filename / extension), para que as políticas escritas
+-- nas migrações para o Supabase real rodem aqui sem mudança. Tamanho e tipo
+-- dos arquivos são conferidos pela API do Storage, não pelo banco.
+-- =============================================================================
+create schema if not exists storage;
+grant usage on schema storage to anon, authenticated, service_role;
+
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  owner uuid,
+  owner_id text,
+  public boolean default false,
+  avif_autodetection boolean default false,
+  file_size_limit bigint,
+  allowed_mime_types text[],
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+create unique index if not exists bname on storage.buckets (name);
+
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text references storage.buckets (id),
+  name text,
+  owner uuid,
+  owner_id text,
+  metadata jsonb,
+  user_metadata jsonb,
+  version text,
+  path_tokens text[] generated always as (string_to_array(name, '/')) stored,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  last_accessed_at timestamptz default now()
+);
+create unique index if not exists bucketid_objname on storage.objects (bucket_id, name);
+
+alter table storage.buckets enable row level security;
+alter table storage.objects enable row level security;
+
+grant all on storage.buckets to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects
+  to anon, authenticated, service_role;
+
+-- Mesmas definições do Supabase.
+create or replace function storage.foldername(name text) returns text[]
+language plpgsql immutable
+as $$
+declare
+  _parts text[];
+begin
+  select string_to_array(name, '/') into _parts;
+  return _parts[1:array_length(_parts, 1) - 1];
+end
+$$;
+
+create or replace function storage.filename(name text) returns text
+language plpgsql immutable
+as $$
+declare
+  _parts text[];
+begin
+  select string_to_array(name, '/') into _parts;
+  return _parts[array_length(_parts, 1)];
+end
+$$;
+
+create or replace function storage.extension(name text) returns text
+language plpgsql immutable
+as $$
+declare
+  _parts text[];
+  _filename text;
+begin
+  select string_to_array(name, '/') into _parts;
+  select _parts[array_length(_parts, 1)] into _filename;
+  return reverse(split_part(reverse(_filename), '.', 1));
+end
+$$;
+
+grant execute on function storage.foldername(text), storage.filename(text),
+  storage.extension(text) to anon, authenticated, service_role;

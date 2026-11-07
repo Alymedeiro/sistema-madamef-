@@ -28,7 +28,7 @@ Copie `.env.example` para `.env.local` e preencha as variáveis do Supabase.
 
 ## Testes de banco (`pnpm test:db`)
 
-Precisam de um Postgres 16 acessível. Por padrão usam `postgres://postgres:postgres@127.0.0.1:5432/madame_test`; para outro endereço defina `DATABASE_URL_TEST`. A cada execução o banco `madame_test` é recriado: aplica `supabase/tests/shim.sql` (imita roles e `auth` do Supabase, **só para testes**) e depois as migrations em ordem.
+Precisam de um Postgres 16 acessível. Por padrão usam `postgres://postgres:postgres@127.0.0.1:5432/madame_test`; para outro endereço defina `DATABASE_URL_TEST`. A cada execução o banco `madame_test` é recriado: aplica `supabase/tests/shim.sql` (imita roles, `auth` e um `storage` mínimo do Supabase, **só para testes**) e depois as migrations em ordem (`0001` a `0008`).
 
 ```bash
 pg_ctlcluster 16 main start   # se o Postgres local estiver parado
@@ -38,7 +38,9 @@ pnpm test:db
 ## Testes de tela (`pnpm e2e`)
 
 - `e2e/visual.spec.ts` não precisa de backend: confere login e esqueci-senha nos 3 tamanhos e o manifest do PWA.
-- `agenda`, `caixa`, `permissoes` e `auth.setup` precisam de um projeto Supabase de teste; sem as variáveis de ambiente eles são pulados com uma mensagem. Veja a seção de e2e em [docs/implantacao.md](docs/implantacao.md).
+- `e2e/componentes.spec.ts` também roda sem backend (assinatura e conversor de foto, pela página de apoio `/e2e-harness`, ligada só no build do Playwright).
+- `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca` e `auth.setup` precisam de um projeto Supabase de teste (`ficha` e `cobranca`: com as migrations 0006, 0007 e 0008 aplicadas); sem as variáveis de ambiente eles são pulados com uma mensagem. `cobranca` apaga o caixa de hoje do projeto de testes. Veja a seção de e2e em [docs/implantacao.md](docs/implantacao.md).
+- `pnpm e2e` deixa em `.next` um build com a página de apoio `/e2e-harness`: rode `pnpm build` de novo antes de `pnpm start`.
 
 ## Documentação
 

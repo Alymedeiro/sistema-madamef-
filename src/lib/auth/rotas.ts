@@ -1,6 +1,11 @@
 // Rotas que o middleware deixa abrir sem login.
 
-const PUBLICAS = ["/login", "/esqueci-senha"] as const;
+// "/e2e-harness" só existe nos builds feitos pelo Playwright (NEXT_PUBLIC_E2E_HARNESS=1).
+const PUBLICAS: readonly string[] = [
+  "/login",
+  "/esqueci-senha",
+  ...(process.env.NEXT_PUBLIC_E2E_HARNESS === "1" ? ["/e2e-harness"] : []),
+];
 
 export function ehRotaPublica(pathname: string): boolean {
   return (

@@ -176,7 +176,7 @@ describe("estrutura", () => {
     expect(defs).toContain("(cliente_id, inicio)");
   });
 
-  it("pacote_vendido_id e google_event_id são nulos e sem FK nesta fase", async () => {
+  it("pacote_vendido_id e google_event_id são nulos; só pacote_vendido_id tem FK (0007)", async () => {
     const r = await comoSuperusuario(async (c) => {
       const colunas = await c.query<{ column_name: string; is_nullable: string }>(
         `select column_name, is_nullable from information_schema.columns
@@ -184,19 +184,22 @@ describe("estrutura", () => {
            and column_name in ('pacote_vendido_id', 'google_event_id')
          order by column_name`,
       );
-      const fks = await c.query(
-        `select 1 from pg_constraint con
+      const fks = await c.query<{ attname: string; conname: string }>(
+        `select att.attname, con.conname from pg_constraint con
          join pg_attribute att on att.attrelid = con.conrelid and att.attnum = any (con.conkey)
          where con.conrelid = 'public.agendamentos'::regclass and con.contype = 'f'
            and att.attname in ('pacote_vendido_id', 'google_event_id')`,
       );
-      return { colunas: colunas.rows, fks: fks.rowCount };
+      return { colunas: colunas.rows, fks: fks.rowCount, fkRows: fks.rows };
     });
     expect(r.colunas).toEqual([
       { column_name: "google_event_id", is_nullable: "YES" },
       { column_name: "pacote_vendido_id", is_nullable: "YES" },
     ]);
-    expect(r.fks).toBe(0);
+    expect(r.fks).toBe(1);
+    expect(r.fkRows).toEqual([
+      { attname: "pacote_vendido_id", conname: "agendamentos_pacote_vendido_id_fkey" },
+    ]);
   });
 
   it("valores padrão e criado_por = colaborador logado", async () => {

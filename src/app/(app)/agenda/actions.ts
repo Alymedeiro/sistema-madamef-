@@ -51,6 +51,8 @@ export async function salvarAgendamento(dados: AgendamentoInput): Promise<Result
       inicio: aprovado.inicio.toISOString(),
       fim: aprovado.fim.toISOString(),
       observacoes: d.observacoes,
+      // Só grava quando informado: remarcar pelo formulário não desfaz o vínculo.
+      ...(d.pacoteVendidoId !== undefined ? { pacote_vendido_id: d.pacoteVendidoId } : {}),
     };
 
     let id: string;
@@ -149,7 +151,7 @@ export async function alterarStatus(
     const supabase = await createClient();
     const { data: atual, error: erroLeitura } = await supabase
       .from("agendamentos")
-      .select("id, status, profissional_id")
+      .select("id, status, profissional_id, pacote_vendido_id")
       .eq("id", d.id)
       .maybeSingle();
     if (erroLeitura) return erro(mensagemErroBanco(erroLeitura));
@@ -173,10 +175,27 @@ export async function alterarStatus(
       return erro("Este atendimento foi alterado por outra pessoa. Atualize a agenda.");
     }
 
+    // O aviso de termo é informativo: se a consulta falhar, o status já gravado fica.
+    let termoPendente = false;
+    if (d.para === "atendido") {
+      try {
+        const { data: pendentes, error: erroTermo } = await supabase.rpc(
+          "agendamentos_com_termo_pendente",
+          { p_ids: [d.id] },
+        );
+        termoPendente = !erroTermo && (pendentes ?? []).includes(d.id);
+      } catch {
+        termoPendente = false;
+      }
+    }
+
     revalidatePath("/agenda");
     return {
       ok: true,
-      abrirPagamento: d.para === "atendido" && colaborador.perfil !== "profissional",
+      // Sessão de pacote já foi paga na venda do pacote.
+      abrirPagamento:
+        d.para === "atendido" && colaborador.perfil !== "profissional" && !atual.pacote_vendido_id,
+      termoPendente,
     };
   } catch {
     return erro(ERRO_INESPERADO);

@@ -4,6 +4,7 @@ import {
   comoSuperusuario,
   comoUsuario,
   contar,
+  criarPacote,
   criarUsuario,
   esperarErroSql,
   fecharConexoes,
@@ -40,10 +41,13 @@ async function agendamento(
   status: string,
   pacote = false,
 ): Promise<string> {
+  const pacoteId = pacote
+    ? await criarPacote(c, { clienteId: cli, servicoId })
+    : null;
   const r = await c.query<{ id: string }>(
     `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status, pacote_vendido_id)
-     values ($1, $2, $3, $4, $5, $6, ${pacote ? "gen_random_uuid()" : "null"}) returning id`,
-    [cli, profissionalId, servicoId, inicio, fim, status],
+     values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+    [cli, profissionalId, servicoId, inicio, fim, status, pacoteId],
   );
   return r.rows[0].id;
 }
@@ -84,16 +88,18 @@ beforeAll(async () => {
 afterAll(fecharConexoes);
 
 describe("pagamento único por atendimento", () => {
-  it("índice único parcial pagamentos_agendamento_unico existe", async () => {
+  it("cobrancas_agendamento_unico existe e pagamentos_agendamento_unico não (0007)", async () => {
     const r = await comoSuperusuario((c) =>
-      c.query<{ def: string }>(
-        "select indexdef as def from pg_indexes where schemaname = 'public' and indexname = 'pagamentos_agendamento_unico'",
+      c.query<{ nome: string; def: string }>(
+        `select indexname as nome, indexdef as def from pg_indexes
+         where schemaname = 'public'
+           and indexname in ('cobrancas_agendamento_unico', 'pagamentos_agendamento_unico')`,
       ),
     );
     expect(r.rows).toHaveLength(1);
+    expect(r.rows[0].nome).toBe("cobrancas_agendamento_unico");
     expect(r.rows[0].def).toMatch(/UNIQUE INDEX/);
     expect(r.rows[0].def).toMatch(/\(agendamento_id\)/);
-    expect(r.rows[0].def).toMatch(/origem = 'agendamento'/);
   });
 
   it("segundo pagamento do mesmo atendimento falha com 23505", async () => {
@@ -109,11 +115,11 @@ describe("pagamento único por atendimento", () => {
       await voltarParaUsuario(c, recepcao);
       await c.query(SQL_PAGAR, [cli, ag]);
       const e = await esperarErroSql(c.query(SQL_PAGAR, [cli, ag]), "23505");
-      expect(e.message).toContain("pagamentos_agendamento_unico");
+      expect(e.message).toContain("cobrancas_agendamento_unico");
     });
   });
 
-  it("o índice vale também para inserção direta (superusuário)", async () => {
+  it("a unicidade vale também para inserção direta de cobranças (superusuário)", async () => {
     await comoSuperusuario(async (c) => {
       await savepoint(c, async () => {
         const caixa = (
@@ -131,13 +137,14 @@ describe("pagamento único por atendimento", () => {
         );
         const ins = () =>
           c.query(
-            `insert into pagamentos (caixa_id, cliente_id, origem, agendamento_id, forma, valor_centavos, lancado_por)
-             values ($1, $2, 'agendamento', $3, 'pix', 100, $4)`,
+            `insert into cobrancas (origem, agendamento_id, cliente_id, valor_bruto_centavos, caixa_id, lancada_por)
+             values ('agendamento', $3, $2, 100, $1, $4)`,
             [caixa, cli, ag, recepcaoId],
           );
         await ins();
         await c.query("savepoint segundo");
-        await esperarErroSql(ins(), "23505");
+        const e = await esperarErroSql(ins(), "23505");
+        expect(e.message).toContain("cobrancas_agendamento_unico");
         await c.query("rollback to savepoint segundo");
       });
     });

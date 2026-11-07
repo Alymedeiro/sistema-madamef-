@@ -21,7 +21,7 @@ A `service_role key` é secreta: dá acesso total ao banco. Nunca a envie por e-
 
 ## 2. Criar as tabelas (migrations)
 
-As tabelas e as regras de segurança estão em `supabase/migrations/`, em quatro arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`.
+As tabelas e as regras de segurança estão em `supabase/migrations/`, em oito arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`. (Se o projeto já está em uso, veja a seção "Fase 2" abaixo antes de aplicar 0006, 0007 e 0008.)
 
 Escolha uma das formas, para cada projeto:
 
@@ -31,6 +31,57 @@ Escolha uma das formas, para cada projeto:
 Depois, para ter serviços de exemplo no projeto de **testes**, rode também `supabase/seed.sql` no SQL Editor. Na produção, cadastre os serviços reais pela tela Serviços.
 
 **Atenção:** nunca aplique `supabase/tests/shim.sql` em um projeto real. Ele existe só para os testes locais de banco e recriaria estruturas que o Supabase já tem.
+
+## Fase 2 — ficha clínica, pacotes e pagamento dividido
+
+**O que as migrações criam**
+
+- `0006_ficha_clinica.sql`: modelos versionados de anamnese e de termo (com um modelo de anamnese e um termo genérico de exemplo), anamneses, termos assinados, fotos, evoluções, auditoria de acessos, funções de permissão e o bucket privado `ficha-clinica` (limite de 5 MB; JPEG, PNG e PDF) com suas duas políticas. **O bucket é criado pela própria migração: não o crie à mão nem o torne público.**
+- `0007_pacotes_cobranca.sql`: pacotes de sessões e cobranças com pagamento dividido (1 a 4 formas). Cada pagamento antigo vira uma cobrança, então o resultado do caixa não muda. Antes de converter, a migração presume que nenhum atendimento nem pagamento já esteja ligado a pacote (veja a conferência abaixo).
+- `0008_ajustes_fase2.sql`: ajustes da revisão final — cortesia (atendimento de total zero é confirmado sem forma de pagamento e sai das listas "sem pagamento"); termos e anamneses só são gravados com os arquivos já no bucket, e cada arquivo serve a um único registro; a versão da anamnese tem de ser a do modelo; foto, termo e evolução ligados a um atendimento têm de ser da mesma cliente, e a cliente de um atendimento que já tem foto, termo ou evolução não pode ser trocada; pacote não pode ser usado em atendimento já cobrado; a venda de pacote não se repete num duplo toque.
+
+**Estado atual:** 0006 (2026-11-04) e 0007 (2026-11-05) aplicadas no projeto de testes (`myfpjwtmfonuvsrsvato`), com as conferências e os avisos do Supabase verificados (só os avisos esperados de funções chamáveis por usuário logado). A 0008 foi aplicada no projeto de testes em 2026-11-06 (conferências prévias em `0`, `rolbypassrls = t`, avisos só os esperados). Na produção (`vxvrzhskytsbreexnbun`), 0006 (2026-11-06), 0007 e 0008 (2026-11-07) foram aplicadas com o banco ainda vazio; todas as conferências do passo 4 passaram.
+
+**Passo manual na produção** (feito por quem tem acesso; nada disso é automático):
+
+0. **Aplique 0006, 0007 e 0008 na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 2 depende das três; publicado antes, quebra a ficha, o caixa e a agenda.
+1. Faça um backup ou crie um ponto de restauração (Database > Backups).
+2. Conferência antes da 0007, no SQL Editor (as duas devem devolver `0`):
+   - `select count(*) from agendamentos where pacote_vendido_id is not null;`
+   - `select count(*) from pagamentos where origem = 'pacote';`
+   - Antes da 0008 (se 0006 já estiver aplicada; também devem devolver `0`): `select count(*) - count(distinct pdf_path) from termos_assinados;`, `select count(*) - count(distinct assinatura_path) from termos_assinados;` e `select count(*) - count(distinct assinatura_path) from anamneses;`
+   - Ainda antes da 0008 — registros ligados a atendimento de outra cliente (cada uma deve devolver `0`):
+     `select count(*) from termos_assinados x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;`,
+     `select count(*) from fotos x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;` e
+     `select count(*) from evolucoes x join agendamentos a on a.id = x.agendamento_id where a.cliente_id <> x.cliente_id;`
+   - E anamnese com versão que não existe no modelo (deve devolver `0`):
+     `select count(*) from anamneses x where not exists (select 1 from modelos_anamnese m where m.id = x.modelo_id and m.versao = x.modelo_versao);`
+3. Aplique `0006_ficha_clinica.sql`, depois `0007_pacotes_cobranca.sql` e, por fim, `0008_ajustes_fase2.sql` (SQL Editor, ou `pnpm supabase link --project-ref vxvrzhskytsbreexnbun && pnpm supabase db push`).
+4. Confira o resultado:
+   - `select id, public, file_size_limit from storage.buckets where id = 'ficha-clinica';` deve dar `public = false` e `5242880`;
+   - `select (select count(*) from pagamentos) = (select count(*) from pagamentos where cobranca_id is not null);` deve dar `true`;
+   - `select count(*) from pg_policies where schemaname = 'storage' and policyname like 'ficha_clinica_%';` deve dar `2`;
+   - `select versao, ativo from modelos_anamnese;` deve dar `1, true`;
+   - `select pg_get_function_identity_arguments('public.vender_pacote'::regproc);` deve terminar em `p_id uuid` (0008).
+   - `select rolbypassrls from pg_roles where rolname = (select proowner::regrole::name from pg_proc where proname = 'arquivo_ficha_existe');` deve dar `t` (0008: a função que confere os arquivos do bucket precisa enxergar `storage.objects` sem RLS; se der `f`, toda anamnese e todo termo novo são recusados).
+   - **No projeto de testes, antes da produção:** depois de aplicar a 0008 lá, rode `pnpm e2e e2e/ficha.spec.ts -g "anamnese no tablet|termo: colhido"` (anamnese e termo gravados de ponta a ponta com os arquivos no bucket). Só siga para a produção com os dois passando.
+5. Revise com a clínica o texto do modelo de anamnese e do termo genérico (são exemplos) em Configurações.
+
+**Limitações aceitas**
+
+- Auditoria: as leituras feitas pelo sistema são registradas. Uma pessoa autorizada que consulte o PostgREST ou o Storage diretamente, com o próprio login, **não** deixa registro de leitura (as escritas são sempre registradas por gatilho).
+- A exportação dos dados da cliente (`/clientes/<id>/exportar`) tem `maxDuration` de 60 s; uma ficha com muitas fotos pode estourar esse tempo.
+- `situacao_ficha` (data da última anamnese e "tem alerta") e `agendamentos_com_termo_pendente` devolvem só esses indicadores (datas e verdadeiro/falso) e são lidos **sem** registro na auditoria; o conteúdo da anamnese ou do termo só é entregue depois de `registrar_acesso`.
+- Termo: a `modelo_versao` gravada **não** é conferida contra o modelo num insert feito direto pelo PostgREST (a anamnese é conferida por gatilho). O servidor grava a versão correta, e mesmo num insert direto o PDF e a assinatura têm de ser arquivos que já existem no bucket (`arquivo_ficha_existe`), cada um usado uma única vez.
+- A entrega do tablet para a cliente (anamnese e termo em tela cheia) **não tem trava de saída**: a cliente pode sair da tela e navegar no sistema com o login de quem entregou. Entregue e receba o tablet em mãos.
+
+**Testes de tela da Fase 2:** `e2e/componentes.spec.ts` (assinatura e conversor de foto) roda sem backend, usando a página de apoio `/e2e-harness`, que só existe quando o build é feito com `NEXT_PUBLIC_E2E_HARNESS=1` (o Playwright liga essa variável sozinho; em qualquer outro build a rota responde 404 e o middleware não a libera). `ficha.spec.ts` e `cobranca.spec.ts` exigem o projeto de testes com 0006, 0007 e 0008 aplicadas.
+
+Cuidados com os testes de tela da Fase 2:
+
+- `cobranca.spec.ts` **apaga** o caixa de hoje do projeto de testes (com cobranças, pagamentos e contas a receber dele) e os agendamentos não cancelados da profissional de teste hoje às 13:00 e em 6 dias às 10:00, para poder rodar de novo no mesmo dia.
+- Os E2E com backend deixam linhas permanentes no projeto de testes (clientes, serviços, termos, pacotes, fotos e auditoria "E2E"); nada disso vai para a produção, mas o projeto de testes cresce a cada execução.
+- `pnpm e2e` faz o build com `NEXT_PUBLIC_E2E_HARNESS=1` e deixa esse build (com a página `/e2e-harness`) em `.next`. Antes de `pnpm start` para outro uso, rode `pnpm build` de novo.
 
 ## 3. Configurar o login (Authentication)
 
@@ -124,7 +175,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa` e `permissoes` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha` e `cobranca` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -140,7 +191,9 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0004 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0008 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
+- [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).
 - [ ] Dona criada com `criar-dona.ts`; convite de teste chega e leva a `/definir-senha`.

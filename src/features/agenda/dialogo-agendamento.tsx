@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useEffect, useId, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,11 +15,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { salvarAgendamento } from "@/app/(app)/agenda/actions";
+import { pacotesDisponiveis } from "@/app/(app)/clientes/ficha/pacotes";
 import { agendamentoSchema, type AgendamentoInput } from "@/app/(app)/agenda/schemas";
 import { MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import type { AgendamentoAgenda, ProfissionalAgenda, ServicoAgenda } from "./dados-agenda";
+import {
+  pacoteMantido,
+  pacoteOferecido,
+  pacoteParaEnvio,
+  usarPacotePorPadrao,
+  type PacoteOriginal,
+} from "./pacote-agendamento";
 import { SeletorCliente, type ClienteEscolhida } from "./seletor-cliente";
 
 export type EstadoDialogo =
@@ -129,12 +137,52 @@ function FormularioAgendamento({
   const [erroCliente, setErroCliente] = useState<string | undefined>();
   const [encaixe, setEncaixe] = useState(false);
   const [pendente, iniciar] = useTransition();
+  const [pacotes, setPacotes] = useState<{ id: string; restantes: number; validade: string | null }[]>([]);
 
   const editando = estado.modo === "editar";
   const profissional = profissionais.find((p) => p.id === v.profissionalId);
   const servicosDaProfissional = servicos.filter(
     (s) => s.ativo && profissional?.servicoIds.includes(s.id),
   );
+
+  // Na edição: o pacote já vinculado e com qual cliente/serviço foi salvo.
+  const [original] = useState<PacoteOriginal | null>(() => {
+    if (estado.modo !== "editar") return null;
+    const a = estado.agendamento;
+    return {
+      pacoteId: a.pacoteVendidoId,
+      clienteId: a.clienteId,
+      servicoId: a.servicoId,
+      restantes: a.pacote ? Math.max(0, a.pacote.total - a.pacote.usadas) : null,
+    };
+  });
+  const usarPorPadrao = usarPacotePorPadrao(original);
+  const [usarPacote, setUsarPacote] = useState(usarPorPadrao);
+  const clienteId = v.cliente?.id;
+  const escolha = { original, clienteId, servicoId: v.servicoId };
+  const mantido = pacoteMantido(escolha);
+
+  // Cliente + serviço escolhidos (e sem pacote vinculado que continue valendo):
+  // procura pacote com sessão disponível. Trocar cliente/serviço limpa a lista antiga.
+  useEffect(() => {
+    setPacotes([]);
+    setUsarPacote(usarPorPadrao);
+    if (mantido || !clienteId || !v.servicoId) return;
+    let ativo = true;
+    pacotesDisponiveis(clienteId, v.servicoId)
+      .then((lista) => {
+        if (!ativo) return;
+        setPacotes(lista);
+        setUsarPacote(usarPorPadrao);
+      })
+      .catch(() => ativo && setPacotes([]));
+    return () => {
+      ativo = false;
+    };
+  }, [mantido, clienteId, v.servicoId, usarPorPadrao]);
+
+  const pacote = pacoteOferecido({ ...escolha, disponiveis: pacotes });
+  const pacoteVendidoId = pacoteParaEnvio({ ...escolha, oferecido: pacote, usar: usarPacote });
 
   function dados(forcarForaJornada: boolean): AgendamentoInput {
     return {
@@ -146,6 +194,7 @@ function FormularioAgendamento({
       hora: v.hora,
       observacoes: v.observacoes,
       forcarForaJornada,
+      ...(pacoteVendidoId !== undefined ? { pacoteVendidoId } : {}),
     };
   }
 
@@ -257,6 +306,18 @@ function FormularioAgendamento({
             <p className="text-sm text-muted-foreground">Esta profissional não tem serviços ativos.</p>
           )}
         </div>
+
+        {pacote && (
+          <label className="flex min-h-11 items-center gap-3 rounded-md border bg-blush p-3 text-sm font-medium">
+            <input
+              type="checkbox"
+              className="size-5"
+              checked={usarPacote}
+              onChange={(e) => setUsarPacote(e.target.checked)}
+            />
+            Usar sessão do pacote{pacote.restantes !== null ? ` (restam ${pacote.restantes})` : ""}
+          </label>
+        )}
 
         <div className="flex flex-col gap-2">
           <Label htmlFor={`${id}-obs`}>Observações</Label>

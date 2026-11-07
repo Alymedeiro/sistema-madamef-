@@ -7,6 +7,7 @@ import {
   horarioDoBanco,
   type IntervalosPorDia,
 } from "@/lib/dominio/intervalos";
+import { anamnesePendente } from "@/lib/dominio/anamnese";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 
@@ -42,6 +43,18 @@ export type AgendamentoAgenda = {
   valorPrevistoCentavos: number;
   /** Atendido e ainda sem pagamento (só calculado para dona/recepção). */
   semPagamento: boolean;
+  /** A última anamnese da cliente tem resposta de alerta (só o indicador, sem as respostas). */
+  alertaAnamnese: boolean;
+  /** Sem anamnese ou a última tem mais de 12 meses. */
+  anamnesePendente: boolean;
+  /** Termo de consentimento exigido pelo serviço (versão ativa), se houver. */
+  modeloTermoId: string | null;
+  /** O serviço exige termo e a cliente ainda não assinou a versão atual. */
+  termoPendente: boolean;
+  /** Sessão paga por pacote (já paga na venda do pacote). */
+  pacoteVendidoId: string | null;
+  /** Progresso do pacote usado (sessões já usadas, contando esta se atendida). */
+  pacote: { usadas: number; total: number } | null;
 };
 
 export type BloqueioAgenda = {
@@ -65,7 +78,14 @@ export type DadosAgenda = {
 export type LinhasAgenda = {
   colaboradores: { id: string; nome: string; cor: string; ativo: boolean }[];
   vinculos: { colaborador_id: string; servico_id: string }[];
-  servicos: { id: string; nome: string; duracao_min: number; preco_centavos: number; ativo: boolean }[];
+  servicos: {
+    id: string;
+    nome: string;
+    duracao_min: number;
+    preco_centavos: number;
+    ativo: boolean;
+    modelo_termo_id?: string | null;
+  }[];
   jornadas: { colaborador_id: string; dia_semana: number; hora_inicio: string; hora_fim: string }[];
   bloqueios: { id: string; colaborador_id: string; inicio: string; fim: string; motivo: string }[];
   agendamentos: {
@@ -79,11 +99,27 @@ export type LinhasAgenda = {
     observacoes: string | null;
     valor_previsto_centavos: number;
     clientes: { nome: string } | null;
+    pacote_vendido_id?: string | null;
+    pacotes_vendidos?:
+      | { sessoes_usadas: number; total_sessoes: number }
+      | { sessoes_usadas: number; total_sessoes: number }[]
+      | null;
   }[];
   horarioFuncionamento: unknown;
   /** Ids de atendidos sem pagamento no período (agendamentos_sem_pagamento_periodo). */
   semPagamento?: string[];
+  /** situacao_ficha das clientes do período. */
+  situacaoFicha?: { cliente_id: string; ultima_anamnese_em: string | null; tem_alerta: boolean }[];
+  /** Ids de atendimentos com termo pendente (agendamentos_com_termo_pendente). */
+  termoPendente?: string[];
 };
+
+function progressoDoPacote(
+  p: LinhasAgenda["agendamentos"][number]["pacotes_vendidos"],
+): { usadas: number; total: number } | null {
+  const linha = Array.isArray(p) ? p[0] : p;
+  return linha ? { usadas: linha.sessoes_usadas, total: linha.total_sessoes } : null;
+}
 
 /**
  * Colunas, por nome: colaboradoras ativas que realizam ao menos um serviço
@@ -96,6 +132,7 @@ export type LinhasAgenda = {
 export function montarDadosAgenda(
   linhas: LinhasAgenda,
   sessao: { perfil: Perfil; colaboradorId: string },
+  agora: Date,
 ): DadosAgenda {
   const servicosAtivos = new Set(linhas.servicos.filter((s) => s.ativo).map((s) => s.id));
   const servicosPorColab = new Map<string, string[]>();
@@ -129,6 +166,9 @@ export function montarDadosAgenda(
 
   const nomeServico = new Map(linhas.servicos.map((s) => [s.id, s.nome]));
   const semPagamento = new Set(linhas.semPagamento ?? []);
+  const termoDoServico = new Map(linhas.servicos.map((s) => [s.id, s.modelo_termo_id ?? null]));
+  const termoPendente = new Set(linhas.termoPendente ?? []);
+  const situacao = new Map((linhas.situacaoFicha ?? []).map((s) => [s.cliente_id, s]));
 
   const jornadas: Record<string, IntervalosPorDia> = {};
   for (const p of profissionais) {
@@ -165,6 +205,15 @@ export function montarDadosAgenda(
         observacoes: a.observacoes,
         valorPrevistoCentavos: a.valor_previsto_centavos,
         semPagamento: semPagamento.has(a.id),
+        alertaAnamnese: situacao.get(a.cliente_id)?.tem_alerta ?? false,
+        anamnesePendente: anamnesePendente(
+          situacao.get(a.cliente_id)?.ultima_anamnese_em ?? null,
+          agora,
+        ),
+        modeloTermoId: termoDoServico.get(a.servico_id) ?? null,
+        termoPendente: termoPendente.has(a.id),
+        pacoteVendidoId: a.pacote_vendido_id ?? null,
+        pacote: progressoDoPacote(a.pacotes_vendidos),
       })),
     jornadas,
     bloqueios: linhas.bloqueios

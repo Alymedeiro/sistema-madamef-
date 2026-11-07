@@ -7,6 +7,8 @@ export type ResultadoAgendamento =
   | { ok: false; aviso: "fora_da_jornada" };
 
 /** Retorno de alterarStatus. */
-export type ResultadoStatus = { ok: true; abrirPagamento: boolean } | { ok: false; erro: string };
+export type ResultadoStatus =
+  | { ok: true; abrirPagamento: boolean; termoPendente: boolean }
+  | { ok: false; erro: string };
 
 export const contextoFalhou: { ok: false; erro: string } = { ok: false, erro: ERRO_INESPERADO };

@@ -46,8 +46,39 @@ function obterPool(): pg.Pool {
   return pool;
 }
 
-/** Apaga e recria `madame_test`, aplica shim.sql e todas as migrações em ordem. */
-export async function resetarBanco(): Promise<void> {
+/** Migrações em ordem de nome (`0001_base.sql`, ...). */
+async function listarMigracoes(): Promise<string[]> {
+  return (await readdir(PASTA_MIGRACOES))
+    .filter((arquivo) => arquivo.endsWith(".sql"))
+    .sort();
+}
+
+async function aplicarArquivos(arquivos: string[]): Promise<void> {
+  const cliente = await obterPool().connect();
+  try {
+    for (const arquivo of arquivos) {
+      const sql = await readFile(path.join(PASTA_MIGRACOES, arquivo), "utf8");
+      try {
+        await cliente.query(sql);
+      } catch (erro) {
+        throw new Error(
+          `Falha ao aplicar a migração ${arquivo}: ${(erro as Error).message}`,
+          { cause: erro },
+        );
+      }
+    }
+  } finally {
+    cliente.release();
+  }
+}
+
+/**
+ * Apaga e recria `madame_test`, aplica shim.sql e as migrações em ordem.
+ * `ate` (ex.: `'0006'`) aplica só as migrações cujo nome é `<= ate`
+ * (comparação pelo prefixo de mesmo tamanho), para testar a migração de dados
+ * de uma versão para a seguinte com `aplicarMigracoes`.
+ */
+export async function resetarBanco(opcoes: { ate?: string } = {}): Promise<void> {
   await fecharConexoes();
 
   const admin = new pg.Client({
@@ -64,23 +95,48 @@ export async function resetarBanco(): Promise<void> {
   const cliente = await obterPool().connect();
   try {
     await cliente.query(await readFile(ARQUIVO_SHIM, "utf8"));
-    const migracoes = (await readdir(PASTA_MIGRACOES))
-      .filter((arquivo) => arquivo.endsWith(".sql"))
-      .sort();
-    for (const arquivo of migracoes) {
-      const sql = await readFile(path.join(PASTA_MIGRACOES, arquivo), "utf8");
-      try {
-        await cliente.query(sql);
-      } catch (erro) {
-        throw new Error(
-          `Falha ao aplicar a migração ${arquivo}: ${(erro as Error).message}`,
-          { cause: erro },
-        );
-      }
-    }
   } finally {
     cliente.release();
   }
+  const { ate } = opcoes;
+  await aplicarArquivos(
+    (await listarMigracoes()).filter(
+      (arquivo) => ate === undefined || arquivo.slice(0, ate.length) <= ate,
+    ),
+  );
+}
+
+/** Aplica as migrações cujo nome é `>= desde` (ex.: `'0007'`), em ordem. */
+export async function aplicarMigracoes(desde: string): Promise<void> {
+  await aplicarArquivos(
+    (await listarMigracoes()).filter(
+      (arquivo) => arquivo.slice(0, desde.length) >= desde,
+    ),
+  );
+}
+
+/**
+ * Conexão própria, fora de transação, já como o usuário `uid` (papel
+ * `authenticated`) ou anônimo (`null`). Para testes de concorrência: quem
+ * chama controla `begin`/`commit` e faz `release()` (a conexão é descartada,
+ * nunca volta ao pool com o papel trocado).
+ */
+export async function abrirConexao(uid: string | null): Promise<PoolClient> {
+  const cliente = await obterPool().connect();
+  try {
+    await cliente.query(uid === null ? "set role anon" : "set role authenticated");
+    const claims =
+      uid === null ? { role: "anon" } : { sub: uid, role: "authenticated" };
+    await cliente.query("select set_config('request.jwt.claims', $1, false)", [
+      JSON.stringify(claims),
+    ]);
+  } catch (erro) {
+    cliente.release(true);
+    throw erro;
+  }
+  const liberar = cliente.release.bind(cliente);
+  cliente.release = (erro?: Error | boolean) => liberar(erro ?? true);
+  return cliente;
 }
 
 /** Lê um arquivo SQL relativo a `supabase/` (ex.: `seed.sql`). */
@@ -206,6 +262,70 @@ export async function esperarErroSql(
     );
   }
   return erro as DatabaseError;
+}
+
+/**
+ * Superusuário: cria a cobrança (bruto = `valor`, desconto = `desconto`) e o
+ * pagamento de uma parte ligado a ela, como o atalho `registrar_pagamento`.
+ * Devolve o id do pagamento.
+ */
+export async function inserirPagamentoDireto(
+  c: PoolClient,
+  p: {
+    caixaId: string;
+    clienteId: string;
+    origem: string;
+    agendamentoId?: string | null;
+    forma: string;
+    valor: number;
+    desconto?: number;
+    lancadoPor: string;
+  },
+): Promise<string> {
+  const desconto = p.desconto ?? 0;
+  const cobranca = await c.query<{ id: string }>(
+    `insert into public.cobrancas (origem, agendamento_id, cliente_id,
+       valor_bruto_centavos, desconto_centavos, caixa_id, lancada_por)
+     values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+    [p.origem, p.agendamentoId ?? null, p.clienteId, p.valor, desconto, p.caixaId, p.lancadoPor],
+  );
+  const pagamento = await c.query<{ id: string }>(
+    `insert into public.pagamentos (caixa_id, cliente_id, origem, agendamento_id,
+       forma, valor_centavos, desconto_centavos, lancado_por, cobranca_id)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
+    [
+      p.caixaId,
+      p.clienteId,
+      p.origem,
+      p.agendamentoId ?? null,
+      p.forma,
+      p.valor,
+      desconto,
+      p.lancadoPor,
+      cobranca.rows[0].id,
+    ],
+  );
+  return pagamento.rows[0].id;
+}
+
+/** Superusuário: cria um pacote vendido (padrão: 10 sessões, ativo, sem validade). */
+export async function criarPacote(
+  c: PoolClient,
+  p: {
+    clienteId: string;
+    servicoId: string;
+    total?: number;
+    validade?: string | null;
+    status?: string;
+  },
+): Promise<string> {
+  const r = await c.query<{ id: string }>(
+    `insert into public.pacotes_vendidos (cliente_id, servico_id, total_sessoes,
+       valor_total_centavos, validade, status)
+     values ($1, $2, $3, 100000, $4, $5) returning id`,
+    [p.clienteId, p.servicoId, p.total ?? 10, p.validade ?? null, p.status ?? "ativo"],
+  );
+  return r.rows[0].id;
 }
 
 /** Contagem de linhas visíveis de uma tabela para o papel atual. */

@@ -57,6 +57,11 @@ export default defineConfig({
         url: baseURL,
         reuseExistingServer: !process.env.CI,
         timeout: 240_000,
-        env: { ...(process.env as Record<string, string>), ...ambienteServidor },
+        env: {
+          ...(process.env as Record<string, string>),
+          ...ambienteServidor,
+          // Liga a página de apoio /e2e-harness (só neste build de teste).
+          NEXT_PUBLIC_E2E_HARNESS: "1",
+        },
       },
 });

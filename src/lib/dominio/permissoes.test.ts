@@ -106,3 +106,27 @@ describe("dividirMenuInferior (barra do celular)", () => {
     expect(r.mais).toEqual([]);
   });
 });
+
+describe("ficha", () => {
+  it("abas por perfil", async () => {
+    const { abasDaFicha } = await import("./permissoes");
+    expect(abasDaFicha("dona")).toEqual([
+      "dados", "anamnese", "termos", "fotos", "evolucoes", "pacotes", "historico",
+    ]);
+    expect(abasDaFicha("recepcao")).not.toContain("fotos");
+    expect(abasDaFicha("profissional")).toContain("fotos");
+  });
+  it("ações da ficha", async () => {
+    const { podeNaFicha } = await import("./permissoes");
+    expect(podeNaFicha("profissional", "aplicar_anamnese")).toBe(false);
+    expect(podeNaFicha("profissional", "colher_termo")).toBe(true);
+    expect(podeNaFicha("recepcao", "adicionar_foto")).toBe(false);
+    expect(podeNaFicha("dona", "adicionar_evolucao")).toBe(false);
+    expect(podeNaFicha("profissional", "adicionar_evolucao")).toBe(true);
+    expect(podeNaFicha("recepcao", "cancelar_pacote")).toBe(false);
+    expect(podeNaFicha("recepcao", "exportar")).toBe(false);
+    expect(podeNaFicha("recepcao", "vender_pacote")).toBe(true);
+    expect(podeNaFicha("profissional", "vender_pacote")).toBe(false);
+    expect(podeNaFicha("dona", "ver_acessos")).toBe(true);
+  });
+});

@@ -1,12 +1,26 @@
-import { CartaoPainel, ListaAniversariantes, ListaAtendimentos, ListaEstoqueBaixo } from "@/features/inicio/cartoes";
+import {
+  CartaoPainel,
+  ListaAniversariantes,
+  ListaAtendimentos,
+  ListaEstoqueBaixo,
+  ListaSemTermo,
+} from "@/features/inicio/cartoes";
 import {
   aguardandoConfirmacao,
   aniversariantesDaSemana,
   atendidosSemPagamento,
+  atendidosSemTermo,
   atendimentosDoDia,
   produtosComEstoqueBaixo,
 } from "@/features/inicio/dados";
-import { carregarCartao, diasDaSemana, primeiroNome, saudacaoPorHora, type Cartao } from "@/features/inicio/painel";
+import {
+  carregarCartao,
+  diasDaSemana,
+  primeiroNome,
+  saudacaoPorHora,
+  somarDias,
+  type Cartao,
+} from "@/features/inicio/painel";
 import { ListaSemPagamento } from "@/features/inicio/sem-pagamento";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
@@ -22,12 +36,14 @@ export default async function InicioPage() {
   const supabase = await createClient();
 
   // Cada cartão carrega por conta própria: uma falha não apaga o painel.
-  const [atendimentos, pendentes, semPagamento, aniversarios, estoque] = await Promise.all([
+  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo] = await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
     carregarCartao(gerencia ? atendidosSemPagamento(supabase, seteDiasAtras, hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? aniversariantesDaSemana(supabase, hoje, fimSemana) : Promise.resolve([])),
     carregarCartao(ehDona ? produtosComEstoqueBaixo(supabase) : Promise.resolve([])),
+    // Últimos 30 dias, contando hoje.
+    carregarCartao(ehDona ? atendidosSemTermo(supabase, somarDias(hoje, -29), hoje) : Promise.resolve([])),
   ]);
   const estado = <T,>(c: Cartao<T[]>) => ({
     falhou: !c.ok,
@@ -39,6 +55,7 @@ export default async function InicioPage() {
   const cSemPagamento = estado(semPagamento);
   const cAniversarios = estado(aniversarios);
   const cEstoque = estado(estoque);
+  const cSemTermo = estado(semTermo);
 
   return (
     <div className="flex flex-col gap-6">
@@ -100,6 +117,18 @@ export default async function InicioPage() {
             vazioTexto="Nenhum produto com estoque baixo"
           >
             <ListaEstoqueBaixo itens={cEstoque.itens} />
+          </CartaoPainel>
+        )}
+
+        {ehDona && (
+          <CartaoPainel
+            id="sem-termo-t"
+            titulo="Atendidos sem termo"
+            vazio={cSemTermo.vazio}
+            falhou={cSemTermo.falhou}
+            vazioTexto="Nenhum atendimento sem termo nos últimos 30 dias"
+          >
+            <ListaSemTermo itens={cSemTermo.itens} />
           </CartaoPainel>
         )}
       </div>

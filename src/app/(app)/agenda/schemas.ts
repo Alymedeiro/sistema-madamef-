@@ -30,6 +30,8 @@ export const agendamentoSchema = z.object({
   hora: horaSchema,
   observacoes: textoOpcional(1000, "As observações podem ter no máximo 1000 caracteres."),
   forcarForaJornada: z.boolean().optional().default(false),
+  /** Sessão paga por um pacote; o banco valida cliente, serviço e pacote ativo. */
+  pacoteVendidoId: z.uuid().nullable().optional(),
 });
 
 export type AgendamentoInput = z.input<typeof agendamentoSchema>;

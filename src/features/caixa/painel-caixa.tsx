@@ -26,22 +26,31 @@ import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { cn } from "@/lib/utils";
 import { CLASSE_TOM, dataCurta, descreverDiferenca, type CaixaNaoFechado } from "./formato";
 
-export type LancamentoPainel = {
+/** Uma cobrança do caixa aberto com suas partes (formas). */
+export type CobrancaPainel = {
   id: string;
   hora: string;
   clienteNome: string;
-  forma: FormaPagamento;
-  parcelas: number;
-  valorCentavos: number;
+  origem: "agendamento" | "pacote" | "venda_produto";
+  brutoCentavos: number;
   descontoCentavos: number;
+  partes: { forma: FormaPagamento; parcelas: number; valorCentavos: number; descontoCentavos: number }[];
 };
+
+const ROTULO_ORIGEM: Record<CobrancaPainel["origem"], string> = {
+  agendamento: "Atendimento",
+  pacote: "Pacote",
+  venda_produto: "Venda de produto",
+};
+
+const liquidoParte = (p: CobrancaPainel["partes"][number]) => p.valorCentavos - p.descontoCentavos;
 
 type Props = {
   /** Caixa de hoje aberto, ou null. */
   caixa: { id: string; valorInicialCentavos: number } | null;
   /** Dona viu o caixa de hoje já fechado. */
   fechadoHoje: boolean;
-  lancamentos: LancamentoPainel[];
+  cobrancas: CobrancaPainel[];
 };
 
 const CLASSE_ERRO =
@@ -302,7 +311,7 @@ export function CaixasNaoFechados({ caixas }: { caixas: CaixaNaoFechado[] }) {
   );
 }
 
-export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
+export function PainelCaixa({ caixa, fechadoHoje, cobrancas }: Props) {
   const [fechamento, setFechamento] = useState<{ diferenca: number } | null>(null);
 
   if (fechamento) {
@@ -325,11 +334,14 @@ export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
 
   const resumo = resumoCaixa(
     caixa.valorInicialCentavos,
-    lancamentos.map((l) => ({
-      forma: l.forma,
-      valorCentavos: l.valorCentavos,
-      descontoCentavos: l.descontoCentavos,
-    })),
+    // Partes achatadas: mesmo resultado da Fase 1 (cada parte é um pagamento).
+    cobrancas.flatMap((c) =>
+      c.partes.map((p) => ({
+        forma: p.forma,
+        valorCentavos: p.valorCentavos,
+        descontoCentavos: p.descontoCentavos,
+      })),
+    ),
   );
 
   return (
@@ -338,7 +350,7 @@ export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
         <h2 id="lancamentos-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
           Lançamentos de hoje
         </h2>
-        {lancamentos.length === 0 ? (
+        {cobrancas.length === 0 ? (
           <p className="text-muted-foreground">Nenhum pagamento lançado ainda.</p>
         ) : (
           <div className="rounded-xl border bg-card">
@@ -347,21 +359,41 @@ export function PainelCaixa({ caixa, fechadoHoje, lancamentos }: Props) {
                 <TableRow>
                   <TableHead>Hora</TableHead>
                   <TableHead>Cliente</TableHead>
-                  <TableHead>Forma</TableHead>
+                  <TableHead>Formas</TableHead>
                   <TableHead className="text-right">Valor líquido</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {lancamentos.map((l) => (
-                  <TableRow key={l.id}>
-                    <TableCell>{l.hora}</TableCell>
-                    <TableCell>{l.clienteNome}</TableCell>
-                    <TableCell>
-                      {ROTULO_FORMA[l.forma]}
-                      {l.parcelas > 1 ? ` (${l.parcelas}x)` : ""}
+                {cobrancas.map((c) => (
+                  <TableRow key={c.id}>
+                    <TableCell className="align-top">{c.hora}</TableCell>
+                    <TableCell className="align-top">
+                      {c.clienteNome}
+                      {c.origem !== "agendamento" && (
+                        <span className="block text-xs text-muted-foreground">{ROTULO_ORIGEM[c.origem]}</span>
+                      )}
                     </TableCell>
-                    <TableCell className="text-right">
-                      {formatarBRL(l.valorCentavos - l.descontoCentavos)}
+                    <TableCell className="align-top">
+                      <ul className="flex flex-col gap-0.5">
+                        {c.partes.length === 0 && <li>Cortesia</li>}
+                        {c.partes.map((p, i) => (
+                          <li key={i}>
+                            {ROTULO_FORMA[p.forma]}
+                            {p.parcelas > 1 ? ` (${p.parcelas}x)` : ""}
+                            {c.partes.length > 1 && (
+                              <span className="text-muted-foreground"> · {formatarBRL(liquidoParte(p))}</span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </TableCell>
+                    <TableCell className="text-right align-top">
+                      {formatarBRL(c.partes.reduce((s, p) => s + liquidoParte(p), 0))}
+                      {c.descontoCentavos > 0 && (
+                        <span className="block text-xs text-muted-foreground">
+                          desconto {formatarBRL(c.descontoCentavos)}
+                        </span>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

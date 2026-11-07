@@ -1,18 +1,40 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { AbaHistorico, type AtendimentoHistorico } from "@/features/clientes/aba-historico";
+import {
+  AbaHistorico,
+  type AtendimentoHistorico,
+} from "@/features/clientes/aba-historico";
 import { BotaoAtivoCliente } from "@/features/clientes/botao-ativo-cliente";
 import { FormularioCliente } from "@/features/clientes/formulario-cliente";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AbasFicha } from "@/features/ficha/abas-ficha";
+import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
+import { AbaEvolucoes } from "@/features/ficha/evolucoes/aba-evolucoes";
+import { AbaPacotes } from "@/features/ficha/pacotes/aba-pacotes";
+import { AbaFotos } from "@/features/ficha/fotos/aba-fotos";
+import { AbaTermos } from "@/features/ficha/termos/aba-termos";
 import { formatarCPF } from "@/lib/dominio/cpf";
-import { perfisComAcesso } from "@/lib/dominio/permissoes";
+import {
+  abasDaFicha,
+  perfisComAcesso,
+  podeNaFicha,
+  type AbaFicha,
+} from "@/lib/dominio/permissoes";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
+import {
+  carregarAnamneses,
+  carregarCabecalhoFicha,
+  carregarEvolucoes,
+  carregarFotos,
+  carregarPacotes,
+  carregarServicosVenda,
+  carregarTermos,
+} from "../ficha/dados";
 import { ROTULO_ORIGEM, type OrigemCliente } from "../schemas";
 
 export const metadata = { title: "Cliente | Madame Fê Clinic" };
@@ -37,9 +59,16 @@ function Voltar() {
   );
 }
 
-const um = <T,>(v: T | T[] | null | undefined): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null));
+const um = <T,>(v: T | T[] | null | undefined): T | null =>
+  Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
 
-function Linha({ rotulo, valor }: { rotulo: string; valor: string | null | undefined }) {
+function Linha({
+  rotulo,
+  valor,
+}: {
+  rotulo: string;
+  valor: string | null | undefined;
+}) {
   return (
     <div>
       <dt className="text-sm text-muted-foreground">{rotulo}</dt>
@@ -48,10 +77,20 @@ function Linha({ rotulo, valor }: { rotulo: string; valor: string | null | undef
   );
 }
 
-export default async function ClientePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ClientePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ aba?: string | string[] }>;
+}) {
   const { colaborador } = await exigirPerfil(...perfisComAcesso("clientes"));
   const podeEditar = colaborador.perfil !== "profissional";
   const { id } = await params;
+  const { aba: abaPedida } = await searchParams;
+  const abas = abasDaFicha(colaborador.perfil);
+  // Aba desconhecida ou sem permissão volta para "dados".
+  const aba: AbaFicha = abas.find((a) => a === abaPedida) ?? "dados";
 
   if (id === "novo") {
     // Cadastro só para dona e recepção; profissional volta para /inicio.
@@ -78,29 +117,52 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
     supabase
       .from("agendamentos")
       .select(
-        "id, inicio, status, valor_previsto_centavos, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
+        "id, inicio, status, valor_previsto_centavos, servico_id, profissional_id, servicos(nome), colaboradores!agendamentos_profissional_id_fkey(nome)",
       )
       .eq("cliente_id", id)
       .order("inicio", { ascending: false }),
   ]);
-  if (clienteRes.error) throw new Error(`Falha ao carregar a cliente: ${clienteRes.error.message}`);
+  if (clienteRes.error)
+    throw new Error(`Falha ao carregar a cliente: ${clienteRes.error.message}`);
   if (agendamentosRes.error) {
-    throw new Error(`Falha ao carregar o histórico: ${agendamentosRes.error.message}`);
+    throw new Error(
+      `Falha ao carregar o histórico: ${agendamentosRes.error.message}`,
+    );
   }
   // O RLS devolve vazio para a profissional sem vínculo com a cliente: 404.
   const c = clienteRes.data;
   if (!c) notFound();
 
-  const atendimentos: AtendimentoHistorico[] = (agendamentosRes.data ?? []).map((a) => ({
-    id: a.id,
-    inicio: a.inicio,
-    status: a.status,
-    servico: um(a.servicos)?.nome ?? "Serviço",
-    profissional: um(a.colaboradores)?.nome ?? "Profissional",
-    valorPrevistoCentavos: a.valor_previsto_centavos,
-  }));
+  const atendimentos: AtendimentoHistorico[] = (agendamentosRes.data ?? []).map(
+    (a) => ({
+      id: a.id,
+      inicio: a.inicio,
+      status: a.status,
+      servico: um(a.servicos)?.nome ?? "Serviço",
+      profissional: um(a.colaboradores)?.nome ?? "Profissional",
+      valorPrevistoCentavos: a.valor_previsto_centavos,
+    }),
+  );
 
-  const origem = c.origem ? (ROTULO_ORIGEM[c.origem as OrigemCliente] ?? c.origem) : null;
+  const [cabecalho, anamneses, termos, fotos, evolucoes, pacotes, servicosVenda] = await Promise.all([
+    // Falha no cabeçalho não derruba a ficha: vira um aviso abaixo.
+    carregarCabecalhoFicha(supabase, c.id),
+    aba === "anamnese" ? carregarAnamneses(supabase, c.id) : Promise.resolve([]),
+    aba === "termos" ? carregarTermos(supabase, c.id) : Promise.resolve(null),
+    // `abas` já exclui "fotos" para a recepção; o RLS barra de novo no banco.
+    aba === "fotos" ? carregarFotos(supabase, c.id) : Promise.resolve([]),
+    aba === "evolucoes"
+      ? carregarEvolucoes(supabase, c.id, colaborador.id)
+      : Promise.resolve([]),
+    aba === "pacotes" ? carregarPacotes(supabase, c.id) : Promise.resolve([]),
+    aba === "pacotes" && podeNaFicha(colaborador.perfil, "vender_pacote")
+      ? carregarServicosVenda(supabase)
+      : Promise.resolve([]),
+  ]);
+
+  const origem = c.origem
+    ? (ROTULO_ORIGEM[c.origem as OrigemCliente] ?? c.origem)
+    : null;
   const aceiteEm = formatarNoFuso(c.aceite_lgpd_em, "dd/MM/yyyy 'às' HH:mm");
 
   return (
@@ -109,25 +171,115 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
       <div className="flex flex-wrap items-center gap-3">
         <Titulo>{c.nome}</Titulo>
         {!c.ativo ? <Badge variant="destructive">Inativa</Badge> : null}
-        {podeEditar ? (
-          <div className="ml-auto">
-            <BotaoAtivoCliente id={c.id} nome={c.nome} ativo={c.ativo} />
+        {podeEditar || podeNaFicha(colaborador.perfil, "ver_acessos") ? (
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {podeNaFicha(colaborador.perfil, "ver_acessos") ? (
+              <Link
+                href={`/configuracoes/acessos?cliente=${c.id}`}
+                className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+              >
+                Registro de acessos
+              </Link>
+            ) : null}
+            {podeNaFicha(colaborador.perfil, "exportar") ? (
+              // Download direto (rota, não página): <a> evita o prefetch do Link.
+              <a
+                href={`/clientes/${c.id}/exportar`}
+                className="inline-flex min-h-11 items-center rounded-md border bg-card px-4 text-sm font-medium text-ouro-escuro hover:bg-accent"
+              >
+                Exportar dados da cliente
+              </a>
+            ) : null}
+            {podeEditar ? (
+              <BotaoAtivoCliente id={c.id} nome={c.nome} ativo={c.ativo} />
+            ) : null}
           </div>
         ) : null}
       </div>
 
-      <Tabs defaultValue="dados">
-        <TabsList>
-          <TabsTrigger value="dados">Dados</TabsTrigger>
-          <TabsTrigger value="historico">Histórico</TabsTrigger>
-        </TabsList>
-        <TabsContent value="dados" className="flex flex-col gap-5">
+      {cabecalho.alertas.length > 0 || cabecalho.pendente || cabecalho.falhou ? (
+        <div className="flex flex-col gap-2">
+          {cabecalho.falhou ? (
+            <p role="alert" className="rounded-lg border bg-muted p-3 text-sm font-medium">
+              Não foi possível carregar os alertas da anamnese
+            </p>
+          ) : null}
+          {cabecalho.alertas.length > 0 ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm font-medium"
+            >
+              ⚠ Atenção: {cabecalho.alertas.join("; ")}
+            </p>
+          ) : null}
+          {cabecalho.pendente ? (
+            <p className="rounded-lg border bg-muted p-3 text-sm font-medium">
+              Anamnese pendente
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <AbasFicha clienteId={c.id} abas={abas} atual={aba} />
+      {aba === "pacotes" ? (
+        <AbaPacotes
+          clienteId={c.id}
+          clienteNome={c.nome}
+          pacotes={pacotes}
+          servicos={servicosVenda}
+          podeVender={podeNaFicha(colaborador.perfil, "vender_pacote")}
+          podeCancelar={podeNaFicha(colaborador.perfil, "cancelar_pacote")}
+        />
+      ) : null}
+      {aba === "anamnese" ? (
+        <AbaAnamnese
+          clienteId={c.id}
+          anamneses={anamneses}
+          podePreencher={podeNaFicha(colaborador.perfil, "aplicar_anamnese")}
+        />
+      ) : null}
+      {aba === "termos" && termos ? (
+        <AbaTermos
+          clienteId={c.id}
+          termos={termos}
+          podeColher={podeNaFicha(colaborador.perfil, "colher_termo")}
+        />
+      ) : null}
+      {aba === "fotos" ? (
+        <AbaFotos
+          clienteId={c.id}
+          fotos={fotos}
+          atendimentos={(agendamentosRes.data ?? []).map((a) => ({
+            id: a.id,
+            servicoId: a.servico_id,
+            rotulo: `${formatarNoFuso(a.inicio, "dd/MM/yyyy HH:mm")} · ${um(a.servicos)?.nome ?? "Serviço"}`,
+          }))}
+          podeAdicionar={podeNaFicha(colaborador.perfil, "adicionar_foto")}
+          podeArquivar={podeNaFicha(colaborador.perfil, "arquivar_foto")}
+        />
+      ) : null}
+      {aba === "evolucoes" ? (
+        <AbaEvolucoes
+          evolucoes={evolucoes}
+          // O mais recente primeiro (padrão do seletor); só os dela, a RLS barra o resto.
+          atendimentos={(agendamentosRes.data ?? [])
+            .filter((a) => a.profissional_id === colaborador.id)
+            .map((a) => ({
+              id: a.id,
+              rotulo: `${formatarNoFuso(a.inicio, "dd/MM/yyyy HH:mm")} · ${um(a.servicos)?.nome ?? "Serviço"}`,
+            }))}
+          podeAdicionar={podeNaFicha(colaborador.perfil, "adicionar_evolucao")}
+        />
+      ) : null}
+      {aba === "dados" ? (
+        <div className="flex flex-col gap-5">
           <section
             aria-label="Consentimento"
             className="flex max-w-2xl flex-col gap-1 rounded-xl border bg-card p-4 text-sm"
           >
             <p>
-              <span className="font-medium">Aceite LGPD:</span> registrado em {aceiteEm}
+              <span className="font-medium">Aceite LGPD:</span> registrado em{" "}
+              {aceiteEm}
             </p>
             <p>
               <span className="font-medium">Promoções por WhatsApp:</span>{" "}
@@ -152,7 +304,10 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
             />
           ) : (
             <dl className="grid max-w-2xl gap-4 rounded-xl border bg-card p-4 sm:grid-cols-2">
-              <Linha rotulo="WhatsApp" valor={c.whatsapp ? formatarTelefone(c.whatsapp) : null} />
+              <Linha
+                rotulo="WhatsApp"
+                valor={c.whatsapp ? formatarTelefone(c.whatsapp) : null}
+              />
               <Linha rotulo="CPF" valor={c.cpf ? formatarCPF(c.cpf) : null} />
               <Linha rotulo="E-mail" valor={c.email} />
               <Linha
@@ -170,11 +325,11 @@ export default async function ClientePage({ params }: { params: Promise<{ id: st
               </div>
             </dl>
           )}
-        </TabsContent>
-        <TabsContent value="historico">
-          <AbaHistorico atendimentos={atendimentos} />
-        </TabsContent>
-      </Tabs>
+        </div>
+      ) : null}
+      {aba === "historico" ? (
+        <AbaHistorico atendimentos={atendimentos} />
+      ) : null}
     </div>
   );
 }

@@ -14,8 +14,17 @@ export function mensagemErroBanco(erro: ErroBanco): string {
       if (erro.message?.includes("clientes_cpf_key")) {
         return "Já existe uma cliente cadastrada com este CPF.";
       }
-      if (erro.message?.includes("pagamentos_agendamento_unico")) {
+      // Uma cobrança por atendimento e uma por pacote (0007): duplo toque ou
+      // duas recepcionistas cobrando ao mesmo tempo.
+      if (erro.message?.includes("cobrancas_agendamento_unico")) {
         return "Este atendimento já foi pago.";
+      }
+      if (erro.message?.includes("cobrancas_pacote_unico")) {
+        return "Este pacote já foi pago.";
+      }
+      // vender_pacote com o id já usado (0008): duplo toque em "Confirmar venda".
+      if (erro.message?.includes("pacotes_vendidos_pkey")) {
+        return "Este pacote já foi registrado.";
       }
       return "Já existe um registro com estes dados.";
     case "42501":
