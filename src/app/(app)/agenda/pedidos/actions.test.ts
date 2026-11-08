@@ -144,15 +144,15 @@ describe("aprovarPedido", () => {
     );
   });
 
-  it("cadastro nova com WhatsApp já cadastrado reaproveita a cliente (sem inserir)", async () => {
+  it("mesmo WhatsApp e mesmo nome (caixa/acentos/espaços) reaproveita a cliente", async () => {
     prepararPedido();
     prepararContexto();
-    falso.responder("clientes", ok([{ id: CLIENTE, nome: "Maria Souza" }]));
+    falso.responder("clientes", ok([{ id: CLIENTE, nome: "Márcia  Souza" }]));
     falso.responder("rpc:aprovar_pedido_online", ok(AG));
     const r = await aprovarPedido({
       ...entrada,
       clienteId: null,
-      novaCliente: { nome: "Maria", whatsapp: "11987654321" },
+      novaCliente: { nome: " marcia SOUZA ", whatsapp: "11987654321" },
     });
     expect(r.ok).toBe(true);
     expect(falso.chamadasDe("clientes", "eq")[0].args).toEqual(["whatsapp", "5511987654321"]);
@@ -160,6 +160,24 @@ describe("aprovarPedido", () => {
     expect(
       (falso.chamadasRpc("aprovar_pedido_online")[0].args[0] as { p_cliente: string }).p_cliente,
     ).toBe(CLIENTE);
+  });
+
+  it("mesmo WhatsApp com outro nome cadastra cliente nova", async () => {
+    prepararPedido();
+    prepararContexto();
+    falso.responder("clientes", ok([{ id: CLIENTE, nome: "Maria Souza" }]), ok({ id: NOVA }));
+    falso.responder("rpc:aprovar_pedido_online", ok(AG));
+    const r = await aprovarPedido({
+      ...entrada,
+      clienteId: null,
+      novaCliente: { nome: "Ana Souza", whatsapp: "11987654321" },
+    });
+    expect(r.ok).toBe(true);
+    expect(falso.chamadasDe("clientes", "insert")).toHaveLength(1);
+    expect(falso.chamadasDe("clientes", "insert")[0].args[0]).toMatchObject({ nome: "Ana Souza" });
+    expect(
+      (falso.chamadasRpc("aprovar_pedido_online")[0].args[0] as { p_cliente: string }).p_cliente,
+    ).toBe(NOVA);
   });
 
   it("RPC falha depois de cadastrar: devolve clienteId e repetir não insere de novo", async () => {

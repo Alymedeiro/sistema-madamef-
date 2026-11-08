@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { aprovarProposta } from "@/app/(app)/agenda/regras";
 import { clientesPorTelefone } from "@/features/pedidos/dados";
 import { MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
+import { normalizarTextoBusca } from "@/lib/dominio/clientes";
 import { linkWhatsApp, mensagemAprovado, mensagemRecusado, RESERVA_HORAS } from "@/lib/dominio/online";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO } from "@/lib/resultado";
@@ -90,10 +91,13 @@ export async function aprovarPedido(dados: AprovacaoInput): Promise<ResultadoApr
     let clienteId = d.clienteId;
     let cadastrada = false;
     if (!clienteId && d.novaCliente) {
-      // Reaproveita quem já tem este WhatsApp: repetir a aprovação depois de
-      // um erro (ou duas recepcionistas ao mesmo tempo) não duplica o cadastro.
+      // Reaproveita quem já tem este WhatsApp E o mesmo nome: repetir a
+      // aprovação depois de um erro (ou duas recepcionistas ao mesmo tempo) não
+      // duplica o cadastro. Mesmo número com outro nome (mãe e filha, número
+      // trocado) é outra pessoa: cadastra nova.
+      const nome = normalizarTextoBusca(d.novaCliente.nome);
       const existentes = await clientesPorTelefone(supabase, d.novaCliente.whatsapp);
-      clienteId = existentes[0]?.id ?? null;
+      clienteId = existentes.find((c) => normalizarTextoBusca(c.nome) === nome)?.id ?? null;
       cadastrada = clienteId !== null;
     }
     if (!clienteId && d.novaCliente) {
