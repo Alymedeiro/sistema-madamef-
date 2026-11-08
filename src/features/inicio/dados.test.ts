@@ -4,7 +4,12 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => null }));
 
-import { aniversariantesDaSemana, atendidosSemPagamento, atendidosSemTermo } from "./dados";
+import {
+  aniversariantesDaSemana,
+  atendidosSemPagamento,
+  atendidosSemTermo,
+  pedidosAguardando,
+} from "./dados";
 
 const ok = (data: unknown) => ({ data, error: null });
 
@@ -136,5 +141,44 @@ describe("atendidosSemTermo", () => {
     await expect(atendidosSemTermo(falso.cliente as never, "a", "b")).rejects.toThrow(
       "Falha ao carregar os atendimentos sem termo",
     );
+  });
+});
+
+describe("pedidosAguardando", () => {
+  it("expira os vencidos e devolve os aguardando, mais antigo primeiro, com o prazo", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:expirar_pedidos_online", ok(1));
+    falso.responder(
+      "pedidos_online",
+      ok([
+        {
+          id: "p1",
+          nome: "Maria Souza",
+          whatsapp: "5511987654321",
+          servico_id: "s1",
+          profissional_id: "c1",
+          inicio: "2026-11-10T12:00:00+00:00",
+          fim: "2026-11-10T13:00:00+00:00",
+          avaliacao: false,
+          status: "aguardando",
+          criado_em: "2026-11-08T10:30:00+00:00",
+          agendamento_id: null,
+          motivo_recusa: null,
+          servicos: { nome: "Limpeza" },
+          colaboradores: { nome: "Fernanda" },
+        },
+      ]),
+    );
+    const r = await pedidosAguardando(falso.cliente as never);
+    expect(falso.chamadasRpc("expirar_pedidos_online")).toHaveLength(1);
+    expect(r).toEqual([
+      {
+        id: "p1",
+        nome: "Maria Souza",
+        servicoNome: "Limpeza",
+        inicio: "2026-11-10T12:00:00+00:00",
+        expiraEm: "2026-11-09T10:30:00.000Z",
+      },
+    ]);
   });
 });

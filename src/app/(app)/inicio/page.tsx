@@ -3,6 +3,7 @@ import {
   ListaAniversariantes,
   ListaAtendimentos,
   ListaEstoqueBaixo,
+  ListaPedidosOnline,
   ListaSemTermo,
 } from "@/features/inicio/cartoes";
 import {
@@ -11,6 +12,7 @@ import {
   atendidosSemPagamento,
   atendidosSemTermo,
   atendimentosDoDia,
+  pedidosAguardando,
   produtosComEstoqueBaixo,
 } from "@/features/inicio/dados";
 import {
@@ -36,7 +38,8 @@ export default async function InicioPage() {
   const supabase = await createClient();
 
   // Cada cartão carrega por conta própria: uma falha não apaga o painel.
-  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo] = await Promise.all([
+  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo, online] =
+    await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
     carregarCartao(gerencia ? atendidosSemPagamento(supabase, seteDiasAtras, hoje) : Promise.resolve([])),
@@ -44,6 +47,7 @@ export default async function InicioPage() {
     carregarCartao(ehDona ? produtosComEstoqueBaixo(supabase) : Promise.resolve([])),
     // Últimos 30 dias, contando hoje.
     carregarCartao(ehDona ? atendidosSemTermo(supabase, somarDias(hoje, -29), hoje) : Promise.resolve([])),
+    carregarCartao(gerencia ? pedidosAguardando(supabase) : Promise.resolve([])),
   ]);
   const estado = <T,>(c: Cartao<T[]>) => ({
     falhou: !c.ok,
@@ -56,6 +60,7 @@ export default async function InicioPage() {
   const cAniversarios = estado(aniversarios);
   const cEstoque = estado(estoque);
   const cSemTermo = estado(semTermo);
+  const cOnline = estado(online);
 
   return (
     <div className="flex flex-col gap-6">
@@ -76,6 +81,16 @@ export default async function InicioPage() {
 
         {gerencia && (
           <>
+            <CartaoPainel
+              id="pedidos-online-t"
+              titulo={`Pedidos online aguardando (${cOnline.itens.length})`}
+              vazio={cOnline.vazio}
+              falhou={cOnline.falhou}
+              vazioTexto="Nenhum pedido online aguardando resposta"
+            >
+              <ListaPedidosOnline itens={cOnline.itens} agora={agora} />
+            </CartaoPainel>
+
             <CartaoPainel
               id="pendentes-t"
               titulo="Aguardando confirmação"
