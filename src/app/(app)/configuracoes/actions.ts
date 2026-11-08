@@ -12,7 +12,16 @@ export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Re
 
   const parsed = configuracoesSchema.safeParse(dados);
   if (!parsed.success) return falha(parsed.error.issues[0].message);
-  const { nome, telefone, endereco, horarioFuncionamento } = parsed.data;
+  const {
+    nome,
+    telefone,
+    endereco,
+    horarioFuncionamento,
+    onlineAtivo,
+    onlineAntecedenciaMinHoras,
+    onlineAntecedenciaMaxDias,
+    onlineAvisoPrivacidade,
+  } = parsed.data;
 
   try {
     const supabase = await createClient();
@@ -24,6 +33,10 @@ export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Re
         telefone,
         endereco,
         horario_funcionamento: horarioFuncionamento,
+        online_ativo: onlineAtivo,
+        online_antecedencia_min_horas: onlineAntecedenciaMinHoras,
+        online_antecedencia_max_dias: onlineAntecedenciaMaxDias,
+        online_aviso_privacidade: onlineAvisoPrivacidade,
       },
       { onConflict: "linha_unica" },
     );
