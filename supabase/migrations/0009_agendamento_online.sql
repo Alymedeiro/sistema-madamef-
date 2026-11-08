@@ -9,7 +9,9 @@
 --      sem WhatsApp, e o gatilho que impede agendamento interno sobre um
 --      pedido aguardando não vencido.
 --   4. Tarefa diária (pg_cron, só onde a extensão existe).
---   5–7. Funções públicas e de aprovação (Task 2).
+--   5. horarios_livres_online (service_role).
+--   6. criar_pedido_online com trava por profissional (service_role).
+--   7. aprovar_pedido_online e recusar_pedido_online (dona e recepção).
 --
 -- Pedido "vencido" = status 'aguardando' e criado_em <= now() - 24 h. Vencido
 -- nunca bloqueia horário, em nenhuma função ou gatilho.
@@ -286,3 +288,277 @@ begin
   end if;
 end
 $$;
+
+-- =============================================================================
+-- 5. Horários livres (página /agendar)
+--
+-- Início a cada 15 min dentro de cada intervalo de jornada do dia da semana,
+-- com inicio + duração <= fim do intervalo, inicio >= now() + antecedência
+-- mínima e p_dia em [hoje, hoje + antecedência máxima] (hoje em São Paulo).
+-- Livre = sem agendamento não cancelado, bloqueio ou pedido aguardando não
+-- vencido sobreposto ('[)'). Vazio se online desligado ou serviço inativo/sem
+-- permite_online. Profissional: ativa e com o serviço em colaborador_servicos.
+-- p_profissional null = "qualquer uma": uma linha por horário, com a primeira
+-- profissional livre por nome (desempate por id — Ruling P3A-R1).
+-- Só o servidor (service_role).
+-- =============================================================================
+create function public.horarios_livres_online(p_servico uuid, p_profissional uuid, p_dia date)
+returns table (inicio timestamptz, profissional_id uuid)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  with cfg as (
+    select c.online_antecedencia_min_horas as min_h,
+           c.online_antecedencia_max_dias as max_d,
+           (now() at time zone 'America/Sao_Paulo')::date as hoje
+    from public.configuracoes_clinica c
+    where c.online_ativo
+    limit 1
+  ),
+  srv as (
+    select make_interval(mins => s.duracao_min) as duracao
+    from public.servicos s
+    where s.id = p_servico and s.ativo and s.permite_online
+  ),
+  candidatos as (
+    select co.id as profissional_id, co.nome, g.t as inicio, g.t + srv.duracao as fim
+    from cfg
+    cross join srv
+    cross join public.colaboradores co
+    join public.colaborador_servicos cs
+      on cs.colaborador_id = co.id and cs.servico_id = p_servico
+    join public.jornadas j
+      on j.colaborador_id = co.id and j.dia_semana = extract(dow from p_dia)
+    cross join lateral generate_series(
+      (p_dia + j.hora_inicio) at time zone 'America/Sao_Paulo',
+      ((p_dia + j.hora_fim) at time zone 'America/Sao_Paulo') - srv.duracao,
+      interval '15 minutes'
+    ) as g(t)
+    where co.ativo
+      and (p_profissional is null or co.id = p_profissional)
+      and p_dia between cfg.hoje and cfg.hoje + cfg.max_d
+      and g.t >= now() + make_interval(hours => cfg.min_h)
+  )
+  select distinct on (k.inicio) k.inicio, k.profissional_id
+  from candidatos k
+  where not exists (
+      select 1 from public.agendamentos a
+      where a.profissional_id = k.profissional_id
+        and a.status <> 'cancelado'
+        and tstzrange(a.inicio, a.fim, '[)') && tstzrange(k.inicio, k.fim, '[)')
+    )
+    and not exists (
+      select 1 from public.bloqueios_agenda b
+      where b.colaborador_id = k.profissional_id
+        and tstzrange(b.inicio, b.fim, '[)') && tstzrange(k.inicio, k.fim, '[)')
+    )
+    and not exists (
+      select 1 from public.pedidos_online p
+      where p.profissional_id = k.profissional_id
+        and p.status = 'aguardando'
+        and not public.pedido_vencido(p)
+        and tstzrange(p.inicio, p.fim, '[)') && tstzrange(k.inicio, k.fim, '[)')
+    )
+  order by k.inicio, k.nome, k.profissional_id
+$$;
+
+revoke execute on function public.horarios_livres_online(uuid, uuid, date)
+  from public, anon, authenticated;
+grant execute on function public.horarios_livres_online(uuid, uuid, date) to service_role;
+
+-- =============================================================================
+-- 6. Criar pedido (página /agendar, pelo servidor)
+--
+-- Ordem: online ligado; limite por ip_hash (5 na última hora); expira os
+-- vencidos (senão a exclusion constraint recusaria o horário); limite por
+-- WhatsApp (3 aguardando); para cada candidata em ordem de nome (a escolhida,
+-- ou todas as que fazem o serviço), trava a agenda dela
+-- (travar_agenda_profissional — Ruling P3A-R2) e confere p_inicio em
+-- horarios_livres_online; grava na primeira livre. Nenhuma livre, ou corrida
+-- na constraint (23P01), vira "Esse horário acabou de ser reservado…".
+-- Candidatas travadas em ordem fixa (nome, id): sem deadlock entre pedidos.
+-- Só o servidor (service_role).
+-- =============================================================================
+create function public.criar_pedido_online(
+  p_servico uuid,
+  p_profissional uuid,
+  p_inicio timestamptz,
+  p_nome text,
+  p_whatsapp text,
+  p_ip_hash text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_servico public.servicos;
+  v_dia date := (p_inicio at time zone 'America/Sao_Paulo')::date;
+  v_prof uuid;
+  v_id uuid;
+begin
+  if not coalesce(
+    (select c.online_ativo from public.configuracoes_clinica c limit 1), false
+  ) then
+    raise exception 'Agendamento online indisponível no momento.' using errcode = 'P0001';
+  end if;
+
+  if (
+    select count(*) from public.pedidos_online p
+    where p.ip_hash = p_ip_hash and p.criado_em > now() - interval '1 hour'
+  ) >= 5 then
+    raise exception 'Muitas tentativas. Tente novamente mais tarde.' using errcode = 'P0001';
+  end if;
+
+  perform public.expirar_pedidos_online();
+
+  if (
+    select count(*) from public.pedidos_online p
+    where p.whatsapp = p_whatsapp and p.status = 'aguardando'
+  ) >= 3 then
+    raise exception 'Você já tem 3 pedidos aguardando resposta. Aguarde o retorno da clínica.'
+      using errcode = 'P0001';
+  end if;
+
+  select * into v_servico from public.servicos s where s.id = p_servico;
+
+  for v_prof in
+    select co.id
+    from public.colaboradores co
+    join public.colaborador_servicos cs
+      on cs.colaborador_id = co.id and cs.servico_id = p_servico
+    where co.ativo
+      and (p_profissional is null or co.id = p_profissional)
+    order by co.nome, co.id
+  loop
+    perform public.travar_agenda_profissional(v_prof);
+    if exists (
+      select 1 from public.horarios_livres_online(p_servico, v_prof, v_dia) h
+      where h.inicio = p_inicio
+    ) then
+      begin
+        insert into public.pedidos_online (
+          servico_id, profissional_escolhida_id, profissional_id, inicio, fim,
+          avaliacao, nome, whatsapp, aceite_privacidade_em, ip_hash
+        ) values (
+          p_servico, p_profissional, v_prof, p_inicio,
+          p_inicio + make_interval(mins => v_servico.duracao_min),
+          v_servico.exige_avaliacao, p_nome, p_whatsapp, now(), p_ip_hash
+        )
+        returning id into v_id;
+      exception when exclusion_violation then
+        raise exception 'Esse horário acabou de ser reservado, escolha outro.'
+          using errcode = 'P0001';
+      end;
+      return v_id;
+    end if;
+  end loop;
+
+  raise exception 'Esse horário acabou de ser reservado, escolha outro.' using errcode = 'P0001';
+end;
+$$;
+
+revoke execute on function public.criar_pedido_online(uuid, uuid, timestamptz, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.criar_pedido_online(uuid, uuid, timestamptz, text, text, text)
+  to service_role;
+
+-- =============================================================================
+-- 7. Aprovar e recusar (dona e recepção)
+--
+-- O pedido é travado (for update); não aguardando ou vencido → "Este pedido
+-- já foi respondido." (duplo toque, duas recepcionistas, pedido de 24 h+).
+-- Aprovar: trava a agenda de p_profissional (Ruling P3A-R2), marca aprovado
+-- ANTES do insert (o gatilho agendamentos_pedido_online não vê o próprio
+-- pedido como bloqueio), cria o agendamento confirmado de origem online e
+-- liga o pedido a ele. Sobreposição de agenda → 23P01 de
+-- agendamentos_sem_sobreposicao; tudo é desfeito e o pedido continua
+-- aguardando.
+-- =============================================================================
+create function public.aprovar_pedido_online(
+  p_pedido uuid,
+  p_cliente uuid,
+  p_profissional uuid,
+  p_inicio timestamptz,
+  p_fim timestamptz,
+  p_valor_centavos int
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_pedido public.pedidos_online;
+  v_agendamento uuid;
+begin
+  if public.perfil_atual() is null or public.perfil_atual() not in ('dona', 'recepcao') then
+    raise exception 'Apenas a dona ou a recepção podem responder pedidos' using errcode = 'P0001';
+  end if;
+
+  perform public.travar_agenda_profissional(p_profissional);
+
+  select * into v_pedido from public.pedidos_online p where p.id = p_pedido for update;
+  if not found or v_pedido.status <> 'aguardando' or public.pedido_vencido(v_pedido) then
+    raise exception 'Este pedido já foi respondido.' using errcode = 'P0001';
+  end if;
+
+  update public.pedidos_online
+  set status = 'aprovado',
+      decidido_por = public.colaborador_atual_id(),
+      decidido_em = now()
+  where id = p_pedido;
+
+  insert into public.agendamentos (
+    cliente_id, profissional_id, servico_id, inicio, fim, status, origem,
+    valor_previsto_centavos, criado_por
+  ) values (
+    p_cliente, p_profissional, v_pedido.servico_id, p_inicio, p_fim, 'confirmado', 'online',
+    p_valor_centavos, public.colaborador_atual_id()
+  )
+  returning id into v_agendamento;
+
+  update public.pedidos_online set agendamento_id = v_agendamento where id = p_pedido;
+
+  return v_agendamento;
+end;
+$$;
+
+revoke execute on function public.aprovar_pedido_online(uuid, uuid, uuid, timestamptz, timestamptz, int)
+  from public, anon, authenticated;
+grant execute on function public.aprovar_pedido_online(uuid, uuid, uuid, timestamptz, timestamptz, int)
+  to authenticated;
+
+create function public.recusar_pedido_online(p_pedido uuid, p_motivo text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_pedido public.pedidos_online;
+begin
+  if public.perfil_atual() is null or public.perfil_atual() not in ('dona', 'recepcao') then
+    raise exception 'Apenas a dona ou a recepção podem responder pedidos' using errcode = 'P0001';
+  end if;
+
+  select * into v_pedido from public.pedidos_online p where p.id = p_pedido for update;
+  if not found or v_pedido.status <> 'aguardando' or public.pedido_vencido(v_pedido) then
+    raise exception 'Este pedido já foi respondido.' using errcode = 'P0001';
+  end if;
+
+  update public.pedidos_online
+  set status = 'recusado',
+      motivo_recusa = nullif(btrim(p_motivo), ''),
+      decidido_por = public.colaborador_atual_id(),
+      decidido_em = now()
+  where id = p_pedido;
+end;
+$$;
+
+revoke execute on function public.recusar_pedido_online(uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.recusar_pedido_online(uuid, text) to authenticated;

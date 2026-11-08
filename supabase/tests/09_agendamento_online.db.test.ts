@@ -472,3 +472,499 @@ describe("configurações e cron", () => {
     });
   });
 });
+
+// =============================================================================
+// 0009 (seções 5–7): horarios_livres_online, criar_pedido_online,
+// aprovar_pedido_online e recusar_pedido_online.
+//
+// Relógio: now() é fixo dentro de cada transação. Os casos de grade usam
+// segundas-feiras fixas de abril/2031 com online_antecedencia_max_dias = 3650;
+// os de antecedência calculam o dia a partir de now() (hoje em São Paulo) e
+// ajustam a configuração dentro da transação desfeita.
+// =============================================================================
+
+const MSG_RESERVADO = "Esse horário acabou de ser reservado, escolha outro.";
+const MSG_WHATSAPP = "Você já tem 3 pedidos aguardando resposta. Aguarde o retorno da clínica.";
+const MSG_TENTATIVAS = "Muitas tentativas. Tente novamente mais tarde.";
+const MSG_INDISPONIVEL = "Agendamento online indisponível no momento.";
+const MSG_RESPONDIDO = "Este pedido já foi respondido.";
+const MSG_PERFIL = "Apenas a dona ou a recepção podem responder pedidos";
+const GRADE = ["09:00", "09:15", "09:30", "09:45", "10:00", "10:15", "10:30", "10:45", "11:00"];
+
+// Segundas-feiras de abril/2031.
+const SEG1 = "2031-04-07";
+const SEG2 = "2031-04-14";
+const SEG3 = "2031-04-21";
+const hs = (dia: string, hhmm: string) => `${dia}T${hhmm}:00-03:00`;
+
+let ana: string; // "Ana Online" — primeira por nome
+let bia: string; // "Bia Online"
+let s60: string; // 60 min, online
+let sAval: string; // 60 min, online, exige avaliação
+let sOff: string; // 60 min, sem permite_online
+
+let seq = 0;
+const proximo = () => (seq += 1);
+
+async function comoServico(c: PoolClient) {
+  await c.query("reset role");
+  await c.query("set local role service_role");
+}
+
+async function livres(c: PoolClient, servicoId: string, prof: string | null, dia: string) {
+  const r = await c.query<{ hora: string; profissional_id: string }>(
+    `select to_char(inicio at time zone 'America/Sao_Paulo', 'HH24:MI') as hora, profissional_id
+       from horarios_livres_online($1, $2, $3::date) order by inicio`,
+    [servicoId, prof, dia],
+  );
+  return r.rows;
+}
+const horas = async (c: PoolClient, servicoId: string, prof: string | null, dia: string) =>
+  (await livres(c, servicoId, prof, dia)).map((l) => l.hora);
+
+type NovoOnline = {
+  servico?: string;
+  profissional?: string | null;
+  inicio: string;
+  whatsapp?: string;
+  ip?: string;
+};
+const SQL_CRIAR = "select criar_pedido_online($1, $2, $3::timestamptz, $4, $5, $6) as id";
+const paramsCriar = (p: NovoOnline) => {
+  const n = proximo();
+  return [
+    p.servico ?? s60,
+    p.profissional === undefined ? ana : p.profissional,
+    p.inicio,
+    "Maria Souza",
+    p.whatsapp ?? `55119${String(n).padStart(8, "0")}`,
+    p.ip ?? `ip-${n}`,
+  ];
+};
+async function criar(c: PoolClient, p: NovoOnline): Promise<string> {
+  return (await c.query<{ id: string }>(SQL_CRIAR, paramsCriar(p))).rows[0].id;
+}
+
+const SQL_APROVAR =
+  "select aprovar_pedido_online($1, $2, $3, $4::timestamptz, $5::timestamptz, $6) as id";
+const SQL_RECUSAR = "select recusar_pedido_online($1, $2)";
+
+/** Superusuário: agendamento direto de `minutos` (padrão 60) para a profissional. */
+async function agendar(c: PoolClient, prof: string, inicio: string, minutos = 60, status = "confirmado") {
+  await c.query(
+    `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status)
+     values ($1, $2, $3, $4::timestamptz, $4::timestamptz + make_interval(mins => $5), $6)`,
+    [cli, prof, s60, inicio, minutos, status],
+  );
+}
+
+describe("horários livres, criar, aprovar e recusar (seções 5–7)", () => {
+  beforeAll(async () => {
+    ({ colaboradorId: ana } = await criarUsuario("profissional", { nome: "Ana Online" }));
+    ({ colaboradorId: bia } = await criarUsuario("profissional", { nome: "Bia Online" }));
+    await comoSuperusuario(async (c) => {
+      const id = async (sql: string, p: unknown[] = []) =>
+        (await c.query<{ id: string }>(sql, p)).rows[0].id;
+      await c.query(
+        `insert into configuracoes_clinica (nome, online_ativo, online_antecedencia_max_dias)
+         values ('Madame Fê Clinic', true, 3650)`,
+      );
+      const cat = await id("insert into categorias_servico (nome) values ('Online') returning id");
+      const serv = (nome: string, online: boolean, aval: boolean) =>
+        id(
+          `insert into servicos (nome, categoria_id, duracao_min, preco_centavos, permite_online, exige_avaliacao)
+           values ($1, $2, 60, 20000, $3, $4) returning id`,
+          [nome, cat, online, aval],
+        );
+      s60 = await serv("Limpeza", true, false);
+      sAval = await serv("Laser", true, true);
+      sOff = await serv("Massagem", false, false);
+      for (const prof of [ana, bia]) {
+        await c.query(
+          "insert into jornadas (colaborador_id, dia_semana, hora_inicio, hora_fim) values ($1, 1, '09:00', '12:00')",
+          [prof],
+        );
+        for (const s of [s60, sAval, sOff]) {
+          await c.query("insert into colaborador_servicos (colaborador_id, servico_id) values ($1, $2)", [prof, s]);
+        }
+      }
+    });
+  });
+
+  it("horarios_livres_online lista 09:00…11:00 de 15 em 15", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoServico(c);
+      expect(await horas(c, s60, ana, SEG1)).toEqual(GRADE);
+      expect((await livres(c, s60, ana, SEG1)).every((l) => l.profissional_id === ana)).toBe(true);
+      // Terça: sem jornada.
+      expect(await horas(c, s60, ana, "2031-04-08")).toEqual([]);
+    });
+  });
+
+  it("some o horário de agendamento, bloqueio e pedido aguardando; volta com pedido vencido", async () => {
+    const semOcupacao = ["09:00", "10:30", "10:45", "11:00"];
+    await comoUsuario(null, async (c) => {
+      await comoSuper(c);
+      await agendar(c, ana, hs(SEG1, "10:00"), 30);
+      await agendar(c, ana, hs(SEG1, "11:00"), 60, "cancelado");
+      await c.query(
+        "insert into bloqueios_agenda (colaborador_id, inicio, fim, motivo) values ($1, $2, $3, 'curso')",
+        [ana, hs(SEG2, "10:00"), hs(SEG2, "10:30")],
+      );
+      const p = await pedido(c, { profissional: ana, inicio: hs(SEG3, "10:00"), minutos: 30 });
+      await pedido(c, { profissional: ana, inicio: hs(SEG3, "11:00"), minutos: 60, status: "recusado" });
+      await comoServico(c);
+      expect(await horas(c, s60, ana, SEG1)).toEqual(semOcupacao);
+      expect(await horas(c, s60, ana, SEG2)).toEqual(semOcupacao);
+      expect(await horas(c, s60, ana, SEG3)).toEqual(semOcupacao);
+      // A outra profissional não é afetada.
+      expect(await horas(c, s60, bia, SEG1)).toEqual(GRADE);
+      await comoSuper(c);
+      await c.query("update pedidos_online set criado_em = now() - interval '24 hours' where id = $1", [p]);
+      await comoServico(c);
+      expect(await horas(c, s60, ana, SEG3)).toEqual(GRADE);
+    });
+  });
+
+  it("qualquer uma: devolve a profissional livre quando a outra está ocupada", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoServico(c);
+      const todas = await livres(c, s60, null, SEG1);
+      expect(todas.map((l) => l.hora)).toEqual(GRADE);
+      expect(todas.every((l) => l.profissional_id === ana)).toBe(true);
+      await comoSuper(c);
+      await agendar(c, ana, hs(SEG1, "09:00"));
+      await comoServico(c);
+      const r = await livres(c, s60, null, SEG1);
+      expect(r.map((l) => l.hora)).toEqual(GRADE);
+      expect(r.map((l) => (l.profissional_id === ana ? "ana" : "bia"))).toEqual([
+        "bia", "bia", "bia", "bia", "ana", "ana", "ana", "ana", "ana",
+      ]);
+      // O pedido "qualquer uma" vai para a livre.
+      const id = await criar(c, { profissional: null, inicio: hs(SEG1, "09:00") });
+      await comoSuper(c);
+      const linha = (
+        await c.query("select profissional_id, profissional_escolhida_id from pedidos_online where id = $1", [id])
+      ).rows[0];
+      expect(linha).toEqual({ profissional_id: bia, profissional_escolhida_id: null });
+      await comoServico(c);
+      // Agora as duas estão ocupadas às 09:00.
+      expect((await livres(c, s60, null, SEG1)).map((l) => l.hora)).toEqual(GRADE.slice(4));
+      const erro = await falha(c, SQL_CRIAR, paramsCriar({ profissional: null, inicio: hs(SEG1, "09:00") }));
+      expect(erro.message).toBe(MSG_RESERVADO);
+    });
+  });
+
+  it("antecedência: nada antes de now()+2h; dia hoje+61 vazio; online_ativo=false vazio; serviço sem permite_online vazio", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoSuper(c);
+      // Jornada 09:00–12:00 em todos os dias para Ana (desfeito ao final).
+      await c.query(
+        `insert into jornadas (colaborador_id, dia_semana, hora_inicio, hora_fim)
+         select $1, d, '09:00', '12:00' from generate_series(0, 6) d where d <> 1`,
+        [ana],
+      );
+      const hoje = (
+        await c.query<{ d: string }>("select to_char((now() at time zone 'America/Sao_Paulo')::date, 'YYYY-MM-DD') as d")
+      ).rows[0].d;
+      const dia = (n: number) =>
+        new Date(Date.parse(`${hoje}T12:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
+      // Mínimo calculado para o corte cair entre 10:00 e 11:00 de hoje+2.
+      const { min_h: minH, corte } = (
+        await c.query<{ min_h: number; corte: Date }>(
+          `select m as min_h, now() + make_interval(hours => m) as corte
+             from (select ceil(extract(epoch from ((($1::date + time '10:00') at time zone 'America/Sao_Paulo') - now())) / 3600)::int as m) x`,
+          [dia(2)],
+        )
+      ).rows[0];
+      await c.query("update configuracoes_clinica set online_antecedencia_min_horas = $1", [minH]);
+      await comoServico(c);
+      const esperado = GRADE.filter((hh) => new Date(`${dia(2)}T${hh}:00-03:00`) >= corte);
+      expect(esperado.length).toBeGreaterThan(0);
+      expect(esperado).not.toContain("09:00");
+      expect(await horas(c, s60, ana, dia(2))).toEqual(esperado);
+
+      // Padrão de 2 h: nada antes de now() + 2 h hoje e amanhã.
+      await comoSuper(c);
+      await c.query("update configuracoes_clinica set online_antecedencia_min_horas = 2");
+      await comoServico(c);
+      const limite = (await c.query<{ t: Date }>("select now() + interval '2 hours' as t")).rows[0].t;
+      for (const d of [dia(0), dia(1)]) {
+        for (const hh of await horas(c, s60, ana, d)) {
+          expect(new Date(`${d}T${hh}:00-03:00`).getTime()).toBeGreaterThanOrEqual(limite.getTime());
+        }
+      }
+
+      // Janela de 60 dias: hoje+60 lista, hoje+61 e ontem não.
+      await comoSuper(c);
+      await c.query("update configuracoes_clinica set online_antecedencia_max_dias = 60");
+      await comoServico(c);
+      expect(await horas(c, s60, ana, dia(60))).toEqual(GRADE);
+      expect(await horas(c, s60, ana, dia(61))).toEqual([]);
+      expect(await horas(c, s60, ana, dia(-1))).toEqual([]);
+      expect(await horas(c, s60, null, dia(61))).toEqual([]);
+
+      // Serviço sem permite_online, serviço inativo, online desligado.
+      expect(await horas(c, sOff, ana, dia(60))).toEqual([]);
+      await comoSuper(c);
+      await c.query("update servicos set ativo = false where id = $1", [sAval]);
+      await comoServico(c);
+      expect(await horas(c, sAval, ana, dia(60))).toEqual([]);
+      await comoSuper(c);
+      await c.query("update configuracoes_clinica set online_ativo = false");
+      await comoServico(c);
+      expect(await horas(c, s60, ana, dia(60))).toEqual([]);
+      expect(await horas(c, s60, null, dia(60))).toEqual([]);
+    });
+  });
+
+  it("profissional inativa ou sem o serviço não aparece", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoSuper(c);
+      await c.query("update colaboradores set ativo = false where id = $1", [ana]);
+      await c.query("delete from colaborador_servicos where colaborador_id = $1 and servico_id = $2", [bia, sAval]);
+      await comoServico(c);
+      expect(await horas(c, s60, ana, SEG1)).toEqual([]);
+      expect(await horas(c, sAval, bia, SEG1)).toEqual([]);
+      expect(await horas(c, sAval, null, SEG1)).toEqual([]);
+      expect((await livres(c, s60, null, SEG1)).every((l) => l.profissional_id === bia)).toBe(true);
+    });
+  });
+
+  it("anon e authenticated não executam horarios_livres_online nem criar_pedido_online", async () => {
+    for (const uid of [null, dona]) {
+      await comoUsuario(uid, (c) =>
+        esperarErroSql(c.query("select * from horarios_livres_online($1, $2, $3::date)", [s60, ana, SEG1]), "42501"),
+      );
+      await comoUsuario(uid, (c) =>
+        esperarErroSql(c.query(SQL_CRIAR, paramsCriar({ inicio: hs(SEG1, "09:00") })), "42501"),
+      );
+    }
+  });
+
+  it("criar_pedido_online: corrida em duas conexões no mesmo horário → um uuid e um erro \"acabou de ser reservado\"", async () => {
+    const inicio = hs(SEG2, "09:00");
+    const a = await abrirConexao(null);
+    const b = await abrirConexao(null);
+    try {
+      for (const x of [a, b]) {
+        await x.query("reset role");
+        await x.query("set role service_role");
+      }
+      const pidB = (await b.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+      await a.query("begin");
+      await b.query("begin");
+      const id = (await a.query<{ id: string }>(SQL_CRIAR, paramsCriar({ inicio }))).rows[0].id;
+      expect(id).toMatch(/^[0-9a-f-]{36}$/);
+      const tentativaB = b.query(SQL_CRIAR, paramsCriar({ inicio })).then(
+        () => null,
+        (e: Error) => e,
+      );
+      for (let i = 0; ; i += 1) {
+        const r = await comoSuperusuario((c) =>
+          c.query("select 1 from pg_locks where locktype = 'advisory' and not granted and pid = $1", [pidB]),
+        );
+        if (r.rowCount) break;
+        if (i > 100) throw new Error("B não chegou a esperar a trava");
+        await new Promise((ok) => setTimeout(ok, 20));
+      }
+      await a.query("commit");
+      const erro = await tentativaB;
+      expect(erro?.message).toBe(MSG_RESERVADO);
+      await b.query("rollback");
+      const n = await comoSuperusuario((c) =>
+        c.query<{ n: number }>("select count(*)::int as n from pedidos_online where inicio = $1", [inicio]),
+      );
+      expect(n.rows[0].n).toBe(1);
+    } finally {
+      a.release();
+      b.release();
+      await comoSuperusuario((c) => c.query("delete from pedidos_online where inicio = $1", [inicio]));
+    }
+  });
+
+  it("criar_pedido_online: 4º aguardando do mesmo WhatsApp falha; 6º do mesmo ip_hash na hora falha", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoServico(c);
+      const whatsapp = "5511912345678";
+      for (const hh of ["09:00", "10:00", "11:00"]) {
+        await criar(c, { inicio: hs(SEG1, hh), whatsapp });
+      }
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ profissional: bia, inicio: hs(SEG1, "09:00"), whatsapp }))).message).toBe(
+        MSG_WHATSAPP,
+      );
+
+      const ip = "ip-repetido";
+      for (const hh of ["09:00", "10:00", "11:00"]) {
+        await criar(c, { profissional: bia, inicio: hs(SEG1, hh), ip });
+      }
+      for (const hh of ["09:00", "10:00"]) {
+        await criar(c, { profissional: ana, inicio: hs(SEG2, hh), ip });
+      }
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ inicio: hs(SEG2, "11:00"), ip }))).message).toBe(MSG_TENTATIVAS);
+
+      // Pedidos com mais de 1 h não contam para o ip_hash; recusados não contam para o WhatsApp.
+      await comoSuper(c);
+      await c.query("update pedidos_online set criado_em = now() - interval '61 minutes' where ip_hash = $1", [ip]);
+      await c.query("update pedidos_online set status = 'recusado' where whatsapp = $1 and inicio = $2", [
+        whatsapp,
+        hs(SEG1, "09:00"),
+      ]);
+      await comoServico(c);
+      await criar(c, { inicio: hs(SEG2, "11:00"), ip });
+      await criar(c, { profissional: ana, inicio: hs(SEG3, "09:00"), whatsapp });
+    });
+  });
+
+  it("criar_pedido_online sobre pedido vencido → ok (vencido vira expirado)", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoSuper(c);
+      const velho = await pedido(c, { profissional: ana, inicio: hs(SEG1, "09:00"), minutos: 60, idade: "25 hours" });
+      await comoServico(c);
+      const novo = await criar(c, { inicio: hs(SEG1, "09:00") });
+      await comoSuper(c);
+      const status = Object.fromEntries(
+        (await c.query<{ id: string; status: string }>("select id, status from pedidos_online")).rows.map((l) => [
+          l.id,
+          l.status,
+        ]),
+      );
+      expect(status).toEqual({ [velho]: "expirado", [novo]: "aguardando" });
+    });
+  });
+
+  it("criar_pedido_online marca avaliacao=true quando o serviço exige avaliação", async () => {
+    await comoUsuario(null, async (c) => {
+      await comoServico(c);
+      const comAval = await criar(c, { servico: sAval, inicio: hs(SEG1, "09:00") });
+      const semAval = await criar(c, { servico: s60, inicio: hs(SEG1, "10:00") });
+      await comoSuper(c);
+      const r = await c.query(
+        `select id, avaliacao, fim = inicio + interval '60 minutes' as fim_ok,
+                profissional_id, profissional_escolhida_id, nome, status,
+                aceite_privacidade_em = now() as aceite_ok
+           from pedidos_online order by inicio`,
+      );
+      expect(r.rows).toEqual([
+        { id: comAval, avaliacao: true, fim_ok: true, profissional_id: ana, profissional_escolhida_id: ana, nome: "Maria Souza", status: "aguardando", aceite_ok: true },
+        { id: semAval, avaliacao: false, fim_ok: true, profissional_id: ana, profissional_escolhida_id: ana, nome: "Maria Souza", status: "aguardando", aceite_ok: true },
+      ]);
+      // Horário fora da grade (11:05) e fora da jornada (11:15 + 60 > 12:00): recusados.
+      await comoServico(c);
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ inicio: hs(SEG1, "11:05") }))).message).toBe(MSG_RESERVADO);
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ inicio: hs(SEG1, "11:15") }))).message).toBe(MSG_RESERVADO);
+      // Online desligado.
+      await comoSuper(c);
+      await c.query("update configuracoes_clinica set online_ativo = false");
+      await comoServico(c);
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ inicio: hs(SEG1, "11:00") }))).message).toBe(MSG_INDISPONIVEL);
+    });
+  });
+
+  it("aprovar: cria agendamento confirmado origem online e liga ao pedido; segundo aprovar → \"Este pedido já foi respondido.\"; profissional → recusado; anon não executa", async () => {
+    await comoUsuario(recepcao, async (c) => {
+      await comoServico(c);
+      const p = await criar(c, { inicio: hs(SEG1, "09:00") });
+      await logarComo(c, profA);
+      expect(
+        (await falha(c, SQL_APROVAR, [p, cli, ana, hs(SEG1, "09:00"), hs(SEG1, "10:00"), 20000])).message,
+      ).toBe(MSG_PERFIL);
+      expect((await falha(c, SQL_RECUSAR, [p, null])).message).toBe(MSG_PERFIL);
+
+      await logarComo(c, recepcao);
+      const eu = (await c.query<{ id: string }>("select colaborador_atual_id() as id")).rows[0].id;
+      // Aprovada com outra profissional e outro horário.
+      const ag = (
+        await c.query<{ id: string }>(SQL_APROVAR, [p, cli, bia, hs(SEG1, "10:00"), hs(SEG1, "11:00"), 18000])
+      ).rows[0].id;
+      const a = (
+        await c.query(
+          `select cliente_id, profissional_id, servico_id, inicio, fim, status, origem,
+                  valor_previsto_centavos, criado_por from agendamentos where id = $1`,
+          [ag],
+        )
+      ).rows[0];
+      expect(a).toEqual({
+        cliente_id: cli,
+        profissional_id: bia,
+        servico_id: s60,
+        inicio: new Date(hs(SEG1, "10:00")),
+        fim: new Date(hs(SEG1, "11:00")),
+        status: "confirmado",
+        origem: "online",
+        valor_previsto_centavos: 18000,
+        criado_por: eu,
+      });
+      const ped = (
+        await c.query(
+          "select status, agendamento_id, decidido_por, decidido_em = now() as em_ok from pedidos_online where id = $1",
+          [p],
+        )
+      ).rows[0];
+      expect(ped).toEqual({ status: "aprovado", agendamento_id: ag, decidido_por: eu, em_ok: true });
+
+      // Duplo toque.
+      expect(
+        (await falha(c, SQL_APROVAR, [p, cli, bia, hs(SEG1, "10:00"), hs(SEG1, "11:00"), 18000])).message,
+      ).toBe(MSG_RESPONDIDO);
+      expect((await falha(c, SQL_RECUSAR, [p, null])).message).toBe(MSG_RESPONDIDO);
+      expect(
+        (await c.query<{ n: number }>("select count(*)::int as n from agendamentos where origem = 'online'")).rows[0].n,
+      ).toBe(1);
+
+      // Vencido também conta como respondido.
+      await comoSuper(c);
+      const velho = await pedido(c, { profissional: ana, inicio: hs(SEG2, "09:00"), minutos: 60, idade: "25 hours" });
+      await logarComo(c, dona);
+      expect(
+        (await falha(c, SQL_APROVAR, [velho, cli, ana, hs(SEG2, "09:00"), hs(SEG2, "10:00"), 20000])).message,
+      ).toBe(MSG_RESPONDIDO);
+    });
+    await comoUsuario(null, (c) =>
+      esperarErroSql(
+        c.query(SQL_APROVAR, [cli, cli, ana, hs(SEG1, "09:00"), hs(SEG1, "10:00"), 0]),
+        "42501",
+      ),
+    );
+    await comoUsuario(null, (c) => esperarErroSql(c.query(SQL_RECUSAR, [cli, null]), "42501"));
+  });
+
+  it("aprovar para horário com agendamento existente → 23P01 e pedido continua aguardando", async () => {
+    await comoUsuario(recepcao, async (c) => {
+      await comoSuper(c);
+      await agendar(c, ana, hs(SEG1, "11:00"));
+      await comoServico(c);
+      const p = await criar(c, { inicio: hs(SEG1, "09:00") });
+      await logarComo(c, recepcao);
+      await falha(c, SQL_APROVAR, [p, cli, ana, hs(SEG1, "10:30"), hs(SEG1, "11:30"), 20000], "23P01");
+      const r = (await c.query("select status, agendamento_id from pedidos_online where id = $1", [p])).rows[0];
+      expect(r).toEqual({ status: "aguardando", agendamento_id: null });
+    });
+  });
+
+  it("recusar libera o horário (novo pedido no mesmo horário passa)", async () => {
+    await comoUsuario(dona, async (c) => {
+      await comoServico(c);
+      const p = await criar(c, { inicio: hs(SEG1, "09:00") });
+      const outro = await criar(c, { inicio: hs(SEG1, "10:00") });
+      expect((await falha(c, SQL_CRIAR, paramsCriar({ inicio: hs(SEG1, "09:00") }))).message).toBe(MSG_RESERVADO);
+      await logarComo(c, dona);
+      const eu = (await c.query<{ id: string }>("select colaborador_atual_id() as id")).rows[0].id;
+      await c.query(SQL_RECUSAR, [p, "  Sem horário nesse dia.  "]);
+      await c.query(SQL_RECUSAR, [outro, "   "]);
+      const r = (
+        await c.query(
+          "select id, status, motivo_recusa, decidido_por, decidido_em = now() as em_ok from pedidos_online order by inicio",
+        )
+      ).rows;
+      expect(r).toEqual([
+        { id: p, status: "recusado", motivo_recusa: "Sem horário nesse dia.", decidido_por: eu, em_ok: true },
+        { id: outro, status: "recusado", motivo_recusa: null, decidido_por: eu, em_ok: true },
+      ]);
+      expect((await falha(c, SQL_RECUSAR, [p, null])).message).toBe(MSG_RESPONDIDO);
+      await comoServico(c);
+      await criar(c, { inicio: hs(SEG1, "09:00") });
+    });
+  });
+});

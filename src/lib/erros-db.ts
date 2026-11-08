@@ -9,6 +9,10 @@ const MENSAGEM_PADRAO = "Não foi possível concluir. Tente novamente.";
 export function mensagemErroBanco(erro: ErroBanco): string {
   switch (erro.code) {
     case "23P01":
+      // Corrida entre dois pedidos online no mesmo horário (0009).
+      if (erro.message?.includes("pedidos_online_sem_sobreposicao")) {
+        return "Esse horário acabou de ser reservado, escolha outro.";
+      }
       return "Este horário já está ocupado para esta profissional.";
     case "23505":
       if (erro.message?.includes("clientes_cpf_key")) {

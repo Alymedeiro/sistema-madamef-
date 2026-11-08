@@ -1486,9 +1486,36 @@ export type Database = {
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
       cliente_vinculada: { Args: { p_cliente: string }; Returns: boolean }
       colaborador_atual_id: { Args: never; Returns: string }
+      // 0009: só service_role; p_profissional null = "qualquer uma". Devolve o
+      // id do pedido; erros P0001 com as mensagens da Fase 3A.
+      criar_pedido_online: {
+        Args: {
+          p_servico: string
+          p_profissional: string | null
+          p_inicio: string
+          p_nome: string
+          p_whatsapp: string
+          p_ip_hash: string
+        }
+        Returns: string
+      }
       // 0009: só service_role (tarefa diária); limpa nome/whatsapp de pedidos
       // não aprovados com mais de 90 dias; devolve quantos.
       apagar_dados_pedidos_antigos: { Args: never; Returns: number }
+      // 0009: dona/recepção; cria o agendamento confirmado (origem online) e
+      // devolve o id. Não aguardando ou vencido → P0001 "Este pedido já foi
+      // respondido."; sobreposição na agenda → 23P01.
+      aprovar_pedido_online: {
+        Args: {
+          p_pedido: string
+          p_cliente: string
+          p_profissional: string
+          p_inicio: string
+          p_fim: string
+          p_valor_centavos: number
+        }
+        Returns: string
+      }
       // 0007: ativo → expirado (validade passou, sessões restantes); devolve quantos.
       expirar_pacotes: { Args: never; Returns: number }
       // 0009: aguardando vencido (24 h) → expirado; devolve quantos.
@@ -1500,6 +1527,12 @@ export type Database = {
       fechar_caixa: {
         Args: { p_caixa: string; p_valor_contado_centavos: number }
         Returns: Json
+      }
+      // 0009: só service_role; início a cada 15 min; p_dia "YYYY-MM-DD"
+      // (São Paulo). Com p_profissional null, a primeira livre por nome.
+      horarios_livres_online: {
+        Args: { p_servico: string; p_profissional: string | null; p_dia: string }
+        Returns: { inicio: string; profissional_id: string }[]
       }
       normalizar_busca: { Args: { texto: string }; Returns: string }
       // 0009: aguardando com criado_em <= now() - 24 h.
@@ -1527,6 +1560,11 @@ export type Database = {
       }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
+      // 0009: dona/recepção; motivo com trim (vazio → null).
+      recusar_pedido_online: {
+        Args: { p_pedido: string; p_motivo: string | null }
+        Returns: undefined
+      }
       registrar_acesso: {
         Args: {
           p_entidade:
