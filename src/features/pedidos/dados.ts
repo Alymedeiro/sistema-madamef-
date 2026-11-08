@@ -106,6 +106,9 @@ export async function listarPedidos(supabase: Supabase, status: StatusPedido): P
 
 /** Status de um pedido (para abrir a aba certa em ?pedido=<id>); null se não existe. */
 export async function statusDoPedido(supabase: Supabase, id: string): Promise<StatusPedido | null> {
+  // Vencido ainda gravado como aguardando: expira antes, para abrir a aba certa.
+  const exp = await supabase.rpc("expirar_pedidos_online");
+  if (exp.error) throw new Error(`Falha ao carregar o pedido online: ${exp.error.message}`);
   const { data, error } = await supabase
     .from("pedidos_online")
     .select("status")

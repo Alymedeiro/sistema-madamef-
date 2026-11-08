@@ -111,6 +111,14 @@ function FormularioAprovar({
       } else {
         setEncaixe(false);
         setErro(r.erro);
+        // A cliente já foi cadastrada: tentar de novo aprova com ela.
+        if ("clienteId" in r && r.clienteId) {
+          const cadastrada = { id: r.clienteId, nome: nova.nome.trim() };
+          setSugestoes((lista) =>
+            lista.some((c) => c.id === cadastrada.id) ? lista : [cadastrada, ...lista],
+          );
+          setEscolha(cadastrada.id);
+        }
       }
     });
   }

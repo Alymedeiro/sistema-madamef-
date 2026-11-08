@@ -20,7 +20,8 @@ const erro = (mensagem: string) => ({ ok: false as const, erro: mensagem });
 
 export type ResultadoAprovacao =
   | { ok: true; agendamentoId: string; mensagem: string; link: string }
-  | { ok: false; erro: string }
+  /** clienteId: a cliente já ficou cadastrada (ou reaproveitada); repetir com ela. */
+  | { ok: false; erro: string; clienteId?: string }
   | { ok: false; aviso: "fora_da_jornada"; erro: string };
 
 export type ResultadoRecusa = { ok: true; mensagem: string; link: string } | { ok: false; erro: string };
@@ -87,6 +88,14 @@ export async function aprovarPedido(dados: AprovacaoInput): Promise<ResultadoApr
     }
 
     let clienteId = d.clienteId;
+    let cadastrada = false;
+    if (!clienteId && d.novaCliente) {
+      // Reaproveita quem já tem este WhatsApp: repetir a aprovação depois de
+      // um erro (ou duas recepcionistas ao mesmo tempo) não duplica o cadastro.
+      const existentes = await clientesPorTelefone(supabase, d.novaCliente.whatsapp);
+      clienteId = existentes[0]?.id ?? null;
+      cadastrada = clienteId !== null;
+    }
     if (!clienteId && d.novaCliente) {
       const { data, error } = await supabase
         .from("clientes")
@@ -99,6 +108,7 @@ export async function aprovarPedido(dados: AprovacaoInput): Promise<ResultadoApr
         .single();
       if (error || !data) return erro(error ? mensagemErroBanco(error) : ERRO_INESPERADO);
       clienteId = data.id;
+      cadastrada = true;
     }
     if (!clienteId) return erro(ERRO_INESPERADO);
 
@@ -110,7 +120,10 @@ export async function aprovarPedido(dados: AprovacaoInput): Promise<ResultadoApr
       p_fim: aprovado.fim.toISOString(),
       p_valor_centavos: aprovado.precoCentavos,
     });
-    if (error || !agendamentoId) return erro(error ? mensagemErroBanco(error) : ERRO_INESPERADO);
+    if (error || !agendamentoId) {
+      const mensagemErro = error ? mensagemErroBanco(error) : ERRO_INESPERADO;
+      return cadastrada ? { ok: false, erro: mensagemErro, clienteId } : erro(mensagemErro);
+    }
 
     revalidar();
     const mensagem = mensagemAprovado({

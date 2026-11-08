@@ -120,7 +120,7 @@ describe("aprovarPedido", () => {
   it("sem cliente cria a cliente com o aceite LGPD do pedido e depois aprova", async () => {
     prepararPedido();
     prepararContexto();
-    falso.responder("clientes", ok({ id: NOVA }));
+    falso.responder("clientes", ok([]), ok({ id: NOVA }));
     falso.responder("rpc:aprovar_pedido_online", ok(AG));
 
     const r = await aprovarPedido({
@@ -142,6 +142,80 @@ describe("aprovarPedido", () => {
     expect(indices.findIndex((c) => c.tabela === "clientes")).toBeLessThan(
       indices.findIndex((c) => c.tabela === "rpc:aprovar_pedido_online"),
     );
+  });
+
+  it("cadastro nova com WhatsApp já cadastrado reaproveita a cliente (sem inserir)", async () => {
+    prepararPedido();
+    prepararContexto();
+    falso.responder("clientes", ok([{ id: CLIENTE, nome: "Maria Souza" }]));
+    falso.responder("rpc:aprovar_pedido_online", ok(AG));
+    const r = await aprovarPedido({
+      ...entrada,
+      clienteId: null,
+      novaCliente: { nome: "Maria", whatsapp: "11987654321" },
+    });
+    expect(r.ok).toBe(true);
+    expect(falso.chamadasDe("clientes", "eq")[0].args).toEqual(["whatsapp", "5511987654321"]);
+    expect(falso.chamadasDe("clientes", "insert")).toHaveLength(0);
+    expect(
+      (falso.chamadasRpc("aprovar_pedido_online")[0].args[0] as { p_cliente: string }).p_cliente,
+    ).toBe(CLIENTE);
+  });
+
+  it("RPC falha depois de cadastrar: devolve clienteId e repetir não insere de novo", async () => {
+    const nova = { nome: "Maria Souza", whatsapp: "(11) 98765-4321" };
+    prepararPedido();
+    prepararContexto();
+    falso.responder("clientes", ok([]), ok({ id: NOVA }));
+    falso.responder("rpc:aprovar_pedido_online", {
+      data: null,
+      error: {
+        code: "P0001",
+        message: "Há um pedido online neste horário. Aprove ou recuse o pedido primeiro.",
+      },
+    });
+    const r1 = await aprovarPedido({ ...entrada, clienteId: null, novaCliente: nova });
+    expect(r1).toEqual({
+      ok: false,
+      erro: "Há um pedido online neste horário. Aprove ou recuse o pedido primeiro.",
+      clienteId: NOVA,
+    });
+    expect(falso.chamadasDe("clientes", "insert")).toHaveLength(1);
+
+    // Repetição com "nova" ainda marcada (ou outra recepcionista): acha pelo WhatsApp.
+    prepararPedido();
+    prepararContexto();
+    falso.responder("clientes", ok([{ id: NOVA, nome: "Maria Souza" }]));
+    falso.responder("rpc:aprovar_pedido_online", ok(AG));
+    const r2 = await aprovarPedido({ ...entrada, clienteId: null, novaCliente: nova });
+    expect(r2.ok).toBe(true);
+    expect(falso.chamadasDe("clientes", "insert")).toHaveLength(1);
+    const rpcs = falso.chamadasRpc("aprovar_pedido_online");
+    expect((rpcs[1].args[0] as { p_cliente: string }).p_cliente).toBe(NOVA);
+  });
+
+  it("RPC falha com cliente escolhida: erro sem clienteId", async () => {
+    prepararPedido();
+    prepararContexto();
+    falso.responder("rpc:aprovar_pedido_online", {
+      data: null,
+      error: { code: "23P01", message: "x" },
+    });
+    expect(await aprovarPedido(entrada)).toEqual({
+      ok: false,
+      erro: "Este horário já está ocupado para esta profissional.",
+    });
+  });
+
+  it("pedido aguardando com mais de 24 h sai cedo sem validar nem chamar a RPC", async () => {
+    prepararPedido({ criado_em: new Date(Date.now() - 25 * 3600_000).toISOString() });
+    falso.responder("colaboradores", ok({ nome: "Fernanda" }));
+    expect(await aprovarPedido(entrada)).toEqual({
+      ok: false,
+      erro: "Este pedido já foi respondido.",
+    });
+    expect(falso.chamadasRpc("aprovar_pedido_online")).toHaveLength(0);
+    expect(falso.chamadasDe("jornadas")).toHaveLength(0);
   });
 
   it("sem cliente e sem cadastro devolve erro sem tocar no banco", async () => {

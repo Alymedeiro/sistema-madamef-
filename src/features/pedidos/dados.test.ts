@@ -3,7 +3,7 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 
 vi.mock("server-only", () => ({}));
 
-import { clientesPorTelefone, listarPedidos } from "./dados";
+import { clientesPorTelefone, listarPedidos, statusDoPedido } from "./dados";
 
 const ok = (data: unknown) => ({ data, error: null });
 
@@ -106,5 +106,15 @@ describe("clientesPorTelefone", () => {
     const falso = criarSupabaseFalso();
     expect(await clientesPorTelefone(falso.cliente as never, "98765-4321")).toEqual([]);
     expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("statusDoPedido", () => {
+  it("expira os vencidos antes de ler o status (abre a aba certa)", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:expirar_pedidos_online", ok(1));
+    falso.responder("pedidos_online", ok({ status: "expirado" }));
+    expect(await statusDoPedido(falso.cliente as never, "p1")).toBe("expirado");
+    expect(falso.chamadas[0].tabela).toBe("rpc:expirar_pedidos_online");
   });
 });

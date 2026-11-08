@@ -83,7 +83,11 @@ export default async function InicioPage() {
           <>
             <CartaoPainel
               id="pedidos-online-t"
-              titulo={`Pedidos online aguardando (${cOnline.itens.length})`}
+              titulo={
+                cOnline.falhou
+                  ? "Pedidos online aguardando"
+                  : `Pedidos online aguardando (${cOnline.itens.length})`
+              }
               vazio={cOnline.vazio}
               falhou={cOnline.falhou}
               vazioTexto="Nenhum pedido online aguardando resposta"
