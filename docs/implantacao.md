@@ -21,7 +21,7 @@ A `service_role key` é secreta: dá acesso total ao banco. Nunca a envie por e-
 
 ## 2. Criar as tabelas (migrations)
 
-As tabelas e as regras de segurança estão em `supabase/migrations/`, em oito arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`. (Se o projeto já está em uso, veja a seção "Fase 2" abaixo antes de aplicar 0006, 0007 e 0008.)
+As tabelas e as regras de segurança estão em `supabase/migrations/`, em nove arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`. (Se o projeto já está em uso, veja as seções "Fase 2" e "Fase 3A" abaixo antes de aplicar 0006 a 0009.)
 
 Escolha uma das formas, para cada projeto:
 
@@ -82,6 +82,30 @@ Cuidados com os testes de tela da Fase 2:
 - `cobranca.spec.ts` **apaga** o caixa de hoje do projeto de testes (com cobranças, pagamentos e contas a receber dele) e os agendamentos não cancelados da profissional de teste hoje às 13:00 e em 6 dias às 10:00, para poder rodar de novo no mesmo dia.
 - Os E2E com backend deixam linhas permanentes no projeto de testes (clientes, serviços, termos, pacotes, fotos e auditoria "E2E"); nada disso vai para a produção, mas o projeto de testes cresce a cada execução.
 - `pnpm e2e` faz o build com `NEXT_PUBLIC_E2E_HARNESS=1` e deixa esse build (com a página `/e2e-harness`) em `.next`. Antes de `pnpm start` para outro uso, rode `pnpm build` de novo.
+
+## Fase 3A — agendamento online
+
+A Fase 3A adiciona a página pública `/agendar` (a cliente pede um horário; a recepção aprova ou recusa) e a migration `0009_agendamento_online.sql` (tabela `pedidos_online`, funções de horários livres, pedido, aprovação e recusa, limpeza diária LGPD).
+
+**Estado atual:** 0009 ainda não aplicada (nem no projeto de testes `myfpjwtmfonuvsrsvato`, nem na produção `vxvrzhskytsbreexnbun`). Atualize esta linha quando for aplicada.
+
+0. **Aplique a 0009 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 3A depende dela; publicado antes, a agenda, o Início e `/agendar` quebram. Site de produção: https://sistema-madamef.vercel.app.
+1. Aplique `0009_agendamento_online.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`), primeiro no projeto de testes.
+2. Conferências (rode no SQL Editor depois de aplicar):
+   - `select online_ativo from configuracoes_clinica;` deve devolver `false` (o agendamento online nasce desligado).
+   - `select count(*) from pg_policies where tablename = 'pedidos_online';` deve devolver `1`.
+   - `select jobname from cron.job where jobname = 'pedidos_online_limpeza';` deve devolver 1 linha. **Confirme sempre:** se a extensão `pg_cron` não estiver disponível, a migration apenas registra um aviso (notice) e segue sem criar o agendamento; nesse caso ative `pg_cron` (Database > Extensions) e crie o job diário (`0 6 * * *` UTC, 03:00 em São Paulo) chamando `public.apagar_dados_pedidos_antigos()`. Sem ele, nome e WhatsApp de pedidos não aprovados passam de 90 dias sem serem apagados.
+   - Advisors de segurança (Supabase > Advisors, ou `get_advisors`) sem nenhum **ERROR**.
+3. **Cloudflare Turnstile** (anti-robô gratuito): em dash.cloudflare.com > Turnstile, crie um widget para o domínio `sistema-madamef.vercel.app`. Na Vercel (Settings > Environment Variables), defina `NEXT_PUBLIC_TURNSTILE_SITE_KEY` (chave do site) e `TURNSTILE_SECRET_KEY` (chave secreta) e faça um novo deploy.
+   - **Defina as duas ou nenhuma.** Com `TURNSTILE_SECRET_KEY` mas sem `NEXT_PUBLIC_TURNSTILE_SITE_KEY`, a página não mostra o widget e **todos os pedidos são bloqueados** com o erro "Não foi possível confirmar que você não é um robô". Sem a secreta, a verificação é pulada (com aviso no log do servidor): serve só para desenvolvimento.
+   - `NEXT_PUBLIC_SITE_URL` também precisa estar definido: ele aparece no link de `/agendar` das mensagens de recusa.
+4. Em **Serviços**, marque "Pode ser agendado online" nos serviços que podem ser pedidos (cada um precisa de ao menos uma profissional vinculada).
+5. Em **Configurações**, revise o aviso de privacidade, a antecedência mínima (padrão 2 h) e máxima (padrão 60 dias) e ligue o **agendamento online**.
+6. Ponha o link `https://sistema-madamef.vercel.app/agendar` na bio do Instagram e no WhatsApp.
+
+Como funciona: o pedido reserva o horário por 24 horas; a recepção vê o card no Início e a lista em **Agenda > Pedidos online**, aprova (com cliente nova ou já cadastrada) ou recusa, e avisa a cliente pelo botão "Avisar no WhatsApp" (abre o wa.me com a mensagem pronta). Pedidos sem resposta em 24 h expiram e liberam o horário. Limites: 3 pedidos aguardando por WhatsApp e 5 pedidos por hora por IP (guardado só como hash).
+
+**Teste de tela da Fase 3A:** `e2e/agendar.spec.ts` (pedido, aprovação, recusa e página desligada nos 3 tamanhos) exige o projeto de testes com a 0009 aplicada, `E2E_PERMITIR_PROJETO` e acesso a `challenges.cloudflare.com` (o Playwright usa as chaves de teste oficiais da Cloudflare, que sempre aprovam). Ele liga e desliga `online_ativo` (termina desligado), cria o serviço "E2E Agendamento Online", refaz a jornada da profissional de teste num dia da semana próprio de cada tamanho (quinta, sexta e sábado, 14 a 20 dias à frente) e apaga os pedidos, as clientes "Cliente Online E2E ..." e os agendamentos da profissional nesse dia. Os três tamanhos se revezam por um lock em arquivo, pois a configuração é única.
 
 ## 3. Configurar o login (Authentication)
 
@@ -153,7 +177,7 @@ O aplicativo abre direto na tela **Início** e usa o ícone com o monograma "mf"
 
 ### Variáveis de ambiente
 
-Veja `.env.example`. `DATABASE_URL_TEST` serve só aos testes de banco locais.
+Veja `.env.example`. `DATABASE_URL_TEST` serve só aos testes de banco locais. `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` (Cloudflare Turnstile da página `/agendar`) devem ser definidas juntas ou nenhuma.
 
 ### Tipos do banco
 
@@ -175,7 +199,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa`, `permissoes`, `ficha` e `cobranca` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca` e `agendar` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -191,8 +215,10 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0008 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0009 aplicadas, na ordem, e `shim.sql` **não** aplicado.
 - [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
+- [ ] 0009 aplicada na produção ANTES do merge; job `pedidos_online_limpeza` presente em `cron.job`.
+- [ ] `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` definidas juntas na Vercel; `/agendar` abre e um pedido de teste chega ao Início.
 - [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).
