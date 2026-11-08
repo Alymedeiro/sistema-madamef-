@@ -48,7 +48,7 @@ async function adquirirLock() {
     } catch {
       // Lock velho (execução interrompida): descarta.
       const s = await stat(LOCK).catch(() => null);
-      if (s && Date.now() - s.mtimeMs > 5 * 60_000) await rm(LOCK, { recursive: true, force: true });
+      if (s && Date.now() - s.mtimeMs > 20 * 60_000) await rm(LOCK, { recursive: true, force: true });
       await new Promise((r) => setTimeout(r, 1000));
     }
   }
@@ -126,19 +126,19 @@ test.beforeAll(async ({}, testInfo) => {
   await falhar(admin.from("colaborador_servicos").delete().eq("servico_id", servicoId));
   await falhar(admin.from("colaborador_servicos").insert({ colaborador_id: profissional.id, servico_id: servicoId }));
 
-  // Jornada 09–12 no dia da semana deste viewport.
+  // Jornada 09–13 no dia da semana deste viewport.
   await falhar(admin.from("jornadas").delete().eq("colaborador_id", profissional.id).eq("dia_semana", 4 + indice));
   await falhar(
     admin
       .from("jornadas")
-      .insert({ colaborador_id: profissional.id, dia_semana: 4 + indice, hora_inicio: "09:00", hora_fim: "12:00" }),
+      .insert({ colaborador_id: profissional.id, dia_semana: 4 + indice, hora_inicio: "09:00", hora_fim: "13:00" }),
   );
   await limparTeste();
 });
 
 test.afterAll(async () => {
   try {
-    if (admin) {
+    if (lockAdquirido && admin) {
       await limparTeste().catch(() => undefined);
       await admin
         .from("configuracoes_clinica")
@@ -155,16 +155,19 @@ function botaoDia(page: Page) {
   return page.getByRole("group", { name: "Dia" }).getByRole("button").filter({ hasText: `${d}/${m}` });
 }
 
-async function escolherHorario(page: Page, hora: string) {
+/** Abre /agendar até a lista de horários do dia de teste carregada (há ao menos um livre). */
+async function abrirHorarios(page: Page) {
   await page.goto("/agendar");
   await page.getByRole("button", { name: new RegExp(SERVICO) }).click();
   await page.getByRole("button", { name: "Qualquer uma" }).click();
   await botaoDia(page).click();
-  return page.getByRole("group", { name: "Horário" }).getByRole("button", { name: hora, exact: true });
+  await expect(page.getByRole("group", { name: "Horário" })).toBeVisible();
+  return (hora: string) =>
+    page.getByRole("group", { name: "Horário" }).getByRole("button", { name: hora, exact: true });
 }
 
 async function pedir(page: Page, hora: string) {
-  await (await escolherHorario(page, hora)).click();
+  await (await abrirHorarios(page))(hora).click();
   await page.getByLabel("Nome", { exact: true }).fill(nomeCliente);
   await page.getByLabel("WhatsApp com DDD").fill(whatsappDigitado);
   await page.getByLabel("Li e aceito o aviso de privacidade").check();
@@ -189,7 +192,13 @@ test("recepção vê o card no Início, aprova com cliente nova e o agendamento 
   await pedir(page, "10:00");
   await entrar(page, USUARIOS.recepcao.email, USUARIOS.recepcao.senha);
   await expect(page.getByText(/Pedidos online aguardando/)).toBeVisible();
-  await expect(page.getByText(new RegExp(`${nomeCliente} · ${SERVICO}`))).toBeVisible();
+  const [, mes, d] = dia.split("-");
+  await expect(
+    page
+      .getByRole("listitem")
+      .filter({ hasText: `${nomeCliente} · ${SERVICO}` })
+      .filter({ hasText: `${d}/${mes} 10:00` }),
+  ).toBeVisible();
   await page.getByRole("link", { name: "Ver pedidos online" }).click();
   await page.waitForURL("**/agenda/pedidos**");
 
@@ -218,9 +227,10 @@ test("recepção vê o card no Início, aprova com cliente nova e o agendamento 
 test("recusar libera o horário: o mesmo horário volta a aparecer em /agendar", async ({ page }) => {
   await pedir(page, "11:00");
 
-  // Reservado enquanto aguarda: o horário some da lista.
-  await page.goto("/agendar");
-  await expect(await escolherHorario(page, "11:00")).toHaveCount(0);
+  // Reservado enquanto aguarda: 11:00 some, mas 12:00 segue livre (a lista carregou).
+  const antes = await abrirHorarios(page);
+  await expect(antes("12:00")).toBeVisible();
+  await expect(antes("11:00")).toHaveCount(0);
 
   await entrar(page, USUARIOS.recepcao.email, USUARIOS.recepcao.senha);
   await page.goto("/agenda/pedidos?status=aguardando");
@@ -230,7 +240,9 @@ test("recusar libera o horário: o mesmo horário volta a aparecer em /agendar",
   await expect(page.getByRole("dialog", { name: "Pedido recusado" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Avisar no WhatsApp" })).toHaveAttribute("href", /^https:\/\/wa\.me\//);
 
-  await expect(await escolherHorario(page, "11:00")).toBeVisible();
+  const depois = await abrirHorarios(page);
+  await expect(depois("12:00")).toBeVisible();
+  await expect(depois("11:00")).toBeVisible();
 });
 
 test("/agendar com online desligado mostra 'Agendamento online indisponível' e o telefone", async ({ page }) => {
