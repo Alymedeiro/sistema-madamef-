@@ -1,6 +1,7 @@
 import type { PoolClient } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  abrirConexao,
   comoSuperusuario,
   comoUsuario,
   contar,
@@ -256,6 +257,79 @@ describe("gatilho agendamentos_pedido_online", () => {
       await logarComo(c, profA);
       await c.query("update agendamentos set status = 'atendido' where id = $1", [ag]);
     });
+  });
+});
+
+describe("trava por profissional", () => {
+  it("agendamento em transação aberta trava a agenda; o pedido espera e depois enxerga o agendamento", async () => {
+    const inicio = h("15", "10:00");
+    const a = await abrirConexao(recepcao);
+    const b = await abrirConexao(null);
+    try {
+      await b.query("reset role");
+      await b.query("select set_config('request.jwt.claims', '', false)");
+      const pidB = (await b.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+
+      await a.query("begin");
+      await a.query(SQL_AG, paramsAg(inicio));
+      const pidA = (await a.query<{ pid: number }>("select pg_backend_pid() as pid")).rows[0].pid;
+
+      const travas = await comoSuperusuario((c) =>
+        c.query<{ pid: number }>(
+          "select pid from pg_locks where locktype = 'advisory' and granted and pid = $1",
+          [pidA],
+        ),
+      );
+      expect(travas.rows).toHaveLength(1);
+
+      // B simula criar_pedido_online: trava, confere a agenda e grava.
+      await b.query("begin");
+      let travou = false;
+      const espera = b
+        .query("select public.travar_agenda_profissional($1)", [profAId])
+        .then(() => {
+          travou = true;
+        });
+      // B fica esperando a trava de A.
+      for (let i = 0; ; i += 1) {
+        const r = await comoSuperusuario((c) =>
+          c.query(
+            "select 1 from pg_locks where locktype = 'advisory' and not granted and pid = $1",
+            [pidB],
+          ),
+        );
+        if (r.rowCount) break;
+        if (i > 100) throw new Error("B não chegou a esperar a trava");
+        await new Promise((ok) => setTimeout(ok, 20));
+      }
+      expect(travou).toBe(false);
+
+      await a.query("commit");
+      await espera;
+      expect(travou).toBe(true);
+      const ocupado = await b.query(
+        `select 1 from agendamentos where profissional_id = $1 and status <> 'cancelado'
+           and tstzrange(inicio, fim, '[)') && tstzrange($2::timestamptz, $2::timestamptz + interval '30 minutes', '[)')`,
+        [profAId, inicio],
+      );
+      expect(ocupado.rowCount).toBe(1);
+      await b.query("rollback");
+    } finally {
+      a.release();
+      b.release();
+      await comoSuperusuario((c) =>
+        c.query("delete from agendamentos where profissional_id = $1 and inicio = $2", [profAId, inicio]),
+      );
+    }
+  });
+
+  it("travar_agenda_profissional não é executável por anon nem authenticated", async () => {
+    await comoUsuario(null, (c) =>
+      esperarErroSql(c.query("select travar_agenda_profissional($1)", [profAId]), "42501"),
+    );
+    await comoUsuario(dona, (c) =>
+      esperarErroSql(c.query("select travar_agenda_profissional($1)", [profAId]), "42501"),
+    );
   });
 });
 

@@ -199,9 +199,28 @@ revoke execute on function public.pedidos_online_da_agenda(timestamptz, timestam
 grant execute on function public.pedidos_online_da_agenda(timestamptz, timestamptz)
   to authenticated;
 
+-- Trava da agenda de uma profissional até o fim da transação. Serializa quem
+-- confere e grava horário da mesma profissional (gatilho de agendamentos,
+-- criar_pedido_online, aprovar_pedido_online): sem ela, em READ COMMITTED,
+-- um agendamento e um pedido simultâneos não se enxergam e ambos gravam.
+-- Chamada só por funções security definer e gatilhos.
+create function public.travar_agenda_profissional(p_profissional uuid)
+returns void
+language plpgsql
+set search_path = ''
+as $$
+begin
+  perform pg_advisory_xact_lock(hashtext('agenda:' || p_profissional::text));
+end;
+$$;
+
+revoke execute on function public.travar_agenda_profissional(uuid)
+  from public, anon, authenticated;
+
 -- Agendamento (não cancelado) não pode cair sobre um pedido aguardando não
 -- vencido da mesma profissional. A aprovação do próprio pedido passa: o
--- pedido muda de status na mesma transação, antes do insert.
+-- pedido muda de status na mesma transação, antes do insert. Antes de
+-- conferir, trava a agenda da profissional (travar_agenda_profissional).
 -- Mudança só de status entre estados ativos (ex.: confirmado → atendido) não
 -- é conferida: o horário não mudou. security definer: a profissional não lê
 -- pedidos_online.
@@ -219,6 +238,7 @@ begin
      and new.profissional_id = old.profissional_id then
     return new;
   end if;
+  perform public.travar_agenda_profissional(new.profissional_id);
   if exists (
     select 1
     from public.pedidos_online p
@@ -247,17 +267,22 @@ create trigger agendamentos_pedido_online
 --
 -- 06:00 UTC = 03:00 em São Paulo: expira os vencidos e apaga os dados antigos.
 -- Só age onde pg_cron está disponível (Supabase); no Postgres local dos testes
--- é um no-op. cron.schedule com o mesmo nome atualiza o job existente.
+-- é um no-op. cron.schedule com o mesmo nome atualiza o job existente. Falha
+-- ao criar a extensão ou o job vira aviso (notice), sem derrubar a migração.
 -- =============================================================================
 do $$
 begin
   if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
-    create extension if not exists pg_cron with schema pg_catalog;
-    perform cron.schedule(
-      'pedidos_online_limpeza',
-      '0 6 * * *',
-      $cron$select public.expirar_pedidos_online(); select public.apagar_dados_pedidos_antigos();$cron$
-    );
+    begin
+      create extension if not exists pg_cron with schema pg_catalog;
+      perform cron.schedule(
+        'pedidos_online_limpeza',
+        '0 6 * * *',
+        $cron$select public.expirar_pedidos_online(); select public.apagar_dados_pedidos_antigos();$cron$
+      );
+    exception when others then
+      raise notice 'pg_cron indisponível; agende pedidos_online_limpeza à mão: %', sqlerrm;
+    end;
   end if;
 end
 $$;
