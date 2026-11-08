@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { montarDadosAgenda, type LinhasAgenda } from "./dados-agenda";
+import { montarDadosAgenda, ocupadosComPedidos, type LinhasAgenda } from "./dados-agenda";
 
 const AGORA = new Date("2026-11-04T12:00:00Z");
 
@@ -242,5 +242,48 @@ describe("situação da ficha (anamnese)", () => {
       alertaAnamnese: false,
       anamnesePendente: true,
     });
+  });
+});
+
+describe("montarDadosAgenda — pedidos online", () => {
+  const pedidos = [
+    {
+      id: "pd1",
+      profissional_id: "p-ana",
+      servico_id: "s1",
+      inicio: "2026-11-03T16:00:00+00:00",
+      fim: "2026-11-03T17:00:00+00:00",
+      primeiro_nome: "Joana",
+      avaliacao: false,
+    },
+    {
+      id: "pd2",
+      profissional_id: "p-bia",
+      servico_id: "s1",
+      inicio: "2026-11-03T18:00:00+00:00",
+      fim: "2026-11-03T18:30:00+00:00",
+      primeiro_nome: "Lia",
+      avaliacao: true,
+    },
+  ];
+
+  it("montarDadosAgenda inclui pedidos com primeiro nome", () => {
+    const d = montarDadosAgenda({ ...linhas, pedidos }, { perfil: "dona", colaboradorId: "x" }, AGORA);
+    expect(d.pedidos).toEqual([
+      { id: "pd1", profissionalId: "p-ana", servicoId: "s1", inicio: "2026-11-03T16:00:00+00:00", fim: "2026-11-03T17:00:00+00:00", primeiroNome: "Joana", avaliacao: false },
+      { id: "pd2", profissionalId: "p-bia", servicoId: "s1", inicio: "2026-11-03T18:00:00+00:00", fim: "2026-11-03T18:30:00+00:00", primeiroNome: "Lia", avaliacao: true },
+    ]);
+    const prof = montarDadosAgenda({ ...linhas, pedidos }, { perfil: "profissional", colaboradorId: "p-bia" }, AGORA);
+    expect(prof.pedidos.map((p) => p.id)).toEqual(["pd2"]);
+    expect(montarDadosAgenda(linhas, { perfil: "dona", colaboradorId: "x" }, AGORA).pedidos).toEqual([]);
+  });
+
+  it("horário com pedido conta como ocupado para novo agendamento", () => {
+    // 16:00Z = 13:00 em São Paulo.
+    const d = montarDadosAgenda({ ...linhas, pedidos }, { perfil: "dona", colaboradorId: "x" }, AGORA);
+    const semPedido = ocupadosComPedidos([], [], "2026-11-03");
+    const comPedido = ocupadosComPedidos([], d.pedidos.filter((p) => p.profissionalId === "p-ana"), "2026-11-03");
+    expect(semPedido).toEqual([]);
+    expect(comPedido).toEqual([{ inicio: "13:00", fim: "14:00" }]);
   });
 });

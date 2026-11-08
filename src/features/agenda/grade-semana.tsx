@@ -22,14 +22,16 @@ export function GradeSemana({
   podeArrastar,
   onNovo,
   onAbrir,
+  onAbrirPedido,
 }: Props) {
   const profissional = dados.profissionais.find((p) => p.id === profissionalId);
   const doProfissional = agendamentos.filter((a) => a.profissionalId === profissionalId);
+  const pedidosDela = dados.pedidos.filter((p) => p.profissionalId === profissionalId);
   // Linhas da semana: do menor início ao maior fim entre o funcionamento dos
   // dias e os atendimentos dela (encaixes fora do horário continuam visíveis).
   const todos: Intervalo[] = datas.flatMap((d) => [
     ...dados.horarioFuncionamento[chaveDia(diaDaSemana(d))],
-    ...ocupadosNoDia(doProfissional, d),
+    ...ocupadosNoDia(doProfissional, d, pedidosDela),
   ]);
   const linhas = linhasDoDia(todos, PASSO_MIN);
 
@@ -92,6 +94,8 @@ export function GradeSemana({
                   podeArrastar={podeArrastar}
                   onNovo={onNovo}
                   onAbrir={onAbrir}
+                  pedidos={pedidosDela}
+                  onAbrirPedido={onAbrirPedido}
                 />
               </section>
             );

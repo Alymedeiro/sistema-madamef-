@@ -10,6 +10,7 @@ import {
 import { anamnesePendente } from "@/lib/dominio/anamnese";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import type { StatusAgendamento } from "@/lib/dominio/status";
+import { intervalosOcupados } from "./grade";
 
 export type ProfissionalAgenda = {
   id: string;
@@ -65,6 +66,17 @@ export type BloqueioAgenda = {
   motivo: string;
 };
 
+/** Pedido online aguardando resposta: ocupa o horário como um bloco 🟡. */
+export type PedidoAgenda = {
+  id: string;
+  profissionalId: string;
+  servicoId: string;
+  inicio: string;
+  fim: string;
+  primeiroNome: string;
+  avaliacao: boolean;
+};
+
 export type DadosAgenda = {
   profissionais: ProfissionalAgenda[];
   servicos: ServicoAgenda[];
@@ -72,6 +84,8 @@ export type DadosAgenda = {
   /** Jornada de cada profissional por dia da semana ("0".."6"). */
   jornadas: Record<string, IntervalosPorDia>;
   bloqueios: BloqueioAgenda[];
+  /** Pedidos online aguardando (não vencidos) da janela exibida. */
+  pedidos: PedidoAgenda[];
   horarioFuncionamento: IntervalosPorDia;
 };
 
@@ -105,6 +119,16 @@ export type LinhasAgenda = {
       | { sessoes_usadas: number; total_sessoes: number }[]
       | null;
   }[];
+  /** pedidos_online_da_agenda (aguardando, não vencidos). */
+  pedidos?: {
+    id: string;
+    profissional_id: string;
+    servico_id: string;
+    inicio: string;
+    fim: string;
+    primeiro_nome: string;
+    avaliacao: boolean;
+  }[];
   horarioFuncionamento: unknown;
   /** Ids de atendidos sem pagamento no período (agendamentos_sem_pagamento_periodo). */
   semPagamento?: string[];
@@ -113,6 +137,24 @@ export type LinhasAgenda = {
   /** Ids de atendimentos com termo pendente (agendamentos_com_termo_pendente). */
   termoPendente?: string[];
 };
+
+/**
+ * Intervalos ocupados do dia por agendamentos e pedidos online aguardando
+ * (o pedido segura o horário: o banco recusa um agendamento por cima dele).
+ */
+export function ocupadosComPedidos(
+  agendamentos: readonly Pick<AgendamentoAgenda, "inicio" | "fim" | "status">[],
+  pedidos: readonly Pick<PedidoAgenda, "inicio" | "fim">[],
+  data: string,
+) {
+  return intervalosOcupados(
+    [
+      ...agendamentos.map((a) => ({ inicio: new Date(a.inicio), fim: new Date(a.fim), status: a.status })),
+      ...pedidos.map((p) => ({ inicio: new Date(p.inicio), fim: new Date(p.fim) })),
+    ],
+    data,
+  );
+}
 
 function progressoDoPacote(
   p: LinhasAgenda["agendamentos"][number]["pacotes_vendidos"],
@@ -224,6 +266,17 @@ export function montarDadosAgenda(
         inicio: b.inicio,
         fim: b.fim,
         motivo: b.motivo,
+      })),
+    pedidos: (linhas.pedidos ?? [])
+      .filter((p) => visiveis.has(p.profissional_id))
+      .map((p) => ({
+        id: p.id,
+        profissionalId: p.profissional_id,
+        servicoId: p.servico_id,
+        inicio: p.inicio,
+        fim: p.fim,
+        primeiroNome: p.primeiro_nome,
+        avaliacao: p.avaliacao,
       })),
     horarioFuncionamento: horarioDoBanco(linhas.horarioFuncionamento),
   };

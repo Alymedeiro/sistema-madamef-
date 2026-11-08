@@ -24,7 +24,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
 
   const supabase = await createClient();
   const gerencia = colaborador.perfil !== "profissional";
-  const [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento] =
+  const [colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento, pedidos] =
     await Promise.all([
       // Inclui inativas: quem tem atendimento no período continua com coluna.
       supabase.from("colaboradores").select("id, nome, cor, ativo").order("nome"),
@@ -52,6 +52,8 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
             p_ate: datas[datas.length - 1],
           })
         : Promise.resolve({ data: [] as string[], error: null }),
+      // Pedidos online aguardando (não vencidos) na mesma janela da visão.
+      supabase.rpc("pedidos_online_da_agenda", { p_de: inicio, p_ate: fim }),
     ]);
 
   // Situação da ficha (alerta e pendência) das clientes do período: só indicadores.
@@ -66,7 +68,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
     ? await supabase.rpc("agendamentos_com_termo_pendente", { p_ids: agendamentoIds })
     : { data: [] as string[], error: null };
 
-  for (const r of [termos, situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento]) {
+  for (const r of [termos, situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento, pedidos]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);
   }
 
@@ -80,6 +82,7 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
       agendamentos: agendamentos.data ?? [],
       horarioFuncionamento: config.data?.horario_funcionamento ?? {},
       semPagamento: semPagamento.data ?? [],
+      pedidos: pedidos.data ?? [],
       situacaoFicha: situacao.data ?? [],
       termoPendente: termos.data ?? [],
     },
