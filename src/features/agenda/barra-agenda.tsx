@@ -18,6 +18,8 @@ type Props = {
   profissionais: ProfissionalAgenda[];
   selecionada: string | null;
   onSelecionar: (id: string) => void;
+  /** Dona e recepção: atalho para Agenda > Pedidos online. */
+  mostrarPedidos?: boolean;
 };
 
 function titulo(datas: string[], visao: Visao): string {
@@ -27,7 +29,15 @@ function titulo(datas: string[], visao: Visao): string {
 }
 
 /** Navegação ‹ hoje ›, seletor de data, visão dia/semana e abas de profissional. */
-export function BarraAgenda({ data, datas, visao, profissionais, selecionada, onSelecionar }: Props) {
+export function BarraAgenda({
+  data,
+  datas,
+  visao,
+  profissionais,
+  selecionada,
+  onSelecionar,
+  mostrarPedidos = false,
+}: Props) {
   const router = useRouter();
   const prof = selecionada;
   const hoje = dataNoFuso(new Date());
@@ -40,20 +50,27 @@ export function BarraAgenda({ data, datas, visao, profissionais, selecionada, on
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">Agenda</h1>
-        <div role="group" aria-label="Visão" className="inline-flex rounded-lg bg-muted p-1">
-          {(["dia", "semana"] as const).map((v) => (
-            <Link
-              key={v}
-              href={hrefAgenda({ data, visao: v, prof })}
-              aria-current={visao === v ? "page" : undefined}
-              className={cn(
-                "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium",
-                visao === v ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {v === "dia" ? "Dia" : "Semana"}
-            </Link>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          {mostrarPedidos && (
+            <Button asChild variant="outline">
+              <Link href="/agenda/pedidos">Pedidos online</Link>
+            </Button>
+          )}
+          <div role="group" aria-label="Visão" className="inline-flex rounded-lg bg-muted p-1">
+            {(["dia", "semana"] as const).map((v) => (
+              <Link
+                key={v}
+                href={hrefAgenda({ data, visao: v, prof })}
+                aria-current={visao === v ? "page" : undefined}
+                className={cn(
+                  "inline-flex min-h-11 items-center rounded-md px-4 text-sm font-medium",
+                  visao === v ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {v === "dia" ? "Dia" : "Semana"}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 

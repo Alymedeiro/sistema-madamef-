@@ -56,6 +56,10 @@ describe("configuracoesSchema", () => {
     telefone: "(11) 3456-7890",
     endereco: "Rua das Flores, 100",
     horarioFuncionamento: { ...fechado, "1": util },
+    onlineAtivo: false,
+    onlineAntecedenciaMinHoras: 2,
+    onlineAntecedenciaMaxDias: 60,
+    onlineAvisoPrivacidade: "Usamos seus dados apenas para agendar o atendimento.",
   };
 
   it("aceita dados válidos e normaliza o telefone", () => {
@@ -76,5 +80,43 @@ describe("configuracoesSchema", () => {
   it("exige nome e telefone normalizável", () => {
     expect(configuracoesSchema.safeParse({ ...base, nome: " " }).success).toBe(false);
     expect(configuracoesSchema.safeParse({ ...base, telefone: "12" }).success).toBe(false);
+  });
+
+  it("onlineAtivo tem padrão false", () => {
+    const { onlineAtivo: _a, ...semAtivo } = base;
+    void _a;
+    const r = configuracoesSchema.safeParse(semAtivo);
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.onlineAtivo).toBe(false);
+  });
+
+  it("limites da antecedência mínima (0 a 72 horas, inteiro)", () => {
+    const ok = (v: number) =>
+      configuracoesSchema.safeParse({ ...base, onlineAntecedenciaMinHoras: v }).success;
+    expect(ok(0)).toBe(true);
+    expect(ok(72)).toBe(true);
+    expect(ok(-1)).toBe(false);
+    expect(ok(73)).toBe(false);
+    expect(ok(1.5)).toBe(false);
+  });
+
+  it("limites da antecedência máxima (1 a 180 dias, inteiro)", () => {
+    const ok = (v: number) =>
+      configuracoesSchema.safeParse({ ...base, onlineAntecedenciaMaxDias: v }).success;
+    expect(ok(1)).toBe(true);
+    expect(ok(180)).toBe(true);
+    expect(ok(0)).toBe(false);
+    expect(ok(181)).toBe(false);
+    expect(ok(2.5)).toBe(false);
+  });
+
+  it("aviso de privacidade: 20 a 1000 caracteres após aparar", () => {
+    const r = (t: string) =>
+      configuracoesSchema.safeParse({ ...base, onlineAvisoPrivacidade: t });
+    expect(r("a".repeat(19)).success).toBe(false);
+    expect(r("  " + "a".repeat(19) + "  ").success).toBe(false);
+    expect(r("a".repeat(20)).success).toBe(true);
+    expect(r("a".repeat(1000)).success).toBe(true);
+    expect(r("a".repeat(1001)).success).toBe(false);
   });
 });

@@ -42,6 +42,22 @@ export const configuracoesSchema = z.object({
   telefone: telefoneOpcional,
   endereco: textoOpcional(250, "O endereço pode ter no máximo 250 caracteres."),
   horarioFuncionamento: horarioFuncionamentoSchema,
+  onlineAtivo: z.boolean().default(false),
+  onlineAntecedenciaMinHoras: z
+    .number("Informe a antecedência mínima em horas.")
+    .int("A antecedência mínima deve ser um número inteiro.")
+    .min(0, "A antecedência mínima não pode ser negativa.")
+    .max(72, "A antecedência mínima pode ser de no máximo 72 horas."),
+  onlineAntecedenciaMaxDias: z
+    .number("Informe a antecedência máxima em dias.")
+    .int("A antecedência máxima deve ser um número inteiro.")
+    .min(1, "A antecedência máxima deve ser de pelo menos 1 dia.")
+    .max(180, "A antecedência máxima pode ser de no máximo 180 dias."),
+  onlineAvisoPrivacidade: z
+    .string()
+    .trim()
+    .min(20, "O aviso de privacidade deve ter pelo menos 20 caracteres.")
+    .max(1000, "O aviso de privacidade pode ter no máximo 1000 caracteres."),
 });
 
 export type ConfiguracoesInput = z.input<typeof configuracoesSchema>;

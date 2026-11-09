@@ -1,6 +1,7 @@
 import "server-only";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
+import { listarPedidos } from "@/features/pedidos/dados";
 import { createClient } from "@/lib/supabase/server";
 import { agruparPorHorario, estoqueBaixo, type ProdutoEstoque } from "./painel";
 
@@ -192,4 +193,24 @@ export async function produtosComEstoqueBaixo(supabase: Supabase) {
     .eq("ativo", true);
   falhou("o estoque", error);
   return estoqueBaixo((data ?? []) as (ProdutoEstoque & { unidade: string })[]);
+}
+
+export type PedidoAguardando = {
+  id: string;
+  nome: string;
+  servicoNome: string;
+  inicio: string;
+  expiraEm: string;
+};
+
+/** Pedidos online aguardando resposta, mais antigo primeiro (só dona/recepção). */
+export async function pedidosAguardando(supabase: Supabase): Promise<PedidoAguardando[]> {
+  const pedidos = await listarPedidos(supabase, "aguardando");
+  return pedidos.map((p) => ({
+    id: p.id,
+    nome: p.nome ?? "—",
+    servicoNome: p.servicoNome,
+    inicio: p.inicio,
+    expiraEm: p.expiraEm,
+  }));
 }

@@ -564,6 +564,8 @@ export type Database = {
           nome: string
           online_antecedencia_max_dias: number
           online_antecedencia_min_horas: number
+          online_ativo: boolean
+          online_aviso_privacidade: string
           telefone: string | null
           whatsapp_janela_fim: string
           whatsapp_janela_inicio: string
@@ -581,6 +583,8 @@ export type Database = {
           nome: string
           online_antecedencia_max_dias?: number
           online_antecedencia_min_horas?: number
+          online_ativo?: boolean
+          online_aviso_privacidade?: string
           telefone?: string | null
           whatsapp_janela_fim?: string
           whatsapp_janela_inicio?: string
@@ -598,6 +602,8 @@ export type Database = {
           nome?: string
           online_antecedencia_max_dias?: number
           online_antecedencia_min_horas?: number
+          online_ativo?: boolean
+          online_aviso_privacidade?: string
           telefone?: string | null
           whatsapp_janela_fim?: string
           whatsapp_janela_inicio?: string
@@ -1071,6 +1077,114 @@ export type Database = {
           },
         ]
       }
+      // 0009: anon sem acesso; dona e recepção leem; profissional usa
+      // pedidos_online_da_agenda (sem whatsapp). nome/whatsapp nulos após a
+      // limpeza LGPD (dados_apagados_em).
+      pedidos_online: {
+        Row: {
+          aceite_privacidade_em: string
+          agendamento_id: string | null
+          atualizado_em: string
+          avaliacao: boolean
+          criado_em: string
+          dados_apagados_em: string | null
+          decidido_em: string | null
+          decidido_por: string | null
+          fim: string
+          id: string
+          inicio: string
+          // Zerado depois de 1 dia (apagar_dados_pedidos_antigos).
+          ip_hash: string | null
+          motivo_recusa: string | null
+          nome: string | null
+          profissional_escolhida_id: string | null
+          profissional_id: string
+          servico_id: string
+          status: Database["public"]["Enums"]["status_pedido_online"]
+          whatsapp: string | null
+        }
+        // Sem escrita direta: use criar_pedido_online / aprovar_pedido_online /
+        // recusar_pedido_online / expirar_pedidos_online.
+        Insert: {
+          aceite_privacidade_em: string
+          agendamento_id?: string | null
+          atualizado_em?: string
+          avaliacao?: boolean
+          criado_em?: string
+          dados_apagados_em?: string | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          fim: string
+          id?: string
+          inicio: string
+          ip_hash?: string | null
+          motivo_recusa?: string | null
+          nome?: string | null
+          profissional_escolhida_id?: string | null
+          profissional_id: string
+          servico_id: string
+          status?: Database["public"]["Enums"]["status_pedido_online"]
+          whatsapp?: string | null
+        }
+        Update: {
+          aceite_privacidade_em?: string
+          agendamento_id?: string | null
+          atualizado_em?: string
+          avaliacao?: boolean
+          criado_em?: string
+          dados_apagados_em?: string | null
+          decidido_em?: string | null
+          decidido_por?: string | null
+          fim?: string
+          id?: string
+          inicio?: string
+          ip_hash?: string | null
+          motivo_recusa?: string | null
+          nome?: string | null
+          profissional_escolhida_id?: string | null
+          profissional_id?: string
+          servico_id?: string
+          status?: Database["public"]["Enums"]["status_pedido_online"]
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pedidos_online_agendamento_id_fkey"
+            columns: ["agendamento_id"]
+            isOneToOne: true
+            referencedRelation: "agendamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_online_decidido_por_fkey"
+            columns: ["decidido_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_online_profissional_escolhida_id_fkey"
+            columns: ["profissional_escolhida_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_online_profissional_id_fkey"
+            columns: ["profissional_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pedidos_online_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       produtos: {
         Row: {
           ativo: boolean
@@ -1373,8 +1487,40 @@ export type Database = {
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
       cliente_vinculada: { Args: { p_cliente: string }; Returns: boolean }
       colaborador_atual_id: { Args: never; Returns: string }
+      // 0009: só service_role; p_profissional null = "qualquer uma". Devolve o
+      // id do pedido; erros P0001 com as mensagens da Fase 3A.
+      criar_pedido_online: {
+        Args: {
+          p_servico: string
+          p_profissional: string | null
+          p_inicio: string
+          p_nome: string
+          p_whatsapp: string
+          p_ip_hash: string
+        }
+        Returns: string
+      }
+      // 0009: só service_role (tarefa diária); limpa nome/whatsapp de pedidos
+      // não aprovados com mais de 90 dias; devolve quantos.
+      apagar_dados_pedidos_antigos: { Args: never; Returns: number }
+      // 0009: dona/recepção; cria o agendamento confirmado (origem online) e
+      // devolve o id. Não aguardando ou vencido → P0001 "Este pedido já foi
+      // respondido."; sobreposição na agenda → 23P01.
+      aprovar_pedido_online: {
+        Args: {
+          p_pedido: string
+          p_cliente: string
+          p_profissional: string
+          p_inicio: string
+          p_fim: string
+          p_valor_centavos: number
+        }
+        Returns: string
+      }
       // 0007: ativo → expirado (validade passou, sessões restantes); devolve quantos.
       expirar_pacotes: { Args: never; Returns: number }
+      // 0009: aguardando vencido (24 h) → expirado; devolve quantos.
+      expirar_pedidos_online: { Args: never; Returns: number }
       // 0006: usada pela política de leitura do Storage.
       foto_arquivada: { Args: { p_path: string }; Returns: boolean }
       // Retorna { total_por_forma: Record<forma_pagamento, number>,
@@ -1383,10 +1529,40 @@ export type Database = {
         Args: { p_caixa: string; p_valor_contado_centavos: number }
         Returns: Json
       }
+      // 0009: só service_role; início a cada 15 min; p_dia "YYYY-MM-DD"
+      // (São Paulo). Com p_profissional null, a primeira livre por nome.
+      horarios_livres_online: {
+        Args: { p_servico: string; p_profissional: string | null; p_dia: string }
+        Returns: { inicio: string; profissional_id: string }[]
+      }
       normalizar_busca: { Args: { texto: string }; Returns: string }
+      // 0009: aguardando com criado_em <= now() - 24 h.
+      pedido_vencido: {
+        Args: { p: Database["public"]["Tables"]["pedidos_online"]["Row"] }
+        Returns: boolean
+      }
+      // 0009: aguardando não vencidos que tocam [p_de, p_ate); profissional só
+      // os próprios; sem whatsapp.
+      pedidos_online_da_agenda: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          id: string
+          profissional_id: string
+          servico_id: string
+          inicio: string
+          fim: string
+          primeiro_nome: string
+          avaliacao: boolean
+        }[]
+      }
       perfil_atual: {
         Args: never
         Returns: Database["public"]["Enums"]["perfil"]
+      }
+      // 0009: dona/recepção; motivo com trim (vazio → null).
+      recusar_pedido_online: {
+        Args: { p_pedido: string; p_motivo: string | null }
+        Returns: undefined
       }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
@@ -1483,6 +1659,7 @@ export type Database = {
         | "faltou"
         | "cancelado"
       status_pacote: "ativo" | "concluido" | "expirado" | "cancelado"
+      status_pedido_online: "aguardando" | "aprovado" | "recusado" | "expirado"
       tipo_foto: "antes" | "depois" | "evolucao"
     }
     CompositeTypes: {
@@ -1631,6 +1808,7 @@ export const Constants = {
         "cancelado",
       ],
       status_pacote: ["ativo", "concluido", "expirado", "cancelado"],
+      status_pedido_online: ["aguardando", "aprovado", "recusado", "expirado"],
       tipo_foto: ["antes", "depois", "evolucao"],
     },
   },

@@ -8,6 +8,24 @@ describe("mensagemErroBanco", () => {
     );
   });
 
+  it("corrida em pedido online (pedidos_online_sem_sobreposicao, 0009)", () => {
+    expect(
+      mensagemErroBanco({
+        code: "23P01",
+        message:
+          'conflicting key value violates exclusion constraint "pedidos_online_sem_sobreposicao"',
+      }),
+    ).toBe("Esse horário acabou de ser reservado, escolha outro.");
+    // A da agenda continua com a mensagem da agenda.
+    expect(
+      mensagemErroBanco({
+        code: "23P01",
+        message:
+          'conflicting key value violates exclusion constraint "agendamentos_sem_sobreposicao"',
+      }),
+    ).toBe("Este horário já está ocupado para esta profissional.");
+  });
+
   it("CPF duplicado", () => {
     expect(
       mensagemErroBanco({

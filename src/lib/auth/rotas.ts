@@ -4,6 +4,8 @@
 const PUBLICAS: readonly string[] = [
   "/login",
   "/esqueci-senha",
+  // Página pública de pedido de horário (Fase 3A).
+  "/agendar",
   ...(process.env.NEXT_PUBLIC_E2E_HARNESS === "1" ? ["/e2e-harness"] : []),
 ];
 

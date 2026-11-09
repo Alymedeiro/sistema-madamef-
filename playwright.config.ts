@@ -62,6 +62,9 @@ export default defineConfig({
           ...ambienteServidor,
           // Liga a página de apoio /e2e-harness (só neste build de teste).
           NEXT_PUBLIC_E2E_HARNESS: "1",
+          // Chaves de teste oficiais da Cloudflare (Turnstile sempre aprova).
+          NEXT_PUBLIC_TURNSTILE_SITE_KEY: "1x00000000000000000000AA",
+          TURNSTILE_SECRET_KEY: "1x0000000000000000000000000000000AA",
         },
       },
 });

@@ -2,9 +2,10 @@
 
 import { chaveDia } from "@/lib/dominio/intervalos";
 import { cn } from "@/lib/utils";
+import { ocupadosComPedidos } from "./dados-agenda";
 import { ALTURA_LINHA, ColunaAgenda } from "./coluna-agenda";
-import type { AgendamentoAgenda, DadosAgenda } from "./dados-agenda";
-import { diaDaSemana, intervalosOcupados, linhasDoDia, PASSO_MIN } from "./grade";
+import type { AgendamentoAgenda, DadosAgenda, PedidoAgenda } from "./dados-agenda";
+import { diaDaSemana, linhasDoDia, PASSO_MIN } from "./grade";
 import type { ProfissionalAgenda } from "./dados-agenda";
 
 /** Sufixo da coluna que só aparece por já ter atendimentos. */
@@ -13,16 +14,13 @@ export function sufixoProfissional(p: ProfissionalAgenda): string {
   return p.ativa ? " (sem serviços ativos)" : " (inativa)";
 }
 
-/** Converte os agendamentos (ISO) para intervalosOcupados. */
-export function ocupadosNoDia(agendamentos: AgendamentoAgenda[], data: string) {
-  return intervalosOcupados(
-    agendamentos.map((a) => ({
-      inicio: new Date(a.inicio),
-      fim: new Date(a.fim),
-      status: a.status,
-    })),
-    data,
-  );
+/** Converte agendamentos e pedidos online (ISO) para intervalos ocupados. */
+export function ocupadosNoDia(
+  agendamentos: AgendamentoAgenda[],
+  data: string,
+  pedidos: PedidoAgenda[] = [],
+) {
+  return ocupadosComPedidos(agendamentos, pedidos, data);
 }
 
 /** Régua de horas à esquerda da grade. */
@@ -49,6 +47,8 @@ export type PropsGrade = {
   podeArrastar: boolean;
   onNovo: (profissionalId: string, data: string, hora: string) => void;
   onAbrir: (a: AgendamentoAgenda) => void;
+  /** Só dona/recepção. */
+  onAbrirPedido?: (id: string) => void;
 };
 
 type Props = PropsGrade & {
@@ -67,12 +67,13 @@ export function GradeDia({
   podeArrastar,
   onNovo,
   onAbrir,
+  onAbrirPedido,
 }: Props) {
   const dia = chaveDia(diaDaSemana(data));
   const horario = dados.horarioFuncionamento[dia];
   const fechado = horario.length === 0;
   // A grade cobre o funcionamento e também encaixes fora dele.
-  const linhas = linhasDoDia([...horario, ...ocupadosNoDia(agendamentos, data)], PASSO_MIN);
+  const linhas = linhasDoDia([...horario, ...ocupadosNoDia(agendamentos, data, dados.pedidos)], PASSO_MIN);
 
   if (linhas.length === 0) {
     return (
@@ -135,6 +136,8 @@ export function GradeDia({
                 podeArrastar={podeArrastar}
                 onNovo={onNovo}
                 onAbrir={onAbrir}
+                pedidos={dados.pedidos.filter((x) => x.profissionalId === p.id)}
+                onAbrirPedido={onAbrirPedido}
               />
             </section>
           ))}

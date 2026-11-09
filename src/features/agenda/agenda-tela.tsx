@@ -157,6 +157,10 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
     onNovo: (profissionalId: string, d: string, hora: string) =>
       setDialogo({ modo: "novo", profissionalId, data: d, hora }),
     onAbrir: (a: AgendamentoAgenda) => setAberto(a),
+    // Profissional vê o bloco, mas não age sobre o pedido.
+    onAbrirPedido: podeAgendar
+      ? (id: string) => router.push(`/agenda/pedidos?pedido=${id}`)
+      : undefined,
   };
 
   return (
@@ -168,6 +172,7 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
         profissionais={dados.profissionais}
         selecionada={selecionada}
         onSelecionar={selecionar}
+        mostrarPedidos={podeAgendar}
       />
 
       {dados.profissionais.length === 0 ? (

@@ -4,7 +4,9 @@ import { useDroppable } from "@dnd-kit/core";
 import type { Intervalo } from "@/lib/dominio/intervalos";
 import { cn } from "@/lib/utils";
 import { CartaoAgendamento } from "./cartao-agendamento";
-import type { AgendamentoAgenda, BloqueioAgenda } from "./dados-agenda";
+import { COR_STATUS } from "@/lib/dominio/status";
+import { horaNoFuso } from "@/lib/dominio/tempo";
+import type { AgendamentoAgenda, BloqueioAgenda, PedidoAgenda } from "./dados-agenda";
 import {
   distribuirEmFaixas,
   faixasForaDaJornada,
@@ -35,10 +37,13 @@ type Props = {
   fechado?: boolean;
   agendamentos: AgendamentoAgenda[];
   bloqueios: BloqueioAgenda[];
+  pedidos?: PedidoAgenda[];
   podeAgendar: boolean;
   podeArrastar: boolean;
   onNovo: (profissionalId: string, data: string, hora: string) => void;
   onAbrir: (a: AgendamentoAgenda) => void;
+  /** Só dona/recepção: abre o pedido na fila. Sem isso o bloco não é tocável. */
+  onAbrirPedido?: (id: string) => void;
 };
 
 function Horario({
@@ -90,15 +95,21 @@ export function ColunaAgenda({
   fechado = false,
   agendamentos,
   bloqueios,
+  pedidos = [],
   podeAgendar,
   podeArrastar,
   onNovo,
   onAbrir,
+  onAbrirPedido,
 }: Props) {
   const fim = fimDaGrade(linhas, PASSO_MIN);
   const foraDaJornada = fim && !fechado ? faixasForaDaJornada(jornadaDoDia, linhas[0], fim) : [];
   const faixas = distribuirEmFaixas(
-    agendamentos.map((a) => ({ id: a.id, inicio: new Date(a.inicio), fim: new Date(a.fim) })),
+    [...agendamentos, ...pedidos].map((a) => ({
+      id: a.id,
+      inicio: new Date(a.inicio),
+      fim: new Date(a.fim),
+    })),
   );
 
   return (
@@ -147,6 +158,60 @@ export function ColunaAgenda({
             style={{ top: pos.topo * ALTURA_LINHA, height: pos.altura * ALTURA_LINHA }}
           >
             <span className="font-medium">Bloqueado:</span> {b.motivo}
+          </div>
+        );
+      })}
+
+      {pedidos.map((p) => {
+        const pos = posicaoNaGrade(new Date(p.inicio), new Date(p.fim), data, linhas, PASSO_MIN);
+        if (!pos) return null;
+        const faixa = faixas.get(p.id) ?? { faixa: 0, total: 1 };
+        const largura = 100 / faixa.total;
+        const titulo = `${p.avaliacao ? "Avaliação" : "Pedido online"} — ${p.primeiroNome}`;
+        const classe = cn(
+          "absolute z-10 overflow-hidden rounded-md border border-l-4 px-2 py-1 text-left text-sm",
+          COR_STATUS.pendente.fundo,
+          onAbrirPedido &&
+            "min-h-11 cursor-pointer outline-none focus-visible:ring-[3px] focus-visible:ring-ring",
+        );
+        const estilo = {
+          top: pos.topo * ALTURA_LINHA + 1,
+          height: pos.altura * ALTURA_LINHA - 2,
+          left: `calc(${faixa.faixa * largura}% + 2px)`,
+          width: `calc(${largura}% - 4px)`,
+          borderLeftColor: corProfissional,
+        };
+        const conteudo = (
+          <>
+            <span className="block truncate font-semibold">
+              🟡 {horaNoFuso(p.inicio)}–{horaNoFuso(p.fim)}
+            </span>
+            <span className="block truncate">{titulo}</span>
+            <span className="block truncate text-xs">Aguardando resposta</span>
+          </>
+        );
+        return onAbrirPedido ? (
+          <button
+            key={p.id}
+            type="button"
+            data-pedido={p.id}
+            aria-label={`${horaNoFuso(p.inicio)} ${titulo}, aguardando resposta`}
+            onClick={() => onAbrirPedido(p.id)}
+            className={classe}
+            style={estilo}
+          >
+            {conteudo}
+          </button>
+        ) : (
+          <div
+            key={p.id}
+            data-pedido={p.id}
+            role="img"
+            aria-label={`${horaNoFuso(p.inicio)} ${titulo}, aguardando resposta`}
+            className={classe}
+            style={estilo}
+          >
+            {conteudo}
           </div>
         );
       })}

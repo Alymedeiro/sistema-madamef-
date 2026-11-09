@@ -13,7 +13,9 @@ export default async function ConfiguracoesPage() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("configuracoes_clinica")
-    .select("nome, telefone, endereco, horario_funcionamento")
+    .select(
+      "nome, telefone, endereco, horario_funcionamento, online_ativo, online_antecedencia_min_horas, online_antecedencia_max_dias, online_aviso_privacidade",
+    )
     .maybeSingle();
   if (error) throw new Error(`Falha ao carregar as configurações: ${error.message}`);
 
@@ -48,7 +50,12 @@ export default async function ConfiguracoesPage() {
           telefone: data?.telefone ? formatarTelefone(data.telefone) : "",
           endereco: data?.endereco ?? "",
           horario: horarioDoBanco(data?.horario_funcionamento),
+          onlineAtivo: data?.online_ativo ?? false,
+          onlineAntecedenciaMinHoras: data?.online_antecedencia_min_horas ?? 2,
+          onlineAntecedenciaMaxDias: data?.online_antecedencia_max_dias ?? 60,
+          onlineAvisoPrivacidade: data?.online_aviso_privacidade ?? "",
         }}
+        siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
       />
     </div>
   );
