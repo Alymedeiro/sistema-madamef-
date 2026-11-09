@@ -56,8 +56,9 @@ create table public.pedidos_online (
   decidido_por uuid references public.colaboradores (id),
   decidido_em timestamptz,
   aceite_privacidade_em timestamptz not null,
-  -- HMAC-SHA256 do IP; o IP nunca é gravado.
-  ip_hash text not null,
+  -- HMAC-SHA256 do IP; o IP nunca é gravado. Zerado depois de 1 dia
+  -- (apagar_dados_pedidos_antigos): só serve ao limite de 5 por hora.
+  ip_hash text,
   criado_em timestamptz not null default now(),
   atualizado_em timestamptz not null default now(),
   dados_apagados_em timestamptz,
@@ -90,7 +91,8 @@ create trigger pedidos_online_atualizado_em before update on public.pedidos_onli
 alter table public.pedidos_online enable row level security;
 
 revoke all on public.pedidos_online from anon;
-revoke insert, update, delete, truncate on public.pedidos_online from authenticated;
+revoke all on public.pedidos_online from authenticated;
+grant select on public.pedidos_online to authenticated;
 
 create policy pedidos_online_select on public.pedidos_online
   for select to authenticated
@@ -138,8 +140,9 @@ $$;
 revoke execute on function public.expirar_pedidos_online() from public, anon, authenticated;
 grant execute on function public.expirar_pedidos_online() to authenticated, service_role;
 
--- LGPD: pedidos não aprovados com mais de 90 dias perdem nome e WhatsApp.
--- Só a tarefa diária (service_role / postgres).
+-- LGPD: pedidos não aprovados com mais de 90 dias perdem nome e WhatsApp
+-- (devolve quantos); qualquer pedido com mais de 1 dia perde o ip_hash (não
+-- entra na contagem). Só a tarefa diária (service_role / postgres).
 create function public.apagar_dados_pedidos_antigos()
 returns int
 language plpgsql
@@ -155,6 +158,12 @@ begin
     and criado_em < now() - interval '90 days'
     and dados_apagados_em is null;
   get diagnostics v_n = row_count;
+
+  update public.pedidos_online
+  set ip_hash = null
+  where criado_em < now() - interval '1 day'
+    and ip_hash is not null;
+
   return v_n;
 end;
 $$;
@@ -217,7 +226,7 @@ end;
 $$;
 
 revoke execute on function public.travar_agenda_profissional(uuid)
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 
 -- Agendamento (não cancelado) não pode cair sobre um pedido aguardando não
 -- vencido da mesma profissional. A aprovação do próprio pedido passa: o
@@ -371,7 +380,9 @@ grant execute on function public.horarios_livres_online(uuid, uuid, date) to ser
 -- =============================================================================
 -- 6. Criar pedido (página /agendar, pelo servidor)
 --
--- Ordem: online ligado; limite por ip_hash (5 na última hora); expira os
+-- Ordem: online ligado; trava por WhatsApp e por ip_hash (dois pedidos
+-- simultâneos do mesmo número/IP não passam juntos pela contagem); limite por
+-- ip_hash (5 na última hora); expira os
 -- vencidos (senão a exclusion constraint recusaria o horário); limite por
 -- WhatsApp (3 aguardando); para cada candidata em ordem de nome (a escolhida,
 -- ou todas as que fazem o serviço), trava a agenda dela
@@ -405,6 +416,9 @@ begin
   ) then
     raise exception 'Agendamento online indisponível no momento.' using errcode = 'P0001';
   end if;
+
+  perform pg_advisory_xact_lock(hashtext('online:wa:' || p_whatsapp));
+  perform pg_advisory_xact_lock(hashtext('online:ip:' || p_ip_hash));
 
   if (
     select count(*) from public.pedidos_online p
@@ -469,9 +483,10 @@ grant execute on function public.criar_pedido_online(uuid, uuid, timestamptz, te
 -- =============================================================================
 -- 7. Aprovar e recusar (dona e recepção)
 --
--- O pedido é travado (for update); não aguardando ou vencido → "Este pedido
--- já foi respondido." (duplo toque, duas recepcionistas, pedido de 24 h+).
--- Aprovar: trava a agenda de p_profissional (Ruling P3A-R2), marca aprovado
+-- O pedido é travado (for update) e conferido primeiro (linha antes da trava
+-- advisory, sempre); não aguardando ou vencido → "Este pedido já foi
+-- respondido." (duplo toque, duas recepcionistas, pedido de 24 h+).
+-- Aprovar: depois trava a agenda de p_profissional (Ruling P3A-R2), marca aprovado
 -- ANTES do insert (o gatilho agendamentos_pedido_online não vê o próprio
 -- pedido como bloqueio), cria o agendamento confirmado de origem online e
 -- liga o pedido a ele. Sobreposição de agenda → 23P01 de
@@ -499,12 +514,12 @@ begin
     raise exception 'Apenas a dona ou a recepção podem responder pedidos' using errcode = 'P0001';
   end if;
 
-  perform public.travar_agenda_profissional(p_profissional);
-
   select * into v_pedido from public.pedidos_online p where p.id = p_pedido for update;
   if not found or v_pedido.status <> 'aguardando' or public.pedido_vencido(v_pedido) then
     raise exception 'Este pedido já foi respondido.' using errcode = 'P0001';
   end if;
+
+  perform public.travar_agenda_profissional(p_profissional);
 
   update public.pedidos_online
   set status = 'aprovado',

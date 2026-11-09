@@ -152,6 +152,26 @@ describe("acesso a pedidos_online", () => {
   });
 });
 
+describe("privilégios de authenticated em pedidos_online", () => {
+  it("só select: sem references, trigger, insert, update, delete, truncate", async () => {
+    await comoSuperusuario(async (c) => {
+      const r = await c.query<{ priv: string; tem: boolean }>(
+        `select priv, has_table_privilege('authenticated', 'public.pedidos_online', priv) as tem
+           from unnest(array['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) priv`,
+      );
+      expect(Object.fromEntries(r.rows.map((l) => [l.priv, l.tem]))).toEqual({
+        SELECT: true,
+        INSERT: false,
+        UPDATE: false,
+        DELETE: false,
+        TRUNCATE: false,
+        REFERENCES: false,
+        TRIGGER: false,
+      });
+    });
+  });
+});
+
 describe("reserva: pedidos aguardando não se sobrepõem", () => {
   it("dois pedidos aguardando sobrepostos da mesma profissional → 23P01", async () => {
     await comoSuperusuario(async (c) => {
@@ -330,6 +350,11 @@ describe("trava por profissional", () => {
     await comoUsuario(dona, (c) =>
       esperarErroSql(c.query("select travar_agenda_profissional($1)", [profAId]), "42501"),
     );
+    await comoUsuario(null, async (c) => {
+      await c.query("reset role");
+      await c.query("set local role service_role");
+      await esperarErroSql(c.query("select travar_agenda_profissional($1)", [profAId]), "42501");
+    });
   });
 });
 
@@ -406,6 +431,32 @@ describe("expiração e limpeza", () => {
       });
       // Já limpos não contam de novo.
       expect((await c.query("select apagar_dados_pedidos_antigos() as n")).rows[0].n).toBe(0);
+    });
+  });
+});
+
+describe("limpeza do ip_hash", () => {
+  it("ip_hash aceita null; apagar_dados_pedidos_antigos zera ip_hash de qualquer pedido com mais de 1 dia", async () => {
+    await comoUsuario(dona, async (c) => {
+      await comoSuper(c);
+      const velhoAprovado = await pedido(c, { inicio: h("14", "10:00"), idade: "25 hours", status: "aprovado" });
+      const velhoAguardando = await pedido(c, { inicio: h("14", "11:00"), idade: "2 days" });
+      const novo = await pedido(c, { inicio: h("14", "12:00"), idade: "23 hours" });
+      await c.query("update pedidos_online set ip_hash = null where id = $1", [novo]);
+      await c.query("update pedidos_online set ip_hash = 'hash' where id = $1", [novo]);
+      await c.query("set local role service_role");
+      // Só nome/whatsapp (90 dias) entram na contagem.
+      expect((await c.query("select apagar_dados_pedidos_antigos() as n")).rows[0].n).toBe(0);
+      const ips = Object.fromEntries(
+        (await c.query<{ id: string; ip_hash: string | null; nome: string | null }>(
+          "select id, ip_hash, nome from pedidos_online",
+        )).rows.map((l) => [l.id, [l.ip_hash, l.nome]]),
+      );
+      expect(ips).toEqual({
+        [velhoAprovado]: [null, "Maria Souza"],
+        [velhoAguardando]: [null, "Maria Souza"],
+        [novo]: ["hash", "Maria Souza"],
+      });
     });
   });
 });
@@ -928,6 +979,59 @@ describe("horários livres, criar, aprovar e recusar (seções 5–7)", () => {
       ),
     );
     await comoUsuario(null, (c) => esperarErroSql(c.query(SQL_RECUSAR, [cli, null]), "42501"));
+  });
+
+  it("aprovar/recusar pedido já respondido não esperam a trava da agenda (linha antes da trava)", async () => {
+    const inicio = hs(SEG3, "10:00");
+    const p = await comoSuperusuario((c) =>
+      pedido(c, { profissional: ana, inicio, minutos: 60, status: "recusado" }),
+    );
+    const a = await abrirConexao(null);
+    const b = await abrirConexao(recepcao);
+    try {
+      await a.query("reset role");
+      await a.query("begin");
+      await a.query("select pg_advisory_xact_lock(hashtext('agenda:' || $1::text))", [ana]);
+      await b.query("set statement_timeout = '1s'");
+      const e1 = await esperarErroSql(
+        b.query(SQL_APROVAR, [p, cli, ana, inicio, hs(SEG3, "11:00"), 20000]),
+        "P0001",
+      );
+      expect(e1.message).toBe(MSG_RESPONDIDO);
+      const e2 = await esperarErroSql(b.query(SQL_RECUSAR, [p, null]), "P0001");
+      expect(e2.message).toBe(MSG_RESPONDIDO);
+      await a.query("rollback");
+    } finally {
+      a.release(true);
+      b.release(true);
+      await comoSuperusuario((c) => c.query("delete from pedidos_online where id = $1", [p]));
+    }
+  });
+
+  it("criar_pedido_online trava por WhatsApp e por ip_hash antes de contar os limites", async () => {
+    const a = await abrirConexao(null);
+    const b = await abrirConexao(null);
+    try {
+      await a.query("reset role");
+      await b.query("reset role");
+      await b.query("set role service_role");
+      await b.query("set statement_timeout = '500ms'");
+      for (const chave of ["online:wa:5511955550000", "online:ip:ip-travado"]) {
+        await a.query("begin");
+        await a.query("select pg_advisory_xact_lock(hashtext($1))", [chave]);
+        const params = paramsCriar({
+          inicio: hs(SEG3, "11:00"),
+          ...(chave.startsWith("online:wa:") ? { whatsapp: "5511955550000" } : { ip: "ip-travado" }),
+        });
+        // Com a outra transação segurando a trava, criar espera (e estoura o timeout).
+        await esperarErroSql(b.query(SQL_CRIAR, params), "57014");
+        await a.query("rollback");
+      }
+    } finally {
+      a.release(true);
+      b.release(true);
+      await comoSuperusuario((c) => c.query("delete from pedidos_online where inicio = $1", [hs(SEG3, "11:00")]));
+    }
   });
 
   it("aprovar para horário com agendamento existente → 23P01 e pedido continua aguardando", async () => {

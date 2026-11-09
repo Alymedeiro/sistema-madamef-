@@ -1093,7 +1093,8 @@ export type Database = {
           fim: string
           id: string
           inicio: string
-          ip_hash: string
+          // Zerado depois de 1 dia (apagar_dados_pedidos_antigos).
+          ip_hash: string | null
           motivo_recusa: string | null
           nome: string | null
           profissional_escolhida_id: string | null
@@ -1116,7 +1117,7 @@ export type Database = {
           fim: string
           id?: string
           inicio: string
-          ip_hash: string
+          ip_hash?: string | null
           motivo_recusa?: string | null
           nome?: string | null
           profissional_escolhida_id?: string | null
@@ -1137,7 +1138,7 @@ export type Database = {
           fim?: string
           id?: string
           inicio?: string
-          ip_hash?: string
+          ip_hash?: string | null
           motivo_recusa?: string | null
           nome?: string | null
           profissional_escolhida_id?: string | null
@@ -1558,13 +1559,13 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["perfil"]
       }
-      // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
-      // 'Acesso não autorizado'.
       // 0009: dona/recepção; motivo com trim (vazio → null).
       recusar_pedido_online: {
         Args: { p_pedido: string; p_motivo: string | null }
         Returns: undefined
       }
+      // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
+      // 'Acesso não autorizado'.
       registrar_acesso: {
         Args: {
           p_entidade:
