@@ -87,7 +87,7 @@ Cuidados com os testes de tela da Fase 2:
 
 A Fase 3A adiciona a página pública `/agendar` (a cliente pede um horário; a recepção aprova ou recusa) e a migration `0009_agendamento_online.sql` (tabela `pedidos_online`, funções de horários livres, pedido, aprovação e recusa, limpeza diária LGPD).
 
-**Estado atual:** 0009 ainda não aplicada (nem no projeto de testes `myfpjwtmfonuvsrsvato`, nem na produção `vxvrzhskytsbreexnbun`). Atualize esta linha quando for aplicada.
+**Estado atual:** 0009 aplicada no projeto de testes `myfpjwtmfonuvsrsvato` em 2026-11-09 (RLS ligado, 1 política em `pedidos_online`, job `pedidos_online_limpeza` em `cron.job`, avisos do Supabase só os esperados). A produção `vxvrzhskytsbreexnbun` ainda não recebeu a 0009.
 
 0. **Aplique a 0009 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 3A depende dela; publicado antes, a agenda, o Início e `/agendar` quebram. Site de produção: https://sistema-madamef.vercel.app.
 1. Aplique `0009_agendamento_online.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`), primeiro no projeto de testes.
