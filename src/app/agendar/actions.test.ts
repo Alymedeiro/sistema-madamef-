@@ -141,6 +141,32 @@ describe("enviarPedido", () => {
     expect(r.ok && r.resumo.servico).toBe("Avaliação de Botox");
   });
 
+  it("falha ao ler de volta: resumo usa os nomes do formulário", async () => {
+    falso.responder("rpc:criar_pedido_online", ok(PEDIDO));
+    falso.responder("pedidos_online", { data: null, error: { message: "falhou" } });
+    const r = await enviarPedido({
+      ...pedido,
+      servicoNome: "Limpeza de pele",
+      profissionalNome: "Ana",
+    });
+    expect(r).toEqual({
+      ok: true,
+      resumo: { servico: "Limpeza de pele", profissional: "Ana", inicio: pedido.inicio },
+    });
+    // Nomes do formulário nunca vão ao banco.
+    expect(falso.chamadasRpc("criar_pedido_online")[0].args[0]).not.toHaveProperty("servicoNome");
+  });
+
+  it("falha ao ler de volta sem nomes do formulário: \"—\", nunca em branco", async () => {
+    falso.responder("rpc:criar_pedido_online", ok(PEDIDO));
+    falso.responder("pedidos_online", ok(null));
+    const r = await enviarPedido({ ...pedido, servicoNome: "   " });
+    expect(r).toEqual({
+      ok: true,
+      resumo: { servico: "—", profissional: "—", inicio: pedido.inicio },
+    });
+  });
+
   it("P0001 do banco vira a mensagem do banco", async () => {
     falso.responder("rpc:criar_pedido_online", {
       data: null,

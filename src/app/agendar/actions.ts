@@ -44,8 +44,19 @@ function primeiroNome(nome: string | null | undefined): string {
   return nome?.trim().split(/\s+/)[0] ?? "";
 }
 
+/** Primeiro texto não vazio (até 80 caracteres); nenhum → "—". */
+function exibir(...textos: (string | null | undefined)[]): string {
+  return textos.map((t) => t?.trim().slice(0, 80)).find(Boolean) ?? "—";
+}
+
+/**
+ * Nomes que o formulário já mostra, só para o resumo quando a leitura de volta
+ * falha. Nunca vão ao banco nem decidem nada.
+ */
+type NomesExibidos = { servicoNome?: string; profissionalNome?: string };
+
 export async function enviarPedido(
-  e: z.input<typeof pedidoSchema>,
+  e: z.input<typeof pedidoSchema> & NomesExibidos,
 ): Promise<
   { ok: true; resumo: { servico: string; profissional: string; inicio: string } } | Falha
 > {
@@ -77,12 +88,16 @@ export async function enviarPedido(
     .eq("id", id)
     .maybeSingle();
 
-  const nomeServico = criado?.servicos?.nome ?? "";
+  // Leitura de volta falhou: resumo com o que o formulário mostrou, ou "—".
+  const nomeServico = criado?.servicos?.nome;
   return {
     ok: true,
     resumo: {
-      servico: criado?.avaliacao ? `Avaliação de ${nomeServico}` : nomeServico,
-      profissional: primeiroNome(criado?.profissional?.nome),
+      servico: exibir(
+        nomeServico && (criado?.avaliacao ? `Avaliação de ${nomeServico}` : nomeServico),
+        e.servicoNome,
+      ),
+      profissional: exibir(primeiroNome(criado?.profissional?.nome), e.profissionalNome),
       inicio: criado?.inicio ?? p.inicio,
     },
   };

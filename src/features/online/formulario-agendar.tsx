@@ -87,6 +87,13 @@ export function FormularioAgendar({
         whatsapp: dados.whatsapp,
         aceite: true,
         token,
+        // Só para o resumo se a leitura de volta falhar; o servidor não confia nisso.
+        servicoNome: servico
+          ? servico.exigeAvaliacao
+            ? `Avaliação de ${servico.nome}`
+            : servico.nome
+          : undefined,
+        profissionalNome: profissionais.find((p) => p.id === profissionalId)?.nome,
       });
       if (r.ok) {
         setResumo(r.resumo);
