@@ -172,6 +172,7 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
         profissionais={dados.profissionais}
         selecionada={selecionada}
         onSelecionar={selecionar}
+        mostrarPedidos={podeAgendar}
       />
 
       {dados.profissionais.length === 0 ? (

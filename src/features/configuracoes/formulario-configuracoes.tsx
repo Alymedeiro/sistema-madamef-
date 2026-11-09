@@ -40,7 +40,9 @@ function numeroOuNaN(texto: string) {
   return texto.trim() === "" ? Number.NaN : Number(texto);
 }
 
-export function FormularioConfiguracoes({ inicial, siteUrl = "" }: Props) {
+export function FormularioConfiguracoes({ inicial, siteUrl: siteUrlBruto = "" }: Props) {
+  // "https://x.com/" não vira "https://x.com//agendar".
+  const siteUrl = siteUrlBruto.trim().replace(/\/+$/, "");
   const [nome, setNome] = useState(inicial.nome);
   const [telefone, setTelefone] = useState(inicial.telefone);
   const [endereco, setEndereco] = useState(inicial.endereco);
