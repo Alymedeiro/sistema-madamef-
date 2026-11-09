@@ -33,6 +33,18 @@ describe("verificarTurnstile", () => {
     expect(await verificarTurnstile("tok", null)).toBe(false);
   });
 
+  it("envia AbortSignal de 5 s; timeout -> false", async () => {
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const f = vi.fn((_url: string, init: { signal?: AbortSignal }) => {
+      expect(init.signal).toBeInstanceOf(AbortSignal);
+      return Promise.reject(new DOMException("tempo esgotado", "TimeoutError"));
+    });
+    vi.stubGlobal("fetch", f);
+    expect(await verificarTurnstile("tok", null)).toBe(false);
+    expect(timeout).toHaveBeenCalledWith(5000);
+    expect(f.mock.calls[0][1].signal).toBe(timeout.mock.results[0].value);
+  });
+
   it("resposta HTTP de erro -> false", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, json: async () => ({ success: true }) }));
     expect(await verificarTurnstile("tok", null)).toBe(false);

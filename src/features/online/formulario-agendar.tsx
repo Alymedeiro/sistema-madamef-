@@ -14,6 +14,7 @@ import { WidgetTurnstile } from "./turnstile";
 
 const RESERVADO = "Esse horário acabou de ser reservado, escolha outro.";
 const SEM_ACEITE = "Aceite o aviso de privacidade para continuar.";
+const FALHA_VERIFICACAO = "Não foi possível carregar a verificação. Recarregue a página.";
 
 type Resumo = { servico: string; profissional: string; inicio: string };
 
@@ -41,6 +42,7 @@ export function FormularioAgendar({
   const [dados, setDados] = useState<Dados>({ nome: "", whatsapp: "", aceite: false });
   const [token, setToken] = useState("");
   const [chaveTurnstile, setChaveTurnstile] = useState(0);
+  const [falhaTurnstile, setFalhaTurnstile] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [resumo, setResumo] = useState<Resumo | null>(null);
   const [buscando, iniciarBusca] = useTransition();
@@ -92,6 +94,7 @@ export function FormularioAgendar({
       }
       // Token do Turnstile vale uma vez: pede outro.
       setToken("");
+      setFalhaTurnstile(false);
       setChaveTurnstile((k) => k + 1);
       setErro(r.erro);
       if (r.erro === RESERVADO && dia) {
@@ -192,7 +195,20 @@ export function FormularioAgendar({
         {passo === 4 ? (
           <>
             <PassoDados dados={dados} avisoPrivacidade={avisoPrivacidade} aoMudar={setDados} />
-            <WidgetTurnstile key={chaveTurnstile} siteKey={siteKey} aoMudarToken={setToken} />
+            <WidgetTurnstile
+              key={chaveTurnstile}
+              siteKey={siteKey}
+              aoMudarToken={(t) => {
+                setToken(t);
+                if (t) setFalhaTurnstile(false);
+              }}
+              aoFalhar={() => setFalhaTurnstile(true)}
+            />
+            {falhaTurnstile ? (
+              <p role="alert" className="text-sm font-medium text-destructive">
+                {FALHA_VERIFICACAO}
+              </p>
+            ) : null}
             {erro ? (
               <p role="alert" className="text-sm font-medium text-destructive">
                 {erro}

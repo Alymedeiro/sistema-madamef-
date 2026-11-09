@@ -1,4 +1,6 @@
 const URL_VERIFICACAO = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
+/** Cloudflare lenta não segura o envio do pedido: estourou, conta como falha. */
+const TEMPO_MAXIMO_MS = 5000;
 
 /** Só no servidor. Sem TURNSTILE_SECRET_KEY a verificação é pulada (dev/teste). */
 export async function verificarTurnstile(token: string, ip: string | null): Promise<boolean> {
@@ -10,7 +12,11 @@ export async function verificarTurnstile(token: string, ip: string | null): Prom
   try {
     const corpo = new URLSearchParams({ secret: segredo, response: token });
     if (ip) corpo.set("remoteip", ip);
-    const r = await fetch(URL_VERIFICACAO, { method: "POST", body: corpo });
+    const r = await fetch(URL_VERIFICACAO, {
+      method: "POST",
+      body: corpo,
+      signal: AbortSignal.timeout(TEMPO_MAXIMO_MS),
+    });
     if (!r.ok) return false;
     const json = (await r.json()) as { success?: boolean };
     return json.success === true;

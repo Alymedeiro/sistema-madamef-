@@ -50,14 +50,19 @@ function carregarTurnstile(): Promise<Turnstile> {
 export function WidgetTurnstile({
   siteKey,
   aoMudarToken,
+  aoFalhar,
 }: {
   siteKey: string;
   aoMudarToken: (token: string) => void;
+  /** Script não carregou ou o widget deu erro: o formulário avisa para recarregar. */
+  aoFalhar: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const callback = useRef(aoMudarToken);
+  const falha = useRef(aoFalhar);
   useEffect(() => {
     callback.current = aoMudarToken;
+    falha.current = aoFalhar;
   });
 
   useEffect(() => {
@@ -70,13 +75,20 @@ export function WidgetTurnstile({
         if (!ativo) return;
         id = t.render(el, {
           sitekey: siteKey,
-          language: "pt-BR",
+          language: "pt-br",
           callback: (token) => callback.current(token),
           "expired-callback": () => callback.current(""),
-          "error-callback": () => callback.current(""),
+          "error-callback": () => {
+            callback.current("");
+            falha.current();
+          },
         });
       })
-      .catch(() => callback.current(""));
+      .catch(() => {
+        if (!ativo) return;
+        callback.current("");
+        falha.current();
+      });
     return () => {
       ativo = false;
       if (id) window.turnstile?.remove(id);
