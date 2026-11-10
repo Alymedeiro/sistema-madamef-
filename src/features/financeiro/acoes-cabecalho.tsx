@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Camera, HandCoins, Plus } from "lucide-react";
+import { Camera, FileDown, HandCoins, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ColaboradoraOpcao } from "@/app/(app)/financeiro/dados";
 import { DialogoContaPagar } from "./dialogo-conta-pagar";
@@ -10,15 +10,20 @@ import { DialogoVale } from "./dialogo-vale";
 
 type Aberto = null | "vale" | "despesa" | "novo" | "nova_pagar";
 
-/** Botões do cabeçalho do Financeiro (dona): Lançar vale, Despesa com foto/PDF, Novo lançamento. */
+/**
+ * Botões do cabeçalho do Financeiro (dona): Lançar vale, Despesa com foto/PDF,
+ * Novo lançamento e — fora do Caixa do dia — Exportar PDF da aba e filtros atuais.
+ */
 export function AcoesCabecalho({
   colaboradoras,
   hoje,
   hrefNovaReceber,
+  hrefExportarPdf,
 }: {
   colaboradoras: ColaboradoraOpcao[];
   hoje: string;
   hrefNovaReceber: string;
+  hrefExportarPdf?: string;
 }) {
   const [aberto, setAberto] = useState<Aberto>(null);
   const fechar = () => setAberto(null);
@@ -37,6 +42,14 @@ export function AcoesCabecalho({
         <Plus aria-hidden />
         Novo lançamento
       </Button>
+      {hrefExportarPdf && (
+        <Button asChild variant="outline">
+          <a href={hrefExportarPdf} download>
+            <FileDown aria-hidden />
+            Exportar PDF
+          </a>
+        </Button>
+      )}
 
       {aberto === "vale" && <DialogoVale colaboradoras={colaboradoras} hoje={hoje} onFechar={fechar} />}
       {aberto === "despesa" && <DialogoContaPagar modo="despesa" hoje={hoje} onFechar={fechar} />}

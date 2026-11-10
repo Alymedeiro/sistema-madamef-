@@ -9,7 +9,7 @@ import { FluxoDeCaixa } from "@/features/financeiro/fluxo";
 import { ListaPagar } from "@/features/financeiro/lista-pagar";
 import { ListaReceber } from "@/features/financeiro/lista-receber";
 import { PainelFinanceiro } from "@/features/financeiro/painel";
-import { hrefFinanceiro } from "@/features/financeiro/url";
+import { hrefExportarPdf, hrefFinanceiro } from "@/features/financeiro/url";
 import { filtroSituacao, periodoDoFiltro } from "@/lib/dominio/financeiro";
 import { abaDoFinanceiro, abasDoFinanceiro, perfisComAcesso } from "@/lib/dominio/permissoes";
 import { dataNoFuso } from "@/lib/dominio/tempo";
@@ -96,6 +96,9 @@ export default async function FinanceiroPage({
           colaboradoras={colaboradoras}
           hoje={hoje}
           hrefNovaReceber={`${hrefReceber}&novo=1`}
+          hrefExportarPdf={
+            aba === "caixa" ? undefined : hrefExportarPdf({ aba, ...periodo, periodo: periodo.filtro, situacao, busca, categoria })
+          }
         />
       </CabecalhoFinanceiro>
       <FiltroDePeriodo aba={aba} {...periodo} />
