@@ -1,5 +1,11 @@
 import "server-only";
-import { avisosPendentes, diasEntre, type ContaAviso } from "@/lib/dominio/financeiro";
+import {
+  avisosPendentes,
+  diasEntre,
+  fimDoMesSeguinte,
+  type ContaAviso,
+} from "@/lib/dominio/financeiro";
+import { combinarDataHora } from "@/lib/dominio/tempo";
 import type { Perfil } from "@/lib/dominio/permissoes";
 import { somarDias } from "@/features/inicio/painel";
 import type { createClient } from "@/lib/supabase/server";
@@ -63,15 +69,25 @@ async function contasAbertas(supabase: Supabase, hoje: string): Promise<ContaAvi
 
 /**
  * Avisos pendentes (só dona, por RLS): contas em aberto a pagar e a receber com
- * vencimento até hoje + 7, menos os já lidos, por vencimento.
+ * vencimento até hoje + 7, menos os lidos hoje, por vencimento. Só os lidos a
+ * partir de 00:00 de hoje (SP) contam: cada marco é de um dia só, e assim a
+ * leitura não cresce com o histórico.
  */
 export async function carregarAvisos(supabase: Supabase, hoje: string): Promise<AvisoItem[]> {
+  const inicioDeHoje = combinarDataHora(hoje, "00:00");
   const [contas, lidas] = await Promise.all([
     contasAbertas(supabase, hoje),
-    supabase.from("avisos_lidos").select("chave"),
+    supabase
+      .from("avisos_lidos")
+      .select("chave, lido_em")
+      .gte("lido_em", inicioDeHoje.toISOString()),
   ]);
   if (lidas.error) throw new Error(`Falha ao carregar os avisos lidos: ${lidas.error.message}`);
-  const jaLidas = new Set((lidas.data ?? []).map((l) => l.chave));
+  const jaLidas = new Set(
+    (lidas.data ?? [])
+      .filter((l) => new Date(l.lido_em) >= inicioDeHoje)
+      .map((l) => l.chave),
+  );
   return avisosPendentes(contas, hoje, jaLidas).map((a) => ({
     ...a,
     href: hrefConta(a.conta.tipo, a.conta.id, a.dias),
@@ -110,7 +126,9 @@ export async function carregarContasVencendo(
 
 /**
  * Para o layout: só a dona tem avisos; os demais perfis nem chegam a consultar.
- * Falha não derruba o app (o sininho só some).
+ * Antes gera as contas fixas até o fim do mês seguinte (idempotente), para o
+ * sininho avisar delas mesmo sem abrir o Financeiro. Falha não derruba o app
+ * (o sininho só some; falha ao gerar só deixa de incluir as fixas novas).
  */
 export async function carregarAvisosDoPerfil(
   supabase: Supabase,
@@ -118,6 +136,11 @@ export async function carregarAvisosDoPerfil(
   perfil: Perfil,
 ): Promise<AvisoItem[]> {
   if (perfil !== "dona") return [];
+  try {
+    await supabase.rpc("gerar_contas_fixas", { p_ate: fimDoMesSeguinte(hoje) });
+  } catch {
+    // Segue sem as fixas novas.
+  }
   try {
     return await carregarAvisos(supabase, hoje);
   } catch {

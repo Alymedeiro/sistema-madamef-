@@ -172,6 +172,13 @@ export function vencimentoDaCompetencia(competencia: string, dia: number): strin
   return iso(ano, mes, Math.min(dia, ultimoDia(ano, mes)));
 }
 
+/** Último dia do mês seguinte ao de `hoje` (AAAA-MM-DD): até onde as contas fixas são geradas. */
+export function fimDoMesSeguinte(hoje: string): string {
+  const [ano, mes] = hoje.split("-").map(Number);
+  const proximo = mes === 12 ? { ano: ano + 1, mes: 1 } : { ano, mes: mes + 1 };
+  return iso(proximo.ano, proximo.mes, ultimoDia(proximo.ano, proximo.mes));
+}
+
 export function saldos(r: { recebido: number; pago: number; aReceber: number; aPagar: number }): {
   saldoCaixa: number;
   saldoProjetado: number;

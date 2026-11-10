@@ -56,11 +56,44 @@ describe("carregarAvisos", () => {
   });
 
   it("aviso lido não volta; novo marco volta", async () => {
-    const falso = montar({ pagar: [aluguel], lidas: [{ chave: "pagar:p1:3" }] });
+    const falso = montar({
+      pagar: [aluguel],
+      lidas: [{ chave: "pagar:p1:3", lido_em: "2026-11-10T12:00:00.000Z" }],
+    });
     expect(await carregarAvisos(falso.cliente as never, HOJE)).toEqual([]);
-    const amanha = montar({ pagar: [aluguel], lidas: [{ chave: "pagar:p1:3" }] });
+    const amanha = montar({
+      pagar: [aluguel],
+      lidas: [{ chave: "pagar:p1:3", lido_em: "2026-11-12T12:00:00.000Z" }],
+    });
     const avisos = await carregarAvisos(amanha.cliente as never, "2026-11-12");
     expect(avisos.map((a) => a.chave)).toEqual(["pagar:p1:1"]);
+  });
+
+  it("lê só os avisos lidos a partir de 00:00 de hoje em São Paulo", async () => {
+    const falso = montar({});
+    await carregarAvisos(falso.cliente as never, HOJE);
+    expect(falso.chamadasDe("avisos_lidos")).toContainEqual({
+      tabela: "avisos_lidos",
+      metodo: "gte",
+      args: ["lido_em", "2026-11-10T03:00:00.000Z"],
+    });
+  });
+
+  it("muitos lidos antigos não entram na leitura (só os de hoje contam)", async () => {
+    // Mesmo que cheguem (o falso não filtra), 5000 lidos de ontem — inclusive a
+    // chave do marco de hoje — não escondem o aviso; o lido de hoje esconde.
+    const antigas = Array.from({ length: 5000 }, (_, i) => ({
+      chave: i === 0 ? "pagar:p1:3" : `pagar:x${i}:7`,
+      lido_em: "2026-11-10T02:59:59.000Z",
+    }));
+    const falso = montar({ pagar: [aluguel], lidas: antigas });
+    const avisos = await carregarAvisos(falso.cliente as never, HOJE);
+    expect(avisos.map((a) => a.chave)).toEqual(["pagar:p1:3"]);
+    const hoje = montar({
+      pagar: [aluguel],
+      lidas: [...antigas, { chave: "pagar:p1:3", lido_em: "2026-11-10T03:00:00.000Z" }],
+    });
+    expect(await carregarAvisos(hoje.cliente as never, HOJE)).toEqual([]);
   });
 
   it("conta paga não aparece (o banco só devolve as em aberto)", async () => {
@@ -86,6 +119,22 @@ describe("carregarAvisosDoPerfil", () => {
 
   it("dona recebe os avisos", async () => {
     const falso = montar({ pagar: [aluguel] });
+    expect(await carregarAvisosDoPerfil(falso.cliente as never, HOJE, "dona")).toHaveLength(1);
+  });
+
+  it("dona: gera as contas fixas até o fim do mês seguinte ANTES de ler as contas", async () => {
+    const falso = montar({ pagar: [aluguel] });
+    falso.responder("rpc:gerar_contas_fixas", ok(1));
+    await carregarAvisosDoPerfil(falso.cliente as never, HOJE, "dona");
+    expect(falso.chamadasRpc("gerar_contas_fixas")[0].args[0]).toEqual({ p_ate: "2026-12-31" });
+    const ordem = falso.chamadas.map((c) => c.tabela);
+    expect(ordem[0]).toBe("rpc:gerar_contas_fixas");
+    expect(ordem.indexOf("contas_pagar")).toBeGreaterThan(0);
+  });
+
+  it("falha ao gerar as contas fixas não derruba: avisos seguem", async () => {
+    const falso = montar({ pagar: [aluguel] });
+    falso.responder("rpc:gerar_contas_fixas", { data: null, error: { message: "x" } });
     expect(await carregarAvisosDoPerfil(falso.cliente as never, HOJE, "dona")).toHaveLength(1);
   });
 

@@ -2,6 +2,7 @@ import "server-only";
 import {
   CATEGORIAS_DESPESA,
   consultaDaSituacao,
+  fimDoMesSeguinte,
   situacaoConta,
   type CategoriaDespesa,
   type FiltroSituacao,
@@ -30,13 +31,7 @@ export type Resumo = {
 
 const dois = (n: number) => String(n).padStart(2, "0");
 
-/** Último dia do mês seguinte ao de `hoje` (AAAA-MM-DD). */
-export function fimDoMesSeguinte(hoje: string): string {
-  const [ano, mes] = hoje.split("-").map(Number);
-  // Date.UTC(ano, mes + 1, 0): dia 0 do mês após o seguinte = último dia do seguinte.
-  const d = new Date(Date.UTC(ano, mes + 1, 0));
-  return `${d.getUTCFullYear()}-${dois(d.getUTCMonth() + 1)}-${dois(d.getUTCDate())}`;
-}
+export { fimDoMesSeguinte };
 
 /** Datas no formato AAAA-MM-DD somadas de `dias`. */
 function somarDias(data: string, dias: number): string {
