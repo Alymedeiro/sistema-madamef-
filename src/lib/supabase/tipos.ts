@@ -1881,8 +1881,9 @@ export type Database = {
       // 0010 (seção 6): só a dona (senão P0001 "Acesso não autorizado").
       // Período [p_de, p_ate] em dias de São Paulo. Recebido = pagamentos
       // (valor − desconto, exceto 'a_receber') pela data do caixa + recebimentos
-      // por recebido_em; Pago = contas pagas por pago_em. Vencidos: em aberto
-      // com vencimento < hoje, qualquer período. Sempre uma linha (zeros).
+      // por recebido_em; Pago = contas pagas por pago_em. a_*_vencido: parte
+      // de a_receber/a_pagar com vencimento < hoje. Vencidos: em aberto com
+      // vencimento < hoje, qualquer período. Sempre uma linha (zeros).
       resumo_financeiro: {
         Args: { p_de: string; p_ate: string }
         Returns: {
@@ -1894,6 +1895,8 @@ export type Database = {
           ja_recebido: number
           a_pagar: number
           ja_pago: number
+          a_receber_vencido: number
+          a_pagar_vencido: number
           vencidos_qtd: number
           vencidos_total: number
         }[]

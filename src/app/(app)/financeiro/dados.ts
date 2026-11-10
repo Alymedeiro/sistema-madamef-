@@ -21,6 +21,9 @@ export type Resumo = {
   jaRecebido: number;
   aPagar: number;
   jaPago: number;
+  /** Parte de aReceber / aPagar com vencimento < hoje. */
+  aReceberVencido: number;
+  aPagarVencido: number;
   vencidosQtd: number;
   vencidosTotal: number;
 };
@@ -74,6 +77,8 @@ export async function carregarResumo(
     jaRecebido: num(l.ja_recebido),
     aPagar: num(l.a_pagar),
     jaPago: num(l.ja_pago),
+    aReceberVencido: num(l.a_receber_vencido),
+    aPagarVencido: num(l.a_pagar_vencido),
     vencidosQtd: num(l.vencidos_qtd),
     vencidosTotal: num(l.vencidos_total),
   };

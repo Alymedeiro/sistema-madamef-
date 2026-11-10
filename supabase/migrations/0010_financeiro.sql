@@ -323,7 +323,8 @@ revoke execute on function public.cancelar_conta_pagar(uuid, text)
   from public, anon, authenticated;
 grant execute on function public.cancelar_conta_pagar(uuid, text) to authenticated;
 
--- Vale: despesa já paga em p_data, categoria 'vale', ligada à colaboradora.
+-- Vale: despesa já paga em p_data, categoria 'vale', ligada à colaboradora
+-- ativa (inativa ou inexistente → 'Colaboradora não encontrada.').
 -- Descrição "Vale — <nome>" ou "Vale — <nome> · <obs>" (até 120 caracteres).
 create function public.lancar_vale(
   p_colaborador uuid,
@@ -343,7 +344,9 @@ declare
 begin
   perform public.exigir_dona_financeiro();
 
-  select btrim(co.nome) into v_nome from public.colaboradores co where co.id = p_colaborador;
+  select btrim(co.nome) into v_nome
+  from public.colaboradores co
+  where co.id = p_colaborador and co.ativo;
   if not found then
     raise exception 'Colaboradora não encontrada.' using errcode = 'P0001';
   end if;
@@ -551,6 +554,8 @@ alter table public.recebimentos enable row level security;
 
 revoke all on public.recebimentos from anon, authenticated;
 revoke delete, truncate on public.recebimentos, public.contas_receber from service_role;
+-- Reforço explícito (0003 já tirou o truncate por padrão): nada é apagado.
+revoke truncate on public.caixas, public.pagamentos, public.contas_receber from authenticated;
 grant select on public.recebimentos to authenticated;
 
 -- recebimentos: dona todos; recepção só os do caixa de hoje aberto.
@@ -694,7 +699,9 @@ begin
 
   -- FOR UPDATE: duas baixas simultâneas da mesma parcela esperam uma pela outra.
   select * into v_conta from public.contas_receber c where c.id = p_conta for update;
-  if not found then
+  -- A recepção só enxerga (RLS) parcelas vencendo até hoje: a mesma regra aqui.
+  if not found
+     or (public.perfil_atual() is distinct from 'dona' and v_conta.vencimento > v_hoje) then
     raise exception 'Conta não encontrada.' using errcode = 'P0001';
   elsif v_conta.cancelada_em is not null then
     raise exception 'Esta conta foi cancelada.' using errcode = 'P0001';
@@ -861,8 +868,10 @@ revoke execute on function public.entradas_financeiro(date, date)
   from public, anon, authenticated, service_role;
 
 -- Os cartões do painel. Saldo em caixa (recebido − pago) e projetado
--- (+ a_receber − a_pagar) são calculados na tela. Vencidos: contas em aberto
--- (pagar + receber) com vencimento < hoje (SP), qualquer que seja P.
+-- (+ a_receber − a_pagar) são calculados na tela. a_receber_vencido /
+-- a_pagar_vencido: a parte de a_receber / a_pagar (em aberto, vencimento em P)
+-- com vencimento < hoje. Vencidos: contas em aberto (pagar + receber) com
+-- vencimento < hoje (SP), qualquer que seja P.
 create function public.resumo_financeiro(p_de date, p_ate date)
 returns table (
   recebido bigint,
@@ -873,6 +882,8 @@ returns table (
   ja_recebido bigint,
   a_pagar bigint,
   ja_pago bigint,
+  a_receber_vencido bigint,
+  a_pagar_vencido bigint,
   vencidos_qtd int,
   vencidos_total bigint
 )
@@ -900,14 +911,20 @@ begin
   rec_venc as (
     select
       coalesce(sum(cr.valor_centavos) filter (where cr.recebido_em is null), 0)::bigint as aberto,
-      coalesce(sum(cr.valor_centavos) filter (where cr.recebido_em is not null), 0)::bigint as feito
+      coalesce(sum(cr.valor_centavos) filter (where cr.recebido_em is not null), 0)::bigint as feito,
+      coalesce(sum(cr.valor_centavos) filter (
+        where cr.recebido_em is null and cr.vencimento < v_hoje
+      ), 0)::bigint as vencido
     from public.contas_receber cr
     where cr.cancelada_em is null and cr.vencimento between p_de and p_ate
   ),
   pag_venc as (
     select
       coalesce(sum(cp.valor_centavos) filter (where cp.status = 'aberta'), 0)::bigint as aberto,
-      coalesce(sum(cp.valor_centavos) filter (where cp.status = 'paga'), 0)::bigint as feito
+      coalesce(sum(cp.valor_centavos) filter (where cp.status = 'paga'), 0)::bigint as feito,
+      coalesce(sum(cp.valor_centavos) filter (
+        where cp.status = 'aberta' and cp.vencimento < v_hoje
+      ), 0)::bigint as vencido
     from public.contas_pagar cp
     where cp.status <> 'cancelada' and cp.vencimento between p_de and p_ate
   ),
@@ -925,6 +942,7 @@ begin
   )
   select ent.total, ent.qtd, pag.total, pag.qtd,
          rec_venc.aberto, rec_venc.feito, pag_venc.aberto, pag_venc.feito,
+         rec_venc.vencido, pag_venc.vencido,
          venc.qtd, venc.total
   from ent, pag, rec_venc, pag_venc, venc;
 end;

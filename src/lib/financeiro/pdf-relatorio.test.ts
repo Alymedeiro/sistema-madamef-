@@ -70,6 +70,8 @@ describe("gerarPdfRelatorio", () => {
           jaRecebido: 5000,
           aPagar: 10000,
           jaPago: 2000,
+          aReceberVencido: 0,
+          aPagarVencido: 0,
           vencidosQtd: 1,
           vencidosTotal: 7000,
         },

@@ -159,6 +159,8 @@ describe("resumo_financeiro", () => {
         ja_recebido: 10000,
         a_pagar: 5000,
         ja_pago: 8000,
+        a_receber_vencido: 0,
+        a_pagar_vencido: "2026-11-03" < hoje ? 5000 : 0,
         vencidos_qtd: abertos.length,
         vencidos_total: abertos.reduce((s, x) => s + x.valor, 0),
       });
@@ -215,8 +217,43 @@ describe("resumo_financeiro", () => {
         ja_recebido: 0,
         a_pagar: 0,
         ja_pago: 0,
+        a_receber_vencido: 0,
+        a_pagar_vencido: 0,
         vencidos_qtd: 0,
         vencidos_total: 0,
+      });
+    });
+  });
+
+  it("a_receber_vencido / a_pagar_vencido: só a parte em aberto de P com vencimento < hoje", async () => {
+    await comoUsuario(dona, async (c) => {
+      await c.query("reset role");
+      const hoje = (
+        await c.query<{ d: string }>("select ((now() at time zone 'America/Sao_Paulo')::date)::text as d")
+      ).rows[0].d;
+      const dia = async (n: number) =>
+        (await c.query<{ d: string }>("select ($1::date + $2::int)::text as d", [hoje, n])).rows[0].d;
+      const [ontem, amanha, mesPassado] = [await dia(-1), await dia(1), await dia(-40)];
+      await contaPagar(c, { valor: 1000, vencimento: ontem });
+      await contaPagar(c, { valor: 2000, vencimento: hoje });
+      await contaPagar(c, { valor: 4000, vencimento: amanha });
+      await contaPagar(c, { valor: 8000, vencimento: ontem, status: "paga", pagoEm: ontem });
+      await contaPagar(c, { valor: 16000, vencimento: ontem, status: "cancelada" });
+      await contaPagar(c, { valor: 32000, vencimento: mesPassado });
+      await c.query(
+        `insert into contas_receber (cliente_id, descricao, origem_manual, numero, total_parcelas,
+           valor_centavos, vencimento, lancada_por)
+         values ($1, 'A', true, 1, 1, 300, $3, $2), ($1, 'B', true, 1, 1, 500, $4, $2),
+                ($1, 'C', true, 1, 1, 700, $5, $2)`,
+        [cli, donaId, ontem, hoje, mesPassado],
+      );
+      await logarComo(c, dona);
+      const r = num((await c.query(SQL_RESUMO, [await dia(-10), amanha])).rows[0]);
+      expect(r).toMatchObject({
+        a_pagar: 7000,
+        a_pagar_vencido: 1000,
+        a_receber: 800,
+        a_receber_vencido: 300,
       });
     });
   });

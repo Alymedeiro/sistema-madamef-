@@ -17,6 +17,8 @@ const LINHA = {
   ja_recebido: 5000,
   a_pagar: 350000,
   ja_pago: 0,
+  a_receber_vencido: "4000",
+  a_pagar_vencido: 100000,
   vencidos_qtd: 1,
   vencidos_total: "12000",
 };
@@ -63,6 +65,8 @@ describe("carregarResumo", () => {
       jaRecebido: 5000,
       aPagar: 350000,
       jaPago: 0,
+      aReceberVencido: 4000,
+      aPagarVencido: 100000,
       vencidosQtd: 1,
       vencidosTotal: 12000,
     });

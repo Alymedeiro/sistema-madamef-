@@ -308,6 +308,16 @@ describe("lançar vale", () => {
       ).toBe("Colaboradora não encontrada.");
     });
   });
+
+  it("colaboradora inativa → 'Colaboradora não encontrada.'", async () => {
+    const { colaboradorId: inativa } = await criarUsuario("profissional", { ativo: false });
+    await comoUsuario(dona, async (c) => {
+      expect(
+        (await falha(c, "select lancar_vale($1, 3000, '2026-11-11', 'pix', null)", [inativa]))
+          .message,
+      ).toBe("Colaboradora não encontrada.");
+    });
+  });
 });
 
 describe("contas fixas", () => {
@@ -608,6 +618,29 @@ describe("contas a receber e recebimentos", () => {
       expect(await contar(c, "recebimentos")).toBe(1);
     });
     await comoUsuario(null, (c) => esperarErroSql(c.query("select * from recebimentos"), "42501"));
+  });
+
+  it("recepção não recebe parcela que vence depois de hoje ('Conta não encontrada.')", async () => {
+    await comoUsuario(dona, async (c) => {
+      await c.query("select abrir_caixa(0)");
+      const amanha = await criarReceber(c, 1);
+      const hoje = await criarReceber(c, 0);
+      await logarComo(c, recepcao);
+      expect((await falha(c, SQL_RECEBER, [amanha, "pix"])).message).toBe("Conta não encontrada.");
+      await receber(c, hoje);
+      await logarComo(c, dona);
+      await receber(c, amanha);
+    });
+  });
+
+  it("authenticated não faz TRUNCATE em caixas, pagamentos e contas_receber (42501)", async () => {
+    for (const uid of [dona, recepcao]) {
+      await comoUsuario(uid, async (c) => {
+        for (const t of ["caixas", "pagamentos", "contas_receber"]) {
+          await falha(c, `truncate table ${t} cascade`, [], "42501");
+        }
+      });
+    }
   });
 
   it("sem escrita direta em contas_receber e recebimentos (42501)", async () => {
