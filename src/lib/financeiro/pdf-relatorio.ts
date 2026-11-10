@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { Resumo } from "@/app/(app)/financeiro/dados";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { saldos } from "@/lib/dominio/financeiro";
+import { comVencidos, saldos } from "@/lib/dominio/financeiro";
 import { ROTULO_ABA_FINANCEIRO } from "@/lib/dominio/permissoes";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { textoSeguroWinAnsi } from "@/lib/ficha/pdf-termo";
@@ -87,8 +87,8 @@ function linhasDosCartoes(r: Resumo): [string, string, string, boolean][] {
     ["Recebido", brl(r.recebido), plural(r.recebidoQtd, "recebimento confirmado", "recebimentos confirmados"), false],
     ["Pago", brl(r.pago), plural(r.pagoQtd, "pagamento confirmado", "pagamentos confirmados"), false],
     ["Saldo em caixa", brl(saldoCaixa), saldoCaixa >= 0 ? "No azul" : "No vermelho", saldoCaixa < 0],
-    ["A receber", brl(r.aReceber), `já recebido: ${brl(r.jaRecebido)}`, false],
-    ["A pagar", brl(r.aPagar), `já pago: ${brl(r.jaPago)}`, false],
+    ["A receber", brl(r.aReceber), comVencidos(`já recebido: ${brl(r.jaRecebido)}`, r.aReceberVencido, brl), false],
+    ["A pagar", brl(r.aPagar), comVencidos(`já pago: ${brl(r.jaPago)}`, r.aPagarVencido, brl), false],
     ["Saldo projetado", brl(saldoProjetado), "Saldo em caixa + A receber - A pagar", saldoProjetado < 0],
     ["Vencidos", brl(r.vencidosTotal), plural(r.vencidosQtd, "conta em aberto", "contas em aberto"), true],
   ];

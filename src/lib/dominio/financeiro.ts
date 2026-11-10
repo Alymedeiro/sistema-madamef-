@@ -179,6 +179,11 @@ export function fimDoMesSeguinte(hoje: string): string {
   return iso(proximo.ano, proximo.mes, ultimoDia(proximo.ano, proximo.mes));
 }
 
+/** Detalhe de A receber / A pagar: "<base> · inclui <valor> vencidos" quando há parte vencida. */
+export function comVencidos(base: string, vencidoCentavos: number, brl: (c: number) => string): string {
+  return vencidoCentavos > 0 ? `${base} · inclui ${brl(vencidoCentavos)} vencidos` : base;
+}
+
 export function saldos(r: { recebido: number; pago: number; aReceber: number; aPagar: number }): {
   saldoCaixa: number;
   saldoProjetado: number;

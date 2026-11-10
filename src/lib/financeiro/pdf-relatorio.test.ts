@@ -100,6 +100,33 @@ describe("gerarPdfRelatorio", () => {
     }
   });
 
+  it("painel: A receber / A pagar com a parte vencida", async () => {
+    const { texto } = await conteudo(
+      await gerarPdfRelatorio({
+        ...base,
+        aba: "painel",
+        filtros: [],
+        cartoes: {
+          recebido: 0,
+          recebidoQtd: 0,
+          pago: 0,
+          pagoQtd: 0,
+          aReceber: 25000,
+          jaRecebido: 0,
+          aPagar: 10000,
+          jaPago: 0,
+          aReceberVencido: 4000,
+          aPagarVencido: 0,
+          vencidosQtd: 1,
+          vencidosTotal: 4000,
+        },
+        linhas: [],
+      }),
+    );
+    expect(texto).toContain("já recebido: R$ 0,00 · inclui R$ 40,00 vencidos");
+    expect(texto).not.toContain("já pago: R$ 0,00 · inclui");
+  });
+
   it("emoji e texto longo não quebram; o que não cabe na coluna é cortado", async () => {
     const pdf = await gerarPdfRelatorio({
       ...base,

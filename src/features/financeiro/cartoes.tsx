@@ -1,6 +1,6 @@
 import type { Resumo } from "@/app/(app)/financeiro/dados";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { saldos } from "@/lib/dominio/financeiro";
+import { comVencidos, saldos } from "@/lib/dominio/financeiro";
 import { cn } from "@/lib/utils";
 
 const VAZIO: Resumo = {
@@ -94,9 +94,17 @@ export function CartoesFinanceiro({ resumo: r }: { resumo: Resumo | null }) {
         <Cartao
           titulo="A receber"
           valor={v(resumo.aReceber)}
-          detalhe={`já recebido: ${formatarBRL(resumo.jaRecebido)}`}
+          detalhe={comVencidos(
+            `já recebido: ${formatarBRL(resumo.jaRecebido)}`,
+            resumo.aReceberVencido,
+            formatarBRL,
+          )}
         />
-        <Cartao titulo="A pagar" valor={v(resumo.aPagar)} detalhe={`já pago: ${formatarBRL(resumo.jaPago)}`} />
+        <Cartao
+          titulo="A pagar"
+          valor={v(resumo.aPagar)}
+          detalhe={comVencidos(`já pago: ${formatarBRL(resumo.jaPago)}`, resumo.aPagarVencido, formatarBRL)}
+        />
         <Cartao
           titulo="Saldo projetado"
           valor={v(saldoProjetado)}

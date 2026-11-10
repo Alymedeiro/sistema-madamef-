@@ -39,4 +39,13 @@ describe("CartoesFinanceiro", () => {
     expect(h).not.toContain("vencidos");
     expect(h).not.toContain("Indisponível");
   });
+
+  it("A receber / A pagar: ' · inclui R$ X vencidos' só quando há parte vencida", () => {
+    const h = html({ ...RESUMO, aReceberVencido: 3000, aPagarVencido: 150000 });
+    expect(h).toContain("já recebido: R$ 50,00 · inclui R$ 30,00 vencidos");
+    expect(h).toContain("já pago: R$ 20,00 · inclui R$ 1.500,00 vencidos");
+    const so = html({ ...RESUMO, aPagarVencido: 100 });
+    expect(so).toContain("já recebido: R$ 50,00<");
+    expect(so).toContain("já pago: R$ 20,00 · inclui R$ 1,00 vencidos");
+  });
 });
