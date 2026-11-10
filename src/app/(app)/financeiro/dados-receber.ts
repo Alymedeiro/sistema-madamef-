@@ -1,7 +1,12 @@
 import "server-only";
 import { limitesDoDia } from "@/features/agenda/contexto";
 import type { FormaPagamento } from "@/lib/dominio/caixa";
-import { consultaDaSituacao, situacaoConta, type FiltroSituacao } from "@/lib/dominio/financeiro";
+import {
+  consultaDaSituacao,
+  MAX_LINHAS_LISTA,
+  situacaoConta,
+  type FiltroSituacao,
+} from "@/lib/dominio/financeiro";
 import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -43,7 +48,7 @@ type LinhaBanco = {
 
 const COLUNAS =
   "id, cliente_id, descricao, numero, total_parcelas, valor_centavos, vencimento, recebido_em, cancelada_em, origem_manual, clientes(nome)";
-const MAX_LINHAS = 500;
+const MAX_LINHAS = MAX_LINHAS_LISTA;
 
 function paraLinha(c: LinhaBanco, hoje: string): ContaReceberLinha {
   const status = c.cancelada_em ? "cancelada" : c.recebido_em ? "paga" : "aberta";

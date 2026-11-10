@@ -2,6 +2,7 @@ import type { ContaReceberLinha, OrigemReceber } from "@/app/(app)/financeiro/da
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { cn } from "@/lib/utils";
+import { AvisoLimite } from "./aviso-limite";
 import { AcoesContaReceber } from "./acoes-conta-receber";
 import { BotaoNovaContaReceber } from "./dialogo-conta-receber";
 import { SituacaoConta } from "./lista-pagar";
@@ -45,6 +46,7 @@ export function ListaReceber({
         </div>
         <BotaoNovaContaReceber hoje={hoje} abrirAoCarregar={abrirNova} hrefSemNovo={hrefSemNovo} />
       </div>
+      <AvisoLimite linhas={contas.length} />
       {contas.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma conta a receber com estes filtros.</p>
       ) : (
@@ -92,6 +94,7 @@ export function ListaReceber({
                         id: c.id,
                         clienteNome: c.clienteNome,
                         parcela: c.parcela,
+                        descricao: c.descricao,
                         valorCentavos: c.valorCentavos,
                       }}
                       descricao={`${c.clienteNome} — ${c.descricao ?? `parcela ${c.parcela}`}`}

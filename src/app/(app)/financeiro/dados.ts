@@ -3,6 +3,7 @@ import {
   CATEGORIAS_DESPESA,
   consultaDaSituacao,
   fimDoMesSeguinte,
+  MAX_LINHAS_LISTA,
   situacaoConta,
   type CategoriaDespesa,
   type FiltroSituacao,
@@ -155,7 +156,7 @@ export type ContaPagarLinha = {
   fixa: boolean;
 };
 
-const MAX_LINHAS = 500;
+const MAX_LINHAS = MAX_LINHAS_LISTA;
 
 /** Tira da busca o que quebraria o filtro do PostgREST (vírgula, parênteses, curingas). */
 function termoBusca(busca: string | undefined): string {

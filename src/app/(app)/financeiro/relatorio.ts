@@ -6,6 +6,7 @@ import { formatarBRL } from "@/lib/dominio/dinheiro";
 import {
   CATEGORIAS_DESPESA,
   ROTULO_CATEGORIA,
+  avisoDoLimite,
   filtroSituacao,
   periodoDoFiltro,
   type CategoriaDespesa,
@@ -70,10 +71,12 @@ const brl = (c: number) => (c < 0 ? `-${formatarBRL(-c)}` : formatarBRL(c));
 const contas = (n: number) => (n === 1 ? "1 conta" : `${n} contas`);
 const soma = (xs: { valorCentavos: number }[]) => xs.reduce((s, x) => s + x.valorCentavos, 0);
 
-function filtrosDaLista(p: ParametrosRelatorio, tipo: "pagar" | "receber"): string[] {
+function filtrosDaLista(p: ParametrosRelatorio, tipo: "pagar" | "receber", linhas: number): string[] {
   const f = [`Situação: ${ROTULO_SITUACAO_FILTRO[p.situacao](tipo)}`];
   if (tipo === "pagar" && p.categoria) f.push(`Categoria: ${ROTULO_CATEGORIA[p.categoria]}`);
   if (p.busca.trim()) f.push(`Busca: "${p.busca.trim()}"`);
+  const limite = avisoDoLimite(linhas);
+  if (limite) f.push(limite);
   return f;
 }
 
@@ -119,7 +122,7 @@ export async function conteudoDoRelatorio(
   if (p.aba === "receber") {
     const lista = await listarContasReceber(supabase, { de, ate, situacao: p.situacao, busca: p.busca }, hoje);
     return {
-      filtros: filtrosDaLista(p, "receber"),
+      filtros: filtrosDaLista(p, "receber", lista.length),
       colunas: ["Cliente", "Descrição/origem", "Parcela", "Vencimento", "Valor", "Situação", "Recebida em"],
       linhas: lista.map((c) => [
         c.clienteNome,
@@ -147,7 +150,7 @@ export async function conteudoDoRelatorio(
       hoje,
     );
     return {
-      filtros: filtrosDaLista(p, "pagar"),
+      filtros: filtrosDaLista(p, "pagar", lista.length),
       colunas: ["Descrição", "Categoria", "Fornecedor/colaboradora", "Vencimento", "Valor", "Situação", "Paga em"],
       linhas: lista.map((c) => [
         c.fixa ? `${c.descricao} (todo mês)` : c.descricao,

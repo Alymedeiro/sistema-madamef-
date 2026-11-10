@@ -22,8 +22,15 @@ export type ParcelaParaReceber = {
   id: string;
   clienteNome: string;
   parcela: string;
+  /** Conta manual: a descrição aparece no lugar de "parcela 1/1". */
+  descricao: string | null;
   valorCentavos: number;
 };
+
+/** "Maria — Saldo do tratamento — R$ 120,00" ou "Maria — parcela 2/3 — R$ 50,00". */
+export function descricaoDoRecebimento(conta: ParcelaParaReceber): string {
+  return `${conta.clienteNome} — ${conta.descricao ?? `parcela ${conta.parcela}`} — ${formatarBRL(conta.valorCentavos)}`;
+}
 
 /**
  * "Receber" uma parcela: forma de pagamento (sem "A receber"); entra no caixa
@@ -56,7 +63,7 @@ export function DialogoReceber({ conta, onFechar }: { conta: ParcelaParaReceber;
         <DialogHeader>
           <DialogTitle>Receber parcela</DialogTitle>
           <DialogDescription>
-            {conta.clienteNome} — parcela {conta.parcela} — {formatarBRL(conta.valorCentavos)}. O valor entra
+            {descricaoDoRecebimento(conta)}. O valor entra
             no caixa de hoje.
           </DialogDescription>
         </DialogHeader>

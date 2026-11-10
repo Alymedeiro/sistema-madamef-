@@ -49,6 +49,7 @@ export function ReceberHoje({ parcelas, caixa }: { parcelas: ContaReceberLinha[]
                       id: p.id,
                       clienteNome: p.clienteNome,
                       parcela: p.parcela,
+                      descricao: p.descricao,
                       valorCentavos: p.valorCentavos,
                     }}
                   />

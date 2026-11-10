@@ -4,6 +4,7 @@ import { ROTULO_FORMA, type FormaPagamento } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { ROTULO_CATEGORIA, type situacaoConta } from "@/lib/dominio/financeiro";
 import { cn } from "@/lib/utils";
+import { AvisoLimite } from "./aviso-limite";
 import { AcoesContaPagar, BotaoAnexo, BotaoPararContaFixa } from "./acoes-conta-pagar";
 
 type Situacao = ReturnType<typeof situacaoConta>;
@@ -52,6 +53,7 @@ export function ListaPagar({
             <span className="font-semibold text-foreground tabular-nums">{formatarBRL(total)}</span>
           </p>
         </div>
+        <AvisoLimite linhas={contas.length} />
         {contas.length === 0 ? (
           <p className="py-6 text-center text-sm text-muted-foreground">Nenhuma conta a pagar com estes filtros.</p>
         ) : (
