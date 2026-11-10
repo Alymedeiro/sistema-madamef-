@@ -107,6 +107,31 @@ Como funciona: o pedido reserva o horário por 24 horas; a recepção vê o card
 
 **Teste de tela da Fase 3A:** `e2e/agendar.spec.ts` (pedido, aprovação, recusa e página desligada nos 3 tamanhos) exige o projeto de testes com a 0009 aplicada, `E2E_PERMITIR_PROJETO` e acesso a `challenges.cloudflare.com` (o Playwright usa as chaves de teste oficiais da Cloudflare, que sempre aprovam). Ele liga e desliga `online_ativo` (termina desligado), cria o serviço "E2E Agendamento Online", refaz a jornada da profissional de teste num dia da semana próprio de cada tamanho (quinta, sexta e sábado, 14 a 20 dias à frente) e apaga os pedidos, as clientes "Cliente Online E2E ..." e os agendamentos da profissional nesse dia. Os três tamanhos se revezam por um lock em arquivo, pois a configuração é única.
 
+## Fase 4 — Financeiro
+
+A Fase 4 adiciona o menu **Financeiro** (painel, contas a receber, contas a pagar, fluxo de caixa e caixa do dia, com exportação em PDF e o sininho de avisos de vencimento) e a migration `0010_financeiro.sql` (tabelas `contas_pagar`, `contas_fixas`, `recebimentos`, `avisos_lidos`, `relatorios_gerados`, bucket privado `financeiro` e as funções de lançar, pagar, cancelar, receber parcela, resumo e fluxo).
+
+**Estado atual:** 0010 ainda não aplicada (nem no projeto de testes nem na produção).
+
+0. **Aplique a 0010 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 4 depende dela; publicado antes, `/financeiro`, `/caixa` e o sininho quebram. Aplique primeiro no projeto de testes, confira, e só então na produção.
+1. Aplique `0010_financeiro.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`). Nunca aplique `shim.sql`.
+2. Conferências (rode nos dois projetos):
+   - Políticas de segurança: `select count(*) from pg_policies where tablename in ('contas_pagar','contas_fixas','recebimentos','avisos_lidos','relatorios_gerados');` (RLS ligado nas cinco tabelas, e nenhuma delas com privilégio de `delete`).
+   - Bucket: em Storage > Buckets, `financeiro` existe, é **privado** e limita cada arquivo a **5 MB** (`file_size_limit = 5242880`; só JPG, PNG e PDF). Por SQL: `select public, file_size_limit from storage.buckets where id = 'financeiro';` deve dar `false` e `5242880`.
+   - `fechar_caixa` soma os recebimentos: receba uma parcela no caixa de hoje e feche o caixa; o total por forma e o dinheiro esperado incluem o valor recebido.
+3. **Mudança de comportamento:** `fechar_caixa` passou a somar os recebimentos de parcelas e **não conta mais os pagamentos com forma `a_receber` no `total_geral`** (eles só entram quando a parcela é recebida). Caixas já fechados antes da 0010 não são recalculados.
+
+**Como a dona usa**
+
+- **Contas fixas:** em *Contas a pagar*, **Novo lançamento > Conta a pagar** e marque **Repete todo mês** (aluguel, internet...). O sistema cria a conta de cada mês até o mês seguinte; em meses curtos o dia 31 vira o último dia do mês. Para encerrar, use **Parar de repetir** em "Contas fixas (todo mês)" (as contas já geradas continuam e podem ser canceladas uma a uma, com motivo).
+- **Vale:** botão **Lançar vale** escolhe a colaboradora, o valor e a forma; entra como despesa já paga na categoria Vale.
+- **Anexos:** **Despesa com foto/PDF** (ou o campo de anexo ao lançar/editar) guarda a foto do recibo ou o PDF da nota (até 5 MB); o clipe da linha abre o arquivo por um link que vale 5 minutos. Só a dona envia e lê.
+- **Sininho:** no topo, só para a dona; avisa contas a pagar e a receber que vencem em 7, 3 e 1 dia, hoje e as vencidas (um aviso por dia). **Marcar todos como lidos** limpa a lista; clicar num aviso abre a conta.
+- **Recepção:** vê só **Caixa do dia** (abrir, lançar, fechar e receber as parcelas que vencem hoje ou já venceram); contas a pagar, totais e PDF são só da dona.
+- Nada é apagado: contas canceladas continuam na lista, com o motivo.
+
+**Teste de tela da Fase 4:** `e2e/financeiro.spec.ts` (conta fixa, marcar paga e cartão Pago, filtro Mês passado, Exportar PDF, sininho, `/caixa` redirecionando e a recepção recebendo uma parcela, nos 3 tamanhos) exige o projeto de testes **com a 0010 aplicada** e `E2E_PERMITIR_PROJETO`. Contas, recebimentos e a conta fixa não podem ser apagados (nem pela chave de serviço): a limpeza cancela o que ficou em aberto e desativa a conta fixa; contas pagas, o recebimento, a cliente "Cliente E2E Financeiro ..." e os avisos lidos ficam no projeto de testes. Se hoje não houver caixa, o spec abre um (e ele fica). Os três tamanhos se revezam por um lock em arquivo. Atenção: depois da 0010, `caixa.spec` e `cobranca.spec` não conseguem zerar um caixa que já tenha recebimentos ou contas a receber (não há `delete`); use um dia sem esses dados.
+
 ## 3. Configurar o login (Authentication)
 
 Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no painel.
@@ -199,7 +224,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca` e `agendar` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar` e `financeiro` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -215,10 +240,11 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0009 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0010 aplicadas, na ordem, e `shim.sql` **não** aplicado.
 - [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
 - [ ] 0009 aplicada na produção ANTES do merge; job `pedidos_online_limpeza` presente em `cron.job`.
 - [ ] `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` definidas juntas na Vercel; `/agendar` abre e um pedido de teste chega ao Início.
+- [ ] 0010 aplicada na produção ANTES do merge; 5 tabelas do Financeiro com política (`pg_policies`) e bucket `financeiro` privado de 5 MB.
 - [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).
