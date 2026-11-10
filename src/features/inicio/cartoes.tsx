@@ -5,8 +5,8 @@ import { Button } from "@/components/ui/button";
 import { COR_STATUS } from "@/lib/dominio/status";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
-import type { AvisoItem } from "@/features/avisos/dados";
-import { textoAviso } from "@/features/avisos/sininho";
+import type { ContaVencendo } from "@/features/avisos/dados";
+import { textoAviso } from "@/features/avisos/texto";
 import { tempoRestante } from "@/features/pedidos/prazo";
 import type { Aniversariante, ItemAgenda, ItemSemTermo, PedidoAguardando } from "./dados";
 import type { ProdutoEstoque } from "./painel";
@@ -156,7 +156,7 @@ export function ListaPedidosOnline({ itens, agora }: { itens: PedidoAguardando[]
   );
 }
 
-export function ListaContasVencendo({ itens }: { itens: AvisoItem[] }) {
+export function ListaContasVencendo({ itens }: { itens: ContaVencendo[] }) {
   return (
     <div className="flex flex-col gap-3">
       <ul className="flex flex-col divide-y">
@@ -169,7 +169,7 @@ export function ListaContasVencendo({ itens }: { itens: AvisoItem[] }) {
                 a.dias < 0 && "text-destructive",
               )}
             >
-              {textoAviso(a)}
+              {textoAviso(a.conta, a.texto)}
             </Link>
           </li>
         ))}

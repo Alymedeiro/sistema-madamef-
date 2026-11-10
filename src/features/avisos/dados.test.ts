@@ -4,7 +4,7 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => null }));
 
-import { carregarAvisos, carregarAvisosDoPerfil } from "./dados";
+import { carregarAvisos, carregarAvisosDoPerfil, carregarContasVencendo } from "./dados";
 import { hrefConta } from "./link";
 
 const ok = (data: unknown) => ({ data, error: null });
@@ -102,5 +102,29 @@ describe("hrefConta", () => {
     expect(hrefConta("receber", "r1", 3)).toBe(
       "/financeiro?aba=receber&conta=r1&periodo=tudo&situacao=aberta",
     );
+  });
+});
+
+describe("carregarContasVencendo (Início)", () => {
+  const dia = (n: number) => `2026-11-${String(10 + n).padStart(2, "0")}`;
+  const conta = (i: number, venc: string) => ({ id: `p${i}`, descricao: `C${i}`, valor_centavos: 1000, vencimento: venc });
+
+  it("ignora lidos, inclui d=5 e vencidas, ordena e limita a 5", async () => {
+    const falso = montar({
+      pagar: [conta(1, dia(5)), conta(2, dia(-3)), conta(3, dia(0)), conta(4, dia(1)), conta(5, dia(2)), conta(6, dia(7))],
+      receber: [maria],
+      lidas: [{ chave: "pagar:p1:5" }],
+    });
+    const r = await carregarContasVencendo(falso.cliente as never, HOJE, 5);
+    expect(r.map((c) => c.conta.id)).toEqual(["p2", "r1", "p3", "p4", "p5"]);
+    expect(falso.chamadasDe("avisos_lidos")).toEqual([]);
+    expect(r[0].texto).toBe("vencida há 3 dias");
+    expect(r[0].href).toContain("situacao=vencida");
+  });
+
+  it("d=5 aparece com 'vence em 5 dias'", async () => {
+    const falso = montar({ pagar: [conta(1, dia(5))] });
+    const [c] = await carregarContasVencendo(falso.cliente as never, HOJE);
+    expect(c.texto).toBe("vence em 5 dias");
   });
 });

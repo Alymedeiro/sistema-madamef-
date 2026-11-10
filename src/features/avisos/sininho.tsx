@@ -5,19 +5,9 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { marcarAvisosLidos } from "./actions";
 import type { AvisoItem } from "./dados";
-
-/** Texto do aviso: "Aluguel — R$ 3.500,00 — vence em 3 dias" (com a parcela, quando houver). */
-export function textoAviso(a: AvisoItem): string {
-  const partes = [a.conta.nome];
-  if (a.conta.parcela) partes.push(a.conta.parcela);
-  partes.push(formatarBRL(a.conta.valorCentavos), a.texto);
-  return partes.join(" — ");
-}
-
-export const contagemBadge = (n: number) => (n > 9 ? "9+" : String(n));
+import { contagemBadge, textoAviso } from "./texto";
 
 /** Sininho do topo (só a dona): contador, lista e "Marcar todos como lidos". */
 export function Sininho({ avisos }: { avisos: AvisoItem[] }) {
@@ -70,7 +60,7 @@ export function Sininho({ avisos }: { avisos: AvisoItem[] }) {
                       onClick={() => setAberto(false)}
                       className="flex min-h-11 items-center py-2 text-sm hover:bg-accent/50"
                     >
-                      {textoAviso(a)}
+                      {textoAviso(a.conta, a.texto)}
                     </Link>
                   </li>
                 ))}

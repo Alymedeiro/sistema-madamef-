@@ -47,7 +47,7 @@ function emDias(s: string): number {
   return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DIA_MS;
 }
 
-function diasEntre(de: string, ate: string): number {
+export function diasEntre(de: string, ate: string): number {
   return emDias(ate) - emDias(de);
 }
 
