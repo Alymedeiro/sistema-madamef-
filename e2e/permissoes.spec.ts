@@ -24,10 +24,12 @@ test.describe("recepção", () => {
 test.describe("profissional", () => {
   test.use({ storageState: ARQUIVO_ESTADO("profissional") });
 
-  test("não vê Caixa e /caixa volta para /inicio", async ({ page }) => {
+  test("não vê Financeiro e /financeiro e /caixa voltam para /inicio", async ({ page }) => {
     await page.goto("/inicio");
     await expect(page.getByRole("link", { name: "Agenda" }).first()).toBeVisible();
-    await expect(page.getByRole("link", { name: "Caixa" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Financeiro" })).toHaveCount(0);
+    await page.goto("/financeiro");
+    await expect(page).toHaveURL(/\/inicio$/);
     await page.goto("/caixa");
     await expect(page).toHaveURL(/\/inicio$/);
   });
@@ -46,7 +48,7 @@ test.describe("dona no celular", () => {
     test.skip(info.project.name !== "celular", "Barra inferior só aparece abaixo de 1024 px");
     await page.goto("/inicio");
     const barra = page.locator("nav[aria-label='Menu principal']").last();
-    for (const nome of ["Início", "Agenda", "Clientes", "Caixa"]) {
+    for (const nome of ["Início", "Agenda", "Clientes", "Financeiro"]) {
       await expect(barra.getByRole("link", { name: nome })).toBeVisible();
     }
     await expect(barra.getByRole("link", { name: "Equipe" })).toHaveCount(0);

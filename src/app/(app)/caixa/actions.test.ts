@@ -80,7 +80,7 @@ describe("abrirCaixa", () => {
     expect(falso.chamadasRpc("abrir_caixa")[0].args[0]).toEqual({
       p_valor_inicial_centavos: 123450,
     });
-    expect(revalidatePath).toHaveBeenCalledWith("/caixa");
+    expect(revalidatePath).toHaveBeenCalledWith("/financeiro");
   });
 
   it("valor inválido não chama o banco", async () => {
@@ -145,7 +145,7 @@ describe("registrarCobranca", () => {
         { forma: "dinheiro", valor_centavos: 3000, parcelas: 1, vencimentos: null, valores_parcelas: null },
       ],
     });
-    expect(revalidatePath).toHaveBeenCalledWith("/caixa");
+    expect(revalidatePath).toHaveBeenCalledWith("/financeiro");
     expect(revalidatePath).toHaveBeenCalledWith("/agenda");
     expect(revalidatePath).toHaveBeenCalledWith("/inicio");
   });
