@@ -1,5 +1,5 @@
 // Tipos do banco no formato gerado por `supabase gen types typescript`.
-// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0008);
+// Escrito à mão (Ruling R2) a partir de supabase/migrations/ (0001–0010);
 // cada migração nova atualiza este arquivo. Regenerar com o CLI quando houver
 // um projeto Supabase real: `supabase gen types typescript --local`.
 
@@ -610,6 +610,158 @@ export type Database = {
           whatsapp_limite_por_hora?: number
         }
         Relationships: [
+        ]
+      }
+      // 0010: só a dona lê; sem escrita direta (criar_conta_fixa /
+      // desativar_conta_fixa). inicio = 1º dia do mês; categoria nunca 'vale'.
+      contas_fixas: {
+        Row: {
+          ativa: boolean
+          atualizado_em: string
+          categoria: Database["public"]["Enums"]["categoria_despesa"]
+          criado_em: string
+          criado_por: string
+          descricao: string
+          dia_vencimento: number
+          fornecedor: string | null
+          id: string
+          inicio: string
+          valor_centavos: number
+        }
+        Insert: {
+          ativa?: boolean
+          atualizado_em?: string
+          categoria: Database["public"]["Enums"]["categoria_despesa"]
+          criado_em?: string
+          criado_por: string
+          descricao: string
+          dia_vencimento: number
+          fornecedor?: string | null
+          id?: string
+          inicio: string
+          valor_centavos: number
+        }
+        Update: {
+          ativa?: boolean
+          atualizado_em?: string
+          categoria?: Database["public"]["Enums"]["categoria_despesa"]
+          criado_em?: string
+          criado_por?: string
+          descricao?: string
+          dia_vencimento?: number
+          fornecedor?: string | null
+          id?: string
+          inicio?: string
+          valor_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contas_fixas_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // 0010: só a dona lê; sem escrita direta (criar_conta_pagar /
+      // editar_conta_pagar / pagar_conta / cancelar_conta_pagar / lancar_vale /
+      // gerar_contas_fixas). Paga ⇔ pago_em e forma; cancelada ⇔ campos de
+      // cancelamento; vale ⇔ colaborador_id. anexo_path no bucket `financeiro`.
+      contas_pagar: {
+        Row: {
+          anexo_path: string | null
+          atualizado_em: string
+          cancelada_em: string | null
+          cancelada_motivo: string | null
+          cancelada_por: string | null
+          categoria: Database["public"]["Enums"]["categoria_despesa"]
+          colaborador_id: string | null
+          competencia: string | null
+          conta_fixa_id: string | null
+          criado_em: string
+          descricao: string
+          // Nunca 'a_receber'.
+          forma: Database["public"]["Enums"]["forma_pagamento"] | null
+          fornecedor: string | null
+          id: string
+          lancada_por: string
+          pago_em: string | null
+          status: Database["public"]["Enums"]["status_conta"]
+          valor_centavos: number
+          vencimento: string
+        }
+        Insert: {
+          anexo_path?: string | null
+          atualizado_em?: string
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          cancelada_por?: string | null
+          categoria: Database["public"]["Enums"]["categoria_despesa"]
+          colaborador_id?: string | null
+          competencia?: string | null
+          conta_fixa_id?: string | null
+          criado_em?: string
+          descricao: string
+          forma?: Database["public"]["Enums"]["forma_pagamento"] | null
+          fornecedor?: string | null
+          id?: string
+          lancada_por: string
+          pago_em?: string | null
+          status?: Database["public"]["Enums"]["status_conta"]
+          valor_centavos: number
+          vencimento: string
+        }
+        Update: {
+          anexo_path?: string | null
+          atualizado_em?: string
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          cancelada_por?: string | null
+          categoria?: Database["public"]["Enums"]["categoria_despesa"]
+          colaborador_id?: string | null
+          competencia?: string | null
+          conta_fixa_id?: string | null
+          criado_em?: string
+          descricao?: string
+          forma?: Database["public"]["Enums"]["forma_pagamento"] | null
+          fornecedor?: string | null
+          id?: string
+          lancada_por?: string
+          pago_em?: string | null
+          status?: Database["public"]["Enums"]["status_conta"]
+          valor_centavos?: number
+          vencimento?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contas_pagar_cancelada_por_fkey"
+            columns: ["cancelada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_pagar_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_pagar_conta_fixa_id_fkey"
+            columns: ["conta_fixa_id"]
+            isOneToOne: false
+            referencedRelation: "contas_fixas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_pagar_lancada_por_fkey"
+            columns: ["lancada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
         ]
       }
       contas_receber: {
@@ -1482,6 +1634,70 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      // 0010: as funções do financeiro são só da dona (senão P0001 "Apenas a
+      // dona pode lançar contas."). Conta paga → "Esta conta já foi paga.";
+      // cancelada → "Esta conta foi cancelada."; anexo fora do padrão → 23514;
+      // anexo não enviado → P0001 "Anexo não encontrado. Envie o arquivo de novo."
+      cancelar_conta_pagar: { Args: { p_conta: string; p_motivo: string }; Returns: undefined }
+      criar_conta_fixa: {
+        Args: {
+          p_descricao: string
+          p_categoria: Database["public"]["Enums"]["categoria_despesa"]
+          p_fornecedor: string | null
+          p_valor_centavos: number
+          p_dia: number
+          // Levado ao 1º dia do mês.
+          p_inicio: string
+        }
+        Returns: string
+      }
+      criar_conta_pagar: {
+        Args: {
+          p_descricao: string
+          p_categoria: Database["public"]["Enums"]["categoria_despesa"]
+          p_fornecedor: string | null
+          p_valor_centavos: number
+          p_vencimento: string
+          p_anexo_path: string | null
+        }
+        Returns: string
+      }
+      desativar_conta_fixa: { Args: { p_id: string }; Returns: undefined }
+      // 0010: só conta em aberto; p_anexo_path null remove o anexo.
+      editar_conta_pagar: {
+        Args: {
+          p_conta: string
+          p_descricao: string
+          p_categoria: Database["public"]["Enums"]["categoria_despesa"]
+          p_fornecedor: string | null
+          p_valor_centavos: number
+          p_vencimento: string
+          p_anexo_path: string | null
+        }
+        Returns: undefined
+      }
+      // 0010: competências até o mês de p_ate; idempotente; devolve quantas criou.
+      gerar_contas_fixas: { Args: { p_ate: string }; Returns: number }
+      // 0010: vale já pago em p_data; devolve o id da conta.
+      lancar_vale: {
+        Args: {
+          p_colaborador: string
+          p_valor_centavos: number
+          p_data: string
+          p_forma: Database["public"]["Enums"]["forma_pagamento"]
+          p_obs: string | null
+        }
+        Returns: string
+      }
+      // 0010: p_forma nunca 'a_receber' (23514).
+      pagar_conta: {
+        Args: {
+          p_conta: string
+          p_pago_em: string
+          p_forma: Database["public"]["Enums"]["forma_pagamento"]
+        }
+        Returns: undefined
+      }
       // 0007: só a dona; só pacote ativo.
       cancelar_pacote: { Args: { p_pacote: string }; Returns: undefined }
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
@@ -1642,6 +1858,14 @@ export type Database = {
     }
     Enums: {
       acao_auditoria: "visualizou" | "criou" | "alterou" | "arquivou"
+      categoria_despesa:
+        | "aluguel"
+        | "fornecedor"
+        | "produto"
+        | "salario"
+        | "imposto"
+        | "vale"
+        | "outros"
       forma_pagamento:
         | "pix"
         | "dinheiro"
@@ -1659,6 +1883,7 @@ export type Database = {
         | "faltou"
         | "cancelado"
       status_pacote: "ativo" | "concluido" | "expirado" | "cancelado"
+      status_conta: "aberta" | "paga" | "cancelada"
       status_pedido_online: "aguardando" | "aprovado" | "recusado" | "expirado"
       tipo_foto: "antes" | "depois" | "evolucao"
     }
@@ -1789,6 +2014,15 @@ export const Constants = {
   public: {
     Enums: {
       acao_auditoria: ["visualizou", "criou", "alterou", "arquivou"],
+      categoria_despesa: [
+        "aluguel",
+        "fornecedor",
+        "produto",
+        "salario",
+        "imposto",
+        "vale",
+        "outros",
+      ],
       forma_pagamento: [
         "pix",
         "dinheiro",
@@ -1808,6 +2042,7 @@ export const Constants = {
         "cancelado",
       ],
       status_pacote: ["ativo", "concluido", "expirado", "cancelado"],
+      status_conta: ["aberta", "paga", "cancelada"],
       status_pedido_online: ["aguardando", "aprovado", "recusado", "expirado"],
       tipo_foto: ["antes", "depois", "evolucao"],
     },
