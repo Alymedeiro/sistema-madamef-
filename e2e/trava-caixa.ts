@@ -8,11 +8,23 @@ import { join } from "node:path";
 
 const TRAVA = join(tmpdir(), "e2e-caixa-de-hoje.lock");
 
-export async function adquirirTravaCaixa(): Promise<() => Promise<void>> {
-  const limite = Date.now() + 25 * 60_000;
+/** Tempo máximo de espera pela trava; o beforeAll de quem a usa precisa de timeout MAIOR que isto. */
+export const ESPERA_TRAVA_MS = 25 * 60_000;
+export const TIMEOUT_PREPARACAO_MS = 30 * 60_000;
+
+/**
+ * Espera até `espera` ms. Se conseguir a trava depois do prazo (o chamador já desistiu),
+ * devolve-a na hora e falha, para não deixar uma trava órfã.
+ */
+export async function adquirirTravaCaixa(espera = ESPERA_TRAVA_MS): Promise<() => Promise<void>> {
+  const limite = Date.now() + espera;
   while (Date.now() < limite) {
     try {
       await mkdir(TRAVA);
+      if (Date.now() > limite) {
+        await rm(TRAVA, { recursive: true, force: true });
+        break;
+      }
       return () => rm(TRAVA, { recursive: true, force: true });
     } catch {
       // Trava velha (execução interrompida): descarta.

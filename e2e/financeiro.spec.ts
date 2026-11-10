@@ -13,7 +13,7 @@ import { expect, test, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ARQUIVO_ESTADO, USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, dataEm } from "./ficha-suporte";
-import { adquirirTravaCaixa } from "./trava-caixa";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
 test.describe.configure({ mode: "serial" });
 
@@ -61,7 +61,7 @@ async function valorDoCartao(page: Page, titulo: string): Promise<number> {
 }
 
 test.beforeAll(async ({}, testInfo) => {
-  test.setTimeout(10 * 60_000);
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E do Financeiro");
   admin = clienteAdmin();
   indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));

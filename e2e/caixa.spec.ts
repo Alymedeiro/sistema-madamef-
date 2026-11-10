@@ -16,7 +16,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AMBIENTE, USUARIOS, pularSemBackend } from "./suporte";
-import { adquirirTravaCaixa } from "./trava-caixa";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
 const ENV = {
   ...AMBIENTE,
@@ -120,6 +120,7 @@ test.beforeAll(async ({}, testInfo) => {
     testInfo.project.name !== "computador",
     "E2E do caixa roda só no viewport desktop: há um único caixa por dia.",
   );
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E do caixa");
   liberarTrava = await adquirirTravaCaixa();
   admin = createClient(ENV.url!, ENV.service!, { auth: { persistSession: false } });
@@ -151,8 +152,9 @@ test("recepção marca Atendido, abre o caixa, lança Pix e fecha com diferença
   await expect(dialogo).toBeHidden();
 
   await page.goto("/caixa");
-  await expect(page.getByRole("cell", { name: fx.cliente.nome })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "Pix" })).toBeVisible();
+  const linha = page.getByRole("row", { name: new RegExp(fx.cliente.nome) });
+  await expect(linha).toHaveCount(1);
+  await expect(linha.getByRole("cell", { name: "Pix" })).toBeVisible();
 
   // Só fecha o caixa criado por este spec (troco inicial 0,00): um caixa reaproveitado pode ter
   // outros lançamentos e é de outros specs.

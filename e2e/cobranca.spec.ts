@@ -7,7 +7,7 @@
 import { expect, test } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
-import { adquirirTravaCaixa } from "./trava-caixa";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 import {
   clienteAdmin,
   entrar,
@@ -34,6 +34,7 @@ async function falhar(p: PromiseLike<{ error: unknown }>) {
 
 test.beforeAll(async ({}, testInfo) => {
   test.skip(testInfo.project.name !== "computador", "E2E de cobrança roda só no desktop: há um único caixa por dia.");
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E da cobrança dividida");
   liberarTrava = await adquirirTravaCaixa();
   admin = clienteAdmin();
@@ -111,8 +112,8 @@ test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mos
   await expect(linha.first()).toBeVisible();
   await expect(linha.first()).toContainText(/R\$\s*70,00/);
   await expect(linha.first()).toContainText(/R\$\s*30,00/);
-  await expect(page.getByText("Pix").first()).toBeVisible();
-  await expect(page.getByText("Dinheiro").first()).toBeVisible();
+  await expect(linha.first().getByText("Pix")).toBeVisible();
+  await expect(linha.first().getByText("Dinheiro")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Resumo" })).toBeVisible();
 
   // O atendimento já pago não volta a oferecer "Lançar pagamento". Controle positivo: a
