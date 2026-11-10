@@ -1,0 +1,181 @@
+import { dataNoFuso } from "./tempo";
+
+export type FiltroPeriodo =
+  | "mes"
+  | "mes_passado"
+  | "proximo_mes"
+  | "ano"
+  | "tudo"
+  | "personalizado";
+
+const MESES = [
+  "Janeiro",
+  "Fevereiro",
+  "Março",
+  "Abril",
+  "Maio",
+  "Junho",
+  "Julho",
+  "Agosto",
+  "Setembro",
+  "Outubro",
+  "Novembro",
+  "Dezembro",
+];
+
+const DATA = /^(\d{4})-(\d{2})-(\d{2})$/;
+const DIA_MS = 86_400_000;
+
+const dois = (n: number) => String(n).padStart(2, "0");
+const iso = (a: number, m: number, d: number) => `${a}-${dois(m)}-${dois(d)}`;
+
+/** Último dia do mês (mes 1-12). */
+function ultimoDia(ano: number, mes: number): number {
+  return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
+}
+
+function dataValida(s: string | undefined): s is string {
+  if (!s) return false;
+  const m = DATA.exec(s);
+  if (!m) return false;
+  const [a, mes, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  return mes >= 1 && mes <= 12 && d >= 1 && d <= ultimoDia(a, mes);
+}
+
+function emDias(s: string): number {
+  const m = DATA.exec(s)!;
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])) / DIA_MS;
+}
+
+function diasEntre(de: string, ate: string): number {
+  return emDias(ate) - emDias(de);
+}
+
+function mesInteiro(ano: number, mes: number) {
+  return {
+    de: iso(ano, mes, 1),
+    ate: iso(ano, mes, ultimoDia(ano, mes)),
+    rotulo: `${MESES[mes - 1]} de ${ano}`,
+  };
+}
+
+function deslocarMes(ano: number, mes: number, delta: number): [number, number] {
+  const idx = ano * 12 + (mes - 1) + delta;
+  return [Math.floor(idx / 12), (idx % 12) + 1];
+}
+
+function formatoBr(s: string): string {
+  const [a, m, d] = s.split("-");
+  return `${d}/${m}/${a}`;
+}
+
+export function periodoDoFiltro(
+  p: { periodo?: string; de?: string; ate?: string },
+  agora: Date,
+): { filtro: FiltroPeriodo; de: string; ate: string; rotulo: string } {
+  const hoje = dataNoFuso(agora);
+  const [ano, mes, dia] = hoje.split("-").map(Number);
+
+  switch (p.periodo) {
+    case "mes_passado": {
+      const [a, m] = deslocarMes(ano, mes, -1);
+      return { filtro: "mes_passado", ...mesInteiro(a, m) };
+    }
+    case "proximo_mes": {
+      const [a, m] = deslocarMes(ano, mes, 1);
+      return { filtro: "proximo_mes", ...mesInteiro(a, m) };
+    }
+    case "ano":
+      return { filtro: "ano", de: iso(ano, 1, 1), ate: iso(ano, 12, 31), rotulo: String(ano) };
+    case "tudo":
+      return {
+        filtro: "tudo",
+        de: "2000-01-01",
+        ate: iso(ano + 5, mes, Math.min(dia, ultimoDia(ano + 5, mes))),
+        rotulo: "Tudo",
+      };
+    case "personalizado":
+      if (dataValida(p.de) && dataValida(p.ate) && p.de <= p.ate) {
+        return {
+          filtro: "personalizado",
+          de: p.de,
+          ate: p.ate,
+          rotulo: `${formatoBr(p.de)} a ${formatoBr(p.ate)}`,
+        };
+      }
+      break;
+  }
+  return { filtro: "mes", ...mesInteiro(ano, mes) };
+}
+
+/** Mais de 62 dias (contando os dois extremos) agrupa por mês. */
+export function agrupamento(de: string, ate: string): "dia" | "mes" {
+  return diasEntre(de, ate) + 1 > 62 ? "mes" : "dia";
+}
+
+export function situacaoConta(
+  c: { status: "aberta" | "paga" | "cancelada"; vencimento: string },
+  hoje: string,
+): "paga" | "em_aberto" | "vencida" | "cancelada" {
+  if (c.status === "paga") return "paga";
+  if (c.status === "cancelada") return "cancelada";
+  return c.vencimento < hoje ? "vencida" : "em_aberto";
+}
+
+export type ContaAviso = {
+  tipo: "pagar" | "receber";
+  id: string;
+  nome: string;
+  valorCentavos: number;
+  vencimento: string;
+  parcela?: string;
+};
+
+const TEXTO_MARCO: Record<number, string> = {
+  7: "vence em 7 dias",
+  3: "vence em 3 dias",
+  1: "vence amanhã",
+  0: "vence hoje",
+};
+
+export function avisosPendentes(
+  contas: ContaAviso[],
+  hoje: string,
+  lidas: Set<string>,
+): { chave: string; texto: string; conta: ContaAviso; dias: number }[] {
+  const avisos: { chave: string; texto: string; conta: ContaAviso; dias: number }[] = [];
+  for (const conta of contas) {
+    const dias = diasEntre(hoje, conta.vencimento);
+    let texto: string;
+    let chave: string;
+    if (dias < 0) {
+      const atraso = -dias;
+      texto = atraso === 1 ? "vencida há 1 dia" : `vencida há ${atraso} dias`;
+      chave = `${conta.tipo}:${conta.id}:vencida:${hoje}`;
+    } else if (dias in TEXTO_MARCO) {
+      texto = TEXTO_MARCO[dias];
+      chave = `${conta.tipo}:${conta.id}:${dias}`;
+    } else {
+      continue;
+    }
+    if (lidas.has(chave)) continue;
+    avisos.push({ chave, texto, conta, dias });
+  }
+  return avisos.sort((a, b) => a.conta.vencimento.localeCompare(b.conta.vencimento));
+}
+
+/** competencia = AAAA-MM-01. Dia maior que o mês vira o último dia do mês. */
+export function vencimentoDaCompetencia(competencia: string, dia: number): string {
+  const m = DATA.exec(competencia);
+  if (!m) throw new RangeError(`Competência inválida: ${competencia}`);
+  const [ano, mes] = [Number(m[1]), Number(m[2])];
+  return iso(ano, mes, Math.min(dia, ultimoDia(ano, mes)));
+}
+
+export function saldos(r: { recebido: number; pago: number; aReceber: number; aPagar: number }): {
+  saldoCaixa: number;
+  saldoProjetado: number;
+} {
+  const saldoCaixa = r.recebido - r.pago;
+  return { saldoCaixa, saldoProjetado: saldoCaixa + r.aReceber - r.aPagar };
+}
