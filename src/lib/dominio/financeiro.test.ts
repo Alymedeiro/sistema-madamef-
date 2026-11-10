@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   agrupamento,
   avisosPendentes,
+  consultaDaSituacao,
+  inicioDaContaFixa,
   periodoDoFiltro,
   saldos,
   situacaoConta,
@@ -154,5 +156,55 @@ describe("saldos", () => {
       saldoCaixa: 600,
       saldoProjetado: 400,
     });
+  });
+});
+
+describe("consultaDaSituacao", () => {
+  const hoje = "2026-11-10";
+  const mes = { de: "2026-11-01", ate: "2026-11-30" };
+
+  it("em aberto: vencimento de max(de, hoje) até ate — sem as vencidas", () => {
+    expect(consultaDaSituacao("aberta", mes, hoje)).toEqual({
+      status: "aberta",
+      coluna: "vencimento",
+      gte: hoje,
+      lte: "2026-11-30",
+      lt: null,
+    });
+  });
+
+  it("mês passado em aberto fica vazio (gte > lte); próximo mês só o próximo mês", () => {
+    const passado = consultaDaSituacao("aberta", { de: "2026-10-01", ate: "2026-10-31" }, hoje);
+    expect(passado.gte! > passado.lte!).toBe(true);
+    expect(consultaDaSituacao("aberta", { de: "2026-12-01", ate: "2026-12-31" }, hoje)).toMatchObject({
+      gte: "2026-12-01",
+      lte: "2026-12-31",
+      lt: null,
+    });
+  });
+
+  it("vencidas ignoram o período; pagas pela data do pagamento; canceladas e todas por vencimento", () => {
+    expect(consultaDaSituacao("vencida", mes, hoje)).toEqual({
+      status: "aberta",
+      coluna: "vencimento",
+      gte: null,
+      lte: null,
+      lt: hoje,
+    });
+    expect(consultaDaSituacao("paga", mes, hoje)).toMatchObject({ status: "paga", coluna: "pagamento", gte: mes.de, lte: mes.ate });
+    expect(consultaDaSituacao("cancelada", mes, hoje)).toMatchObject({ status: "cancelada", coluna: "vencimento", gte: mes.de });
+    expect(consultaDaSituacao("todas", mes, hoje)).toMatchObject({ status: null, gte: mes.de, lte: mes.ate });
+  });
+});
+
+describe("inicioDaContaFixa", () => {
+  it("dia ainda por vir (ou hoje) começa neste mês", () => {
+    expect(inicioDaContaFixa(10, "2026-11-10")).toBe("2026-11-01");
+    expect(inicioDaContaFixa(31, "2026-11-30")).toBe("2026-11-01"); // 31 → 30/11
+  });
+
+  it("dia que já passou começa no próximo mês, com virada de ano", () => {
+    expect(inicioDaContaFixa(9, "2026-11-10")).toBe("2026-12-01");
+    expect(inicioDaContaFixa(5, "2026-12-20")).toBe("2027-01-01");
   });
 });

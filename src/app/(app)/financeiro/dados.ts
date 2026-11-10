@@ -1,6 +1,7 @@
 import "server-only";
 import {
   CATEGORIAS_DESPESA,
+  consultaDaSituacao,
   situacaoConta,
   type CategoriaDespesa,
   type FiltroSituacao,
@@ -162,39 +163,28 @@ function termoBusca(busca: string | undefined): string {
 }
 
 /**
- * Contas a pagar da aba (só dona, por RLS). Situação:
- * - `aberta` (padrão): em aberto vencendo no período e também as já vencidas;
- * - `vencida`: em aberto com vencimento < hoje, de qualquer período (como o cartão Vencidos);
- * - `paga`: pagas no período (pago_em); `cancelada` e `todas`: vencimento no período.
+ * Contas a pagar da aba (só dona, por RLS). Situação conforme
+ * `consultaDaSituacao` (padrão "Em aberto", sem as vencidas).
  */
 export async function listarContasPagar(
   supabase: Supabase,
   f: { de: string; ate: string; situacao?: FiltroSituacao; busca?: string; categoria?: string },
   hoje: string = dataNoFuso(new Date()),
 ): Promise<ContaPagarLinha[]> {
+  const c = consultaDaSituacao(f.situacao ?? "aberta", f, hoje);
+  // Intervalo vazio (ex.: "Em aberto" no mês passado): nada a consultar.
+  if (c.gte && c.lte && c.gte > c.lte) return [];
   let q = supabase
     .from("contas_pagar")
     .select(
       "id, descricao, categoria, fornecedor, valor_centavos, vencimento, status, pago_em, forma, anexo_path, conta_fixa_id, colaborador:colaboradores!contas_pagar_colaborador_id_fkey(nome)",
     );
 
-  switch (f.situacao ?? "aberta") {
-    case "aberta":
-      q = q.eq("status", "aberta").lte("vencimento", f.ate).or(`vencimento.gte.${f.de},vencimento.lt.${hoje}`);
-      break;
-    case "vencida":
-      q = q.eq("status", "aberta").lt("vencimento", hoje);
-      break;
-    case "paga":
-      q = q.eq("status", "paga").gte("pago_em", f.de).lte("pago_em", f.ate);
-      break;
-    case "cancelada":
-      q = q.eq("status", "cancelada").gte("vencimento", f.de).lte("vencimento", f.ate);
-      break;
-    case "todas":
-      q = q.gte("vencimento", f.de).lte("vencimento", f.ate);
-      break;
-  }
+  const coluna = c.coluna === "pagamento" ? "pago_em" : "vencimento";
+  if (c.status) q = q.eq("status", c.status);
+  if (c.gte) q = q.gte(coluna, c.gte);
+  if (c.lte) q = q.lte(coluna, c.lte);
+  if (c.lt) q = q.lt(coluna, c.lt);
 
   const termo = termoBusca(f.busca);
   if (termo) q = q.or(`descricao.ilike.%${termo}%,fornecedor.ilike.%${termo}%`);

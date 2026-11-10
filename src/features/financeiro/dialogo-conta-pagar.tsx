@@ -15,7 +15,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { criarContaFixa, criarContaPagar, editarContaPagar } from "@/app/(app)/financeiro/actions";
-import { CATEGORIAS_CONTA, ROTULO_CATEGORIA, type CategoriaDespesa } from "@/lib/dominio/financeiro";
+import {
+  CATEGORIAS_CONTA,
+  ROTULO_CATEGORIA,
+  inicioDaContaFixa,
+  type CategoriaDespesa,
+} from "@/lib/dominio/financeiro";
 import { centavosParaCampo } from "@/features/caixa/formato";
 import { ACEITA_ANEXO, MENSAGEM_ANEXO_RECUSADO, enviarAnexo, extensaoDoAnexo } from "./anexo";
 import { Campo, MensagemErro } from "./formulario";
@@ -114,7 +119,7 @@ export function DialogoContaPagar({
       };
       let r;
       if (repete) {
-        r = await criarContaFixa({ ...campos, dia: v.dia, inicio: hoje });
+        r = await criarContaFixa({ ...campos, dia: v.dia, inicio: inicioDaContaFixa(v.dia, hoje) });
       } else {
         let anexoPath: string | null = v.removerAnexo ? null : (conta?.anexoPath ?? null);
         if (arquivo) {

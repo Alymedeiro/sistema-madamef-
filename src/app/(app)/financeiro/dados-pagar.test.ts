@@ -46,14 +46,38 @@ describe("listarContasPagar", () => {
     expect(r[0]).toMatchObject({ id: "p1", situacao: "vencida", valorCentavos: 350000 });
   });
 
-  it("em aberto (padrão): abertas do período e também as vencidas antes dele", async () => {
+  it("em aberto (padrão): só as abertas de max(de, hoje) até ate, sem as vencidas", async () => {
     const falso = criarSupabaseFalso();
     falso.responder("contas_pagar", ok([]));
     await listarContasPagar(falso.cliente as never, { ...PERIODO }, HOJE);
     const f = filtros(falso);
     expect(f).toContainEqual(["eq", "status", "aberta"]);
+    expect(f).toContainEqual(["gte", "vencimento", HOJE]);
     expect(f).toContainEqual(["lte", "vencimento", "2026-11-30"]);
-    expect(f).toContainEqual(["or", `vencimento.gte.2026-11-01,vencimento.lt.${HOJE}`]);
+    expect(f.some(([m]) => m === "lt" || m === "or")).toBe(false);
+  });
+
+  it("em aberto no mês passado não consulta (vazio); no próximo mês só o próximo mês", async () => {
+    const passado = criarSupabaseFalso();
+    const r = await listarContasPagar(
+      passado.cliente as never,
+      { de: "2026-10-01", ate: "2026-10-31", situacao: "aberta" },
+      HOJE,
+    );
+    expect(r).toEqual([]);
+    expect(passado.chamadas).toHaveLength(0);
+
+    const proximo = criarSupabaseFalso();
+    proximo.responder("contas_pagar", ok([]));
+    await listarContasPagar(
+      proximo.cliente as never,
+      { de: "2026-12-01", ate: "2026-12-31", situacao: "aberta" },
+      HOJE,
+    );
+    const f = filtros(proximo);
+    expect(f).toContainEqual(["gte", "vencimento", "2026-12-01"]);
+    expect(f).toContainEqual(["lte", "vencimento", "2026-12-31"]);
+    expect(f.some(([m]) => m === "lt" || m === "or")).toBe(false);
   });
 
   it("pagas filtram por pago_em no período; canceladas e todas por vencimento", async () => {

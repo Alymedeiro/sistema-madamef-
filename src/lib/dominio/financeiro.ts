@@ -236,3 +236,48 @@ export const FILTROS_SITUACAO: readonly FiltroSituacao[] = [
 export function filtroSituacao(v: string | undefined): FiltroSituacao {
   return FILTROS_SITUACAO.includes(v as FiltroSituacao) ? (v as FiltroSituacao) : "aberta";
 }
+
+/**
+ * Como cada filtro de situação vira consulta (contas a pagar e a receber):
+ * - `aberta`: em aberto com vencimento em [max(de, hoje), ate] (sem as vencidas);
+ * - `vencida`: em aberto com vencimento < hoje, de qualquer período (como o cartão Vencidos);
+ * - `paga`: pela data do pagamento/recebimento no período;
+ * - `cancelada` e `todas`: vencimento no período.
+ * `status: null` = qualquer situação.
+ */
+export function consultaDaSituacao(
+  situacao: FiltroSituacao,
+  periodo: { de: string; ate: string },
+  hoje: string,
+): {
+  status: "aberta" | "paga" | "cancelada" | null;
+  coluna: "vencimento" | "pagamento";
+  gte: string | null;
+  lte: string | null;
+  lt: string | null;
+} {
+  const { de, ate } = periodo;
+  switch (situacao) {
+    case "aberta":
+      return { status: "aberta", coluna: "vencimento", gte: de > hoje ? de : hoje, lte: ate, lt: null };
+    case "vencida":
+      return { status: "aberta", coluna: "vencimento", gte: null, lte: null, lt: hoje };
+    case "paga":
+      return { status: "paga", coluna: "pagamento", gte: de, lte: ate, lt: null };
+    case "cancelada":
+      return { status: "cancelada", coluna: "vencimento", gte: de, lte: ate, lt: null };
+    case "todas":
+      return { status: null, coluna: "vencimento", gte: de, lte: ate, lt: null };
+  }
+}
+
+/**
+ * 1º dia do mês em que uma conta fixa nova começa: este mês, ou o próximo se o
+ * vencimento deste mês (dia, ou o último dia do mês) já passou.
+ */
+export function inicioDaContaFixa(dia: number, hoje: string): string {
+  const [ano, mes] = hoje.split("-").map(Number);
+  if (vencimentoDaCompetencia(iso(ano, mes, 1), dia) >= hoje) return iso(ano, mes, 1);
+  const [a, m] = deslocarMes(ano, mes, 1);
+  return iso(a, m, 1);
+}
