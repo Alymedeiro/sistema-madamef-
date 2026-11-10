@@ -764,27 +764,44 @@ export type Database = {
           },
         ]
       }
+      // 0003 + 0010. Sem escrita direta: parcelas de registrar_pagamento /
+      // registrar_cobranca ('a_receber'; origem_manual false) ou manuais da dona
+      // (criar_conta_receber: origem_manual, pagamento_id null, descricao, 1/1).
+      // Baixa por receber_parcela (recebido_em); cancelar_conta_receber.
+      // Recepção lê só as em aberto com vencimento <= hoje e as recebidas no
+      // caixa de hoje aberto.
       contas_receber: {
         Row: {
           atualizado_em: string
+          cancelada_em: string | null
+          cancelada_motivo: string | null
+          cancelada_por: string | null
           cliente_id: string
           criado_em: string
+          descricao: string | null
           id: string
+          lancada_por: string | null
           numero: number
-          pagamento_id: string
+          origem_manual: boolean
+          pagamento_id: string | null
           recebido_em: string | null
           total_parcelas: number
           valor_centavos: number
           vencimento: string
         }
-        // Sem escrita direta: criadas por registrar_pagamento ('a_receber').
         Insert: {
           atualizado_em?: string
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          cancelada_por?: string | null
           cliente_id: string
           criado_em?: string
+          descricao?: string | null
           id?: string
+          lancada_por?: string | null
           numero: number
-          pagamento_id: string
+          origem_manual?: boolean
+          pagamento_id?: string | null
           recebido_em?: string | null
           total_parcelas: number
           valor_centavos: number
@@ -792,11 +809,17 @@ export type Database = {
         }
         Update: {
           atualizado_em?: string
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          cancelada_por?: string | null
           cliente_id?: string
           criado_em?: string
+          descricao?: string | null
           id?: string
+          lancada_por?: string | null
           numero?: number
-          pagamento_id?: string
+          origem_manual?: boolean
+          pagamento_id?: string | null
           recebido_em?: string | null
           total_parcelas?: number
           valor_centavos?: number
@@ -804,10 +827,24 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "contas_receber_cancelada_por_fkey"
+            columns: ["cancelada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "contas_receber_cliente_id_fkey"
             columns: ["cliente_id"]
             isOneToOne: false
             referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "contas_receber_lancada_por_fkey"
+            columns: ["lancada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
             referencedColumns: ["id"]
           },
           {
@@ -1403,6 +1440,61 @@ export type Database = {
           },
         ]
       }
+      // 0010: uma baixa por parcela (conta_receber_id unique), no caixa de hoje
+      // aberto; forma nunca 'a_receber'. Sem escrita direta (receber_parcela).
+      // Dona lê todos; recepção só os do caixa de hoje aberto.
+      recebimentos: {
+        Row: {
+          caixa_id: string
+          conta_receber_id: string
+          forma: Database["public"]["Enums"]["forma_pagamento"]
+          id: string
+          recebido_em: string
+          recebido_por: string
+          valor_centavos: number
+        }
+        Insert: {
+          caixa_id: string
+          conta_receber_id: string
+          forma: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          recebido_em?: string
+          recebido_por: string
+          valor_centavos: number
+        }
+        Update: {
+          caixa_id?: string
+          conta_receber_id?: string
+          forma?: Database["public"]["Enums"]["forma_pagamento"]
+          id?: string
+          recebido_em?: string
+          recebido_por?: string
+          valor_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "recebimentos_caixa_id_fkey"
+            columns: ["caixa_id"]
+            isOneToOne: false
+            referencedRelation: "caixas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_conta_receber_id_fkey"
+            columns: ["conta_receber_id"]
+            isOneToOne: true
+            referencedRelation: "contas_receber"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "recebimentos_recebido_por_fkey"
+            columns: ["recebido_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       servico_produtos: {
         Row: {
           atualizado_em: string
@@ -1698,6 +1790,29 @@ export type Database = {
         }
         Returns: undefined
       }
+      // 0010: só a dona; conta manual 1/1; descrição 1–120 (23514).
+      criar_conta_receber: {
+        Args: {
+          p_cliente: string
+          p_descricao: string
+          p_valor_centavos: number
+          p_vencimento: string
+        }
+        Returns: string
+      }
+      // 0010: só a dona; só em aberto. Recebida → "Esta parcela já foi recebida.".
+      cancelar_conta_receber: { Args: { p_conta: string; p_motivo: string }; Returns: undefined }
+      // 0010: dona/recepção; no caixa de hoje aberto (senão "Abra o caixa do dia
+      // antes de receber."); cancelada → "Esta conta foi cancelada."; já recebida
+      // → "Esta parcela já foi recebida."; p_forma nunca 'a_receber' (23514).
+      // Devolve o id do recebimento.
+      receber_parcela: {
+        Args: {
+          p_conta: string
+          p_forma: Database["public"]["Enums"]["forma_pagamento"]
+        }
+        Returns: string
+      }
       // 0007: só a dona; só pacote ativo.
       cancelar_pacote: { Args: { p_pacote: string }; Returns: undefined }
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
@@ -1741,6 +1856,7 @@ export type Database = {
       foto_arquivada: { Args: { p_path: string }; Returns: boolean }
       // Retorna { total_por_forma: Record<forma_pagamento, number>,
       //           total_geral, dinheiro_esperado, diferenca } (centavos).
+      // 0010: soma pagamentos (exceto 'a_receber', sempre 0) + recebimentos.
       fechar_caixa: {
         Args: { p_caixa: string; p_valor_contado_centavos: number }
         Returns: Json

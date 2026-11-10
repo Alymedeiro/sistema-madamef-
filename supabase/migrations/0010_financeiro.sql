@@ -7,13 +7,18 @@
 --      vale, criar/desativar conta fixa e gerar as contas fixas do período.
 --   3. Bucket privado `financeiro` (anexos das contas a pagar) e políticas em
 --      storage.objects (só a dona envia e lê).
---   (Seções seguintes: Tasks 2–3 da Fase 4.)
+--   4. Contas a receber manuais e recebimentos de parcelas no caixa do dia
+--      (criar/cancelar conta a receber, receber_parcela) e RLS.
+--   5. fechar_caixa passa a somar os recebimentos do caixa (e não conta os
+--      pagamentos 'a_receber', que só entram quando a parcela é recebida).
+--   (Seção seguinte: Task 3 da Fase 4.)
 --
 -- Toda função recusa quem não é a dona com 'Apenas a dona pode lançar
 -- contas.' (P0001).
 --
--- Dependências: 0001_base (colaboradores, perfil_atual, colaborador_atual_id,
--- set_atualizado_em), 0003_caixa (forma_pagamento).
+-- Dependências: 0001_base (colaboradores, clientes, perfil_atual,
+-- colaborador_atual_id, set_atualizado_em), 0003_caixa (forma_pagamento,
+-- caixas, pagamentos, contas_receber, caixa_aberto_hoje_id, fechar_caixa).
 -- =============================================================================
 
 -- =============================================================================
@@ -492,3 +497,312 @@ create policy financeiro_insert on storage.objects
     and (select public.perfil_atual()) = 'dona'
     and name ~ '^contas_pagar/[0-9a-f-]{36}\.(jpg|png|pdf)$'
   );
+
+-- =============================================================================
+-- 4. Contas a receber manuais e recebimentos
+--
+-- contas_receber (0003) passa a aceitar contas lançadas pela dona sem
+-- pagamento (origem_manual, parcela 1/1, com descrição). Cancelada ou
+-- recebida, nunca as duas; nada é apagado.
+-- recebimentos: uma baixa por parcela (unique), sempre no caixa de hoje
+-- aberto; a forma é a do dinheiro que entrou (nunca 'a_receber').
+-- =============================================================================
+alter table public.contas_receber
+  alter column pagamento_id drop not null,
+  add column descricao text check (char_length(btrim(descricao)) between 1 and 120),
+  add column origem_manual boolean not null default false,
+  add column cancelada_motivo text check (char_length(cancelada_motivo) between 1 and 200),
+  add column cancelada_em timestamptz,
+  add column cancelada_por uuid references public.colaboradores (id),
+  -- Quem lançou a conta manual (as de pagamento ficam nulas).
+  add column lancada_por uuid references public.colaboradores (id),
+  add constraint contas_receber_origem_check check (origem_manual = (pagamento_id is null)),
+  add constraint contas_receber_manual_check check (
+    not origem_manual or (descricao is not null and lancada_por is not null)
+  ),
+  add constraint contas_receber_cancelada_check check (
+    (cancelada_em is null) = (cancelada_motivo is null)
+    and (cancelada_em is null) = (cancelada_por is null)
+  ),
+  add constraint contas_receber_recebida_ou_cancelada_check check (
+    recebido_em is null or cancelada_em is null
+  );
+
+create index contas_receber_cancelada_por_idx on public.contas_receber (cancelada_por);
+create index contas_receber_lancada_por_idx on public.contas_receber (lancada_por);
+
+create table public.recebimentos (
+  id uuid primary key default gen_random_uuid(),
+  conta_receber_id uuid not null unique references public.contas_receber (id),
+  caixa_id uuid not null references public.caixas (id),
+  forma public.forma_pagamento not null check (forma <> 'a_receber'),
+  valor_centavos int not null check (valor_centavos > 0),
+  recebido_por uuid not null references public.colaboradores (id),
+  recebido_em timestamptz not null default now()
+);
+
+create index recebimentos_caixa_idx on public.recebimentos (caixa_id);
+create index recebimentos_recebido_por_idx on public.recebimentos (recebido_por);
+create index recebimentos_recebido_em_idx on public.recebimentos (recebido_em);
+
+-- RLS: escrita só pelas funções abaixo; sem delete para ninguém.
+alter table public.recebimentos enable row level security;
+
+revoke all on public.recebimentos from anon, authenticated;
+revoke delete, truncate on public.recebimentos, public.contas_receber from service_role;
+grant select on public.recebimentos to authenticated;
+
+-- recebimentos: dona todos; recepção só os do caixa de hoje aberto.
+create policy recebimentos_select on public.recebimentos
+  for select to authenticated
+  using (
+    (select public.perfil_atual()) = 'dona'
+    or (
+      (select public.perfil_atual()) = 'recepcao'
+      and caixa_id = (select public.caixa_aberto_hoje_id())
+    )
+  );
+
+-- contas_receber: dona todas; recepção as em aberto já vencendo (para
+-- receber) e as recebidas no caixa de hoje aberto; profissional nada.
+drop policy contas_receber_select on public.contas_receber;
+create policy contas_receber_select on public.contas_receber
+  for select to authenticated
+  using (
+    (select public.perfil_atual()) = 'dona'
+    or (
+      (select public.perfil_atual()) = 'recepcao'
+      and (
+        (
+          recebido_em is null
+          and cancelada_em is null
+          and vencimento <= (now() at time zone 'America/Sao_Paulo')::date
+        )
+        or exists (
+          select 1 from public.recebimentos r
+          where r.conta_receber_id = contas_receber.id
+            and r.caixa_id = (select public.caixa_aberto_hoje_id())
+        )
+      )
+    )
+  );
+
+-- Conta manual (dona): parcela 1/1 sem pagamento. Descrição vazia ou com
+-- mais de 120 caracteres, valor <= 0 → 23514.
+create function public.criar_conta_receber(
+  p_cliente uuid,
+  p_descricao text,
+  p_valor_centavos int,
+  p_vencimento date
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_id uuid;
+begin
+  perform public.exigir_dona_financeiro();
+  if not exists (select 1 from public.clientes cl where cl.id = p_cliente) then
+    raise exception 'Cliente não encontrada.' using errcode = 'P0001';
+  end if;
+
+  insert into public.contas_receber (
+    cliente_id, descricao, origem_manual, numero, total_parcelas,
+    valor_centavos, vencimento, lancada_por
+  ) values (
+    p_cliente, btrim(p_descricao), true, 1, 1,
+    p_valor_centavos, p_vencimento, public.colaborador_atual_id()
+  )
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.criar_conta_receber(uuid, text, int, date)
+  from public, anon, authenticated;
+grant execute on function public.criar_conta_receber(uuid, text, int, date) to authenticated;
+
+-- Só em aberto (manual ou parcela de pagamento). Motivo com trim: vazio →
+-- P0001; mais de 200 caracteres → 23514.
+create function public.cancelar_conta_receber(p_conta uuid, p_motivo text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_motivo text := nullif(btrim(p_motivo), '');
+  v_conta public.contas_receber;
+begin
+  perform public.exigir_dona_financeiro();
+  if v_motivo is null then
+    raise exception 'Informe o motivo do cancelamento.' using errcode = 'P0001';
+  end if;
+
+  select * into v_conta from public.contas_receber c where c.id = p_conta for update;
+  if not found then
+    raise exception 'Conta não encontrada.' using errcode = 'P0001';
+  elsif v_conta.cancelada_em is not null then
+    raise exception 'Esta conta foi cancelada.' using errcode = 'P0001';
+  elsif v_conta.recebido_em is not null then
+    raise exception 'Esta parcela já foi recebida.' using errcode = 'P0001';
+  end if;
+
+  update public.contas_receber
+  set cancelada_motivo = v_motivo,
+      cancelada_em = now(),
+      cancelada_por = public.colaborador_atual_id()
+  where id = p_conta;
+end;
+$$;
+
+revoke execute on function public.cancelar_conta_receber(uuid, text)
+  from public, anon, authenticated;
+grant execute on function public.cancelar_conta_receber(uuid, text) to authenticated;
+
+-- Baixa da parcela no caixa de hoje aberto (dona/recepção), pelo valor da
+-- parcela. Devolve o id do recebimento. Forma 'a_receber' → 23514.
+create function public.receber_parcela(p_conta uuid, p_forma public.forma_pagamento)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_caixa uuid;
+  v_conta public.contas_receber;
+  v_id uuid;
+begin
+  if public.perfil_atual() is distinct from 'dona'
+     and public.perfil_atual() is distinct from 'recepcao' then
+    raise exception 'Apenas a dona ou a recepção podem receber parcelas.'
+      using errcode = 'P0001';
+  end if;
+
+  -- Trava o caixa contra um fechamento simultâneo (fechar_caixa usa FOR UPDATE).
+  select c.id into v_caixa
+  from public.caixas c
+  where c.data = v_hoje and c.fechado_em is null
+  for share;
+  if v_caixa is null then
+    raise exception 'Abra o caixa do dia antes de receber.' using errcode = 'P0001';
+  end if;
+
+  -- FOR UPDATE: duas baixas simultâneas da mesma parcela esperam uma pela outra.
+  select * into v_conta from public.contas_receber c where c.id = p_conta for update;
+  if not found then
+    raise exception 'Conta não encontrada.' using errcode = 'P0001';
+  elsif v_conta.cancelada_em is not null then
+    raise exception 'Esta conta foi cancelada.' using errcode = 'P0001';
+  elsif v_conta.recebido_em is not null then
+    raise exception 'Esta parcela já foi recebida.' using errcode = 'P0001';
+  end if;
+
+  begin
+    insert into public.recebimentos (
+      conta_receber_id, caixa_id, forma, valor_centavos, recebido_por
+    ) values (
+      p_conta, v_caixa, p_forma, v_conta.valor_centavos, public.colaborador_atual_id()
+    )
+    returning id into v_id;
+  exception when unique_violation then
+    raise exception 'Esta parcela já foi recebida.' using errcode = 'P0001';
+  end;
+
+  update public.contas_receber set recebido_em = now() where id = p_conta;
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.receber_parcela(uuid, public.forma_pagamento)
+  from public, anon, authenticated;
+grant execute on function public.receber_parcela(uuid, public.forma_pagamento)
+  to authenticated;
+
+-- =============================================================================
+-- 5. fechar_caixa com recebimentos
+--
+-- Mesma assinatura, regras e retorno de 0003. Entradas do caixa por forma =
+-- pagamentos (valor − desconto), exceto 'a_receber' (dinheiro que ainda não
+-- entrou), + recebimentos de parcelas do caixa. total_por_forma.a_receber
+-- fica sempre 0; dinheiro esperado inclui as parcelas recebidas em dinheiro.
+-- =============================================================================
+create or replace function public.fechar_caixa(p_caixa uuid, p_valor_contado_centavos int)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+  v_perfil public.perfil := public.perfil_atual();
+  v_caixa public.caixas;
+  v_por_forma jsonb;
+  v_total_geral bigint;
+  v_dinheiro bigint;
+  v_esperado bigint;
+  v_diferenca bigint;
+begin
+  if v_perfil is null or v_perfil not in ('dona', 'recepcao') then
+    raise exception 'Apenas a dona ou a recepção podem fechar o caixa'
+      using errcode = 'P0001';
+  end if;
+  if p_valor_contado_centavos is null or p_valor_contado_centavos < 0 then
+    raise exception 'O valor contado não pode ser negativo'
+      using errcode = 'P0001';
+  end if;
+
+  -- FOR UPDATE: espera lançamentos e recebimentos em andamento e bloqueia novos.
+  select * into v_caixa from public.caixas c where c.id = p_caixa for update;
+  if not found then
+    raise exception 'Caixa não encontrado' using errcode = 'P0001';
+  end if;
+  if v_perfil = 'recepcao' and v_caixa.data <> v_hoje then
+    raise exception 'A recepção só pode fechar o caixa de hoje'
+      using errcode = 'P0001';
+  end if;
+  if v_caixa.fechado_em is not null then
+    raise exception 'Este caixa já foi fechado' using errcode = 'P0001';
+  end if;
+
+  with entradas as (
+    select p.forma, p.valor_centavos - p.desconto_centavos as valor
+    from public.pagamentos p
+    where p.caixa_id = v_caixa.id and p.forma <> 'a_receber'
+    union all
+    select r.forma, r.valor_centavos
+    from public.recebimentos r
+    where r.caixa_id = v_caixa.id
+  ),
+  por_forma as (
+    select f.forma, coalesce(sum(e.valor), 0) as total
+    from unnest(enum_range(null::public.forma_pagamento)) as f (forma)
+    left join entradas e on e.forma = f.forma
+    group by f.forma
+  )
+  select jsonb_object_agg(pf.forma::text, pf.total), sum(pf.total)
+  into v_por_forma, v_total_geral
+  from por_forma pf;
+
+  v_dinheiro := (v_por_forma ->> 'dinheiro')::bigint;
+  v_esperado := v_caixa.valor_inicial_centavos + v_dinheiro;
+  v_diferenca := p_valor_contado_centavos - v_esperado;
+
+  update public.caixas
+  set fechado_por = public.colaborador_atual_id(),
+      fechado_em = now(),
+      valor_contado_centavos = p_valor_contado_centavos,
+      diferenca_centavos = v_diferenca
+  where id = v_caixa.id;
+
+  return jsonb_build_object(
+    'total_por_forma', v_por_forma,
+    'total_geral', v_total_geral,
+    'dinheiro_esperado', v_esperado,
+    'diferenca', v_diferenca
+  );
+end;
+$$;
