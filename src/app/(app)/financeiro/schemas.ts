@@ -95,9 +95,24 @@ export const contaFixaSchema = z.object({
   inicio: dataSchema,
 });
 
+export const receberParcelaSchema = z.object({
+  contaId: idSchema,
+  forma: formaSchema,
+});
+
+/** Conta a receber manual (parcela 1/1, sem pagamento). */
+export const contaReceberSchema = z.object({
+  clienteId: z.uuid("Escolha a cliente."),
+  descricao: descricaoSchema,
+  valor: valorPositivoSchema,
+  vencimento: dataSchema,
+});
+
 export type ContaPagarInput = z.input<typeof contaPagarSchema>;
 export type EditarContaPagarInput = z.input<typeof editarContaPagarSchema>;
 export type PagarContaInput = z.input<typeof pagarContaSchema>;
 export type CancelarContaInput = z.input<typeof cancelarContaSchema>;
 export type ValeInput = z.input<typeof valeSchema>;
 export type ContaFixaInput = z.input<typeof contaFixaSchema>;
+export type ReceberParcelaInput = z.input<typeof receberParcelaSchema>;
+export type ContaReceberInput = z.input<typeof contaReceberSchema>;

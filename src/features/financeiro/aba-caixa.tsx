@@ -11,10 +11,13 @@ import {
   type CaixaNaoFechado,
 } from "@/features/caixa/formato";
 import { cn } from "@/lib/utils";
+import { listarParcelasAReceber, listarRecebimentosDosCaixas } from "@/app/(app)/financeiro/dados-receber";
+import { ReceberHoje } from "./receber-hoje";
 
 /**
  * Aba "Caixa do dia" do Financeiro (antiga página /caixa): abrir, lançar e
- * fechar o caixa de hoje; para a dona, caixas não fechados e o histórico.
+ * fechar o caixa de hoje, com as parcelas a receber hoje e vencidas; para a
+ * dona, caixas não fechados e o histórico.
  * Quem chama já passou por `exigirPerfil`.
  */
 export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
@@ -25,6 +28,11 @@ export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
   // Sem caixa visível o PostgREST devolve um objeto com todos os campos nulos.
   const caixaHoje = hoje?.id ? hoje : null;
   const aberto = caixaHoje && !caixaHoje.fechado_em ? caixaHoje : null;
+  const hojeSP = dataNoFuso(new Date());
+  // Recepção: o RLS já limita às parcelas em aberto vencendo até hoje.
+  const parcelasAReceber = await listarParcelasAReceber(supabase, hojeSP);
+  // Parcelas recebidas no caixa aberto entram no resumo (como no fechar_caixa).
+  const recebimentos = aberto ? await listarRecebimentosDosCaixas(supabase, [aberto.id]) : [];
 
   let cobrancas: CobrancaPainel[] = [];
   if (aberto) {
@@ -63,7 +71,6 @@ export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
   // Caixas de dias anteriores que ficaram abertos: só a dona pode fechá-los.
   let naoFechados: CaixaNaoFechado[] = [];
   if (ehDona) {
-    const hojeSP = dataNoFuso(new Date());
     const { data: abertos, error: erroAbertos } = await supabase
       .from("caixas")
       .select("id, data, valor_inicial_centavos, fechado_em")
@@ -88,7 +95,16 @@ export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
       if (error) throw new Error(`Falha ao carregar os caixas não fechados: ${error.message}`);
       pagamentosAbertos = data ?? [];
     }
-    naoFechados = caixasNaoFechados(abertos ?? [], pagamentosAbertos, hojeSP);
+    const recebidosAbertos = await listarRecebimentosDosCaixas(
+      supabase,
+      (abertos ?? []).map((c) => c.id),
+    );
+    naoFechados = caixasNaoFechados(
+      abertos ?? [],
+      pagamentosAbertos,
+      hojeSP,
+      recebidosAbertos.map((r) => ({ caixa_id: r.caixaId, forma: r.forma, valor_centavos: r.valorCentavos })),
+    );
   }
 
   if (ehDona) {
@@ -108,7 +124,10 @@ export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
         caixa={aberto ? { id: aberto.id, valorInicialCentavos: aberto.valor_inicial_centavos } : null}
         fechadoHoje={!!caixaHoje && !aberto}
         cobrancas={cobrancas}
+        recebimentos={recebimentos}
       />
+
+      <ReceberHoje parcelas={parcelasAReceber} caixaAberto={!!aberto} />
 
       {ehDona && <CaixasNaoFechados caixas={naoFechados} />}
 

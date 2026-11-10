@@ -14,6 +14,22 @@ describe("caixasNaoFechados", () => {
     { caixa_id: "hoje", forma: "pix", valor_centavos: 9999, desconto_centavos: 0 },
   ];
 
+  it("soma os recebimentos de parcelas do caixa e deixa a_receber fora", () => {
+    const r = caixasNaoFechados(
+      caixas,
+      [...pagamentos, { caixa_id: "ontem", forma: "a_receber", valor_centavos: 7000, desconto_centavos: 0 }],
+      "2026-11-04",
+      [
+        { caixa_id: "ontem", forma: "dinheiro", valor_centavos: 1500 },
+        { caixa_id: "hoje", forma: "dinheiro", valor_centavos: 999 },
+      ],
+    );
+    const ontem = r.find((c) => c.id === "ontem")!;
+    expect(ontem.resumo.totalGeral).toBe(5000);
+    expect(ontem.resumo.dinheiroEsperado).toBe(6000);
+    expect(ontem.resumo.vendidoAReceber).toBe(7000);
+  });
+
   it("só caixas abertos de dias anteriores, do mais antigo ao mais recente, com o resumo", () => {
     const r = caixasNaoFechados(caixas, pagamentos, "2026-11-04");
     expect(r.map((c) => c.id)).toEqual(["anteontem", "ontem"]);

@@ -17,12 +17,12 @@ const SITUACAO: Record<Situacao, { icone: string; rotulo: string; classe: string
 
 const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
-export function SituacaoConta({ situacao }: { situacao: Situacao }) {
+export function SituacaoConta({ situacao, tipo = "pagar" }: { situacao: Situacao; tipo?: "pagar" | "receber" }) {
   const s = SITUACAO[situacao];
   return (
     <span className={cn("inline-flex items-center gap-1 whitespace-nowrap", s.classe)}>
       <span aria-hidden>{s.icone}</span>
-      {s.rotulo}
+      {situacao === "paga" && tipo === "receber" ? "Recebida" : s.rotulo}
     </span>
   );
 }

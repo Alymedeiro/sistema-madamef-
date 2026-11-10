@@ -12,18 +12,22 @@ import {
   cancelarContaSchema,
   contaFixaSchema,
   contaPagarSchema,
+  contaReceberSchema,
   editarContaPagarSchema,
   pagarContaSchema,
+  receberParcelaSchema,
   valeSchema,
   type CancelarContaInput,
   type ContaFixaInput,
   type ContaPagarInput,
+  type ContaReceberInput,
   type EditarContaPagarInput,
   type PagarContaInput,
+  type ReceberParcelaInput,
   type ValeInput,
 } from "./schemas";
 
-// Tudo aqui é só da dona. exigirPerfil redireciona lançando: fica fora dos try/catch.
+// Tudo aqui é só da dona, menos receberParcela (dona e recepção). exigirPerfil redireciona lançando: fica fora dos try/catch.
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -98,6 +102,27 @@ export async function cancelarConta(e: CancelarContaInput): Promise<Resultado> {
     s.rpc(d.tipo === "pagar" ? "cancelar_conta_pagar" : "cancelar_conta_receber", {
       p_conta: d.contaId,
       p_motivo: d.motivo,
+    }),
+  );
+}
+
+/** Baixa de uma parcela no caixa de hoje (precisa estar aberto). Dona e recepção. */
+export async function receberParcela(e: ReceberParcelaInput): Promise<Resultado> {
+  await exigirPerfil("dona", "recepcao");
+  return executar(receberParcelaSchema, e, (s, d) =>
+    s.rpc("receber_parcela", { p_conta: d.contaId, p_forma: d.forma }),
+  );
+}
+
+/** Conta a receber manual (parcela única) de uma cliente. */
+export async function criarContaReceber(e: ContaReceberInput): Promise<Resultado> {
+  await exigirPerfil("dona");
+  return executar(contaReceberSchema, e, (s, d) =>
+    s.rpc("criar_conta_receber", {
+      p_cliente: d.clienteId,
+      p_descricao: d.descricao,
+      p_valor_centavos: d.valor,
+      p_vencimento: d.vencimento,
     }),
   );
 }
