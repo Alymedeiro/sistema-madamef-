@@ -6,14 +6,17 @@
 // SUPABASE_SERVICE_ROLE_KEY, E2E_RECEPCAO_EMAIL, E2E_RECEPCAO_SENHA,
 // E2E_PROFISSIONAL_EMAIL.
 //
-// ATENÇÃO (só projeto de teste): a preparação APAGA contas a receber, pagamentos,
-// cobranças e o caixa de hoje (fuso de São Paulo), pois só existe um caixa por dia. Por isso
-// roda apenas no projeto desktop do Playwright (os três viewports compartilhariam
-// o mesmo caixa). Cria uma cliente e um atendimento confirmado hoje às 14:00.
+// ATENÇÃO (só projeto de teste): só existe um caixa por dia, então roda apenas no projeto
+// desktop e sob a trava compartilhada do caixa de hoje (e2e/trava-caixa.ts). A preparação
+// TENTA zerar o caixa de hoje; depois da 0010 não há delete em contas/recebimentos, então
+// a limpeza é tolerante: se o caixa continuar existindo, ele é reaproveitado (aberto) ou o
+// teste é pulado (fechado). Só fecha o caixa quando ele é o criado por este spec.
+// Cria uma cliente e um atendimento confirmado hoje às 14:00.
 
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AMBIENTE, USUARIOS, pularSemBackend } from "./suporte";
+import { adquirirTravaCaixa } from "./trava-caixa";
 
 const ENV = {
   ...AMBIENTE,
@@ -34,12 +37,9 @@ type Fixtures = {
 
 let admin: SupabaseClient;
 let fx: Fixtures;
-
-/** Limpeza que falha em silêncio deixaria o caixa de hoje sujo: estoura. */
-async function falhar(p: PromiseLike<{ error: unknown }>) {
-  const { error } = await p;
-  if (error) throw error;
-}
+let liberarTrava: (() => Promise<void>) | null = null;
+// Estado do caixa de hoje depois da preparação: "novo" (sem caixa), "aberto" ou "fechado".
+let estadoCaixa: "novo" | "aberto" | "fechado" = "novo";
 
 async function preparar(): Promise<Fixtures> {
   const hoje = new Intl.DateTimeFormat("sv-SE", { timeZone: "America/Sao_Paulo" }).format(new Date());
@@ -65,17 +65,19 @@ async function preparar(): Promise<Fixtures> {
     .single();
   if (es) throw es;
 
-  // Zera o caixa de hoje (um por dia): filhos primeiro — contas a receber,
-  // pagamentos (partes) e depois as cobranças.
+  // Tenta zerar o caixa de hoje (filhos primeiro). Após a 0010 o banco recusa apagar contas a
+  // receber/recebimentos: a falha é ignorada e o caixa existente é reaproveitado.
   const { data: caixa } = await admin.from("caixas").select("id").eq("data", hoje).maybeSingle();
   if (caixa) {
     const { data: pags } = await admin.from("pagamentos").select("id").eq("caixa_id", caixa.id);
     const ids = (pags ?? []).map((p) => p.id);
-    if (ids.length) await falhar(admin.from("contas_receber").delete().in("pagamento_id", ids));
-    await falhar(admin.from("pagamentos").delete().eq("caixa_id", caixa.id));
-    await falhar(admin.from("cobrancas").delete().eq("caixa_id", caixa.id));
-    await falhar(admin.from("caixas").delete().eq("id", caixa.id));
+    if (ids.length) await admin.from("contas_receber").delete().in("pagamento_id", ids);
+    await admin.from("pagamentos").delete().eq("caixa_id", caixa.id);
+    await admin.from("cobrancas").delete().eq("caixa_id", caixa.id);
+    await admin.from("caixas").delete().eq("id", caixa.id);
   }
+  const { data: restante } = await admin.from("caixas").select("fechado_em").eq("data", hoje).maybeSingle();
+  estadoCaixa = !restante ? "novo" : restante.fechado_em ? "fechado" : "aberto";
 
   const nome = `Cliente E2E Caixa ${Date.now()}`;
   const { data: cliente, error: ec } = await admin
@@ -119,11 +121,17 @@ test.beforeAll(async ({}, testInfo) => {
     "E2E do caixa roda só no viewport desktop: há um único caixa por dia.",
   );
   await pularSemBackend("E2E do caixa");
+  liberarTrava = await adquirirTravaCaixa();
   admin = createClient(ENV.url!, ENV.service!, { auth: { persistSession: false } });
   fx = await preparar();
 });
 
+test.afterAll(async () => {
+  await liberarTrava?.();
+});
+
 test("recepção marca Atendido, abre o caixa, lança Pix e fecha com diferença R$ 0,00", async ({ page }) => {
+  test.skip(estadoCaixa === "fechado", "O caixa de hoje já está fechado e não pode ser apagado: nada a lançar.");
   await entrar(page, ENV.recepcaoEmail!, ENV.recepcaoSenha!);
   await page.goto(`/agenda?data=${fx.hoje}&visao=dia&prof=${fx.profissional.id}`);
 
@@ -133,7 +141,8 @@ test("recepção marca Atendido, abre o caixa, lança Pix e fecha com diferença
   // O diálogo de pagamento abre; sem caixa, oferece abrir agora (troco 0,00).
   const dialogo = page.getByRole("dialog", { name: "Pagamento do atendimento" });
   await expect(dialogo).toBeVisible();
-  await dialogo.getByRole("button", { name: "Abrir caixa agora" }).click();
+  // Com caixa aberto reaproveitado não há o botão de abrir.
+  if (estadoCaixa === "novo") await dialogo.getByRole("button", { name: "Abrir caixa agora" }).click();
 
   // Uma forma só (Pix) com o total do atendimento: o valor já fecha.
   await dialogo.getByLabel("Forma de pagamento").selectOption("pix");
@@ -145,6 +154,9 @@ test("recepção marca Atendido, abre o caixa, lança Pix e fecha com diferença
   await expect(page.getByRole("cell", { name: fx.cliente.nome })).toBeVisible();
   await expect(page.getByRole("cell", { name: "Pix" })).toBeVisible();
 
+  // Só fecha o caixa criado por este spec (troco inicial 0,00): um caixa reaproveitado pode ter
+  // outros lançamentos e é de outros specs.
+  if (estadoCaixa !== "novo") return;
   // Só Pix: dinheiro esperado = troco inicial (0,00).
   await page.getByLabel("Dinheiro contado na gaveta").fill("0,00");
   await page.getByRole("button", { name: "Fechar caixa" }).click();

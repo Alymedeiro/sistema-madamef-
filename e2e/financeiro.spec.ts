@@ -7,24 +7,21 @@
 // as linhas de avisos_lidos ficam no projeto de testes. Dados únicos por execução e viewport
 // (prefixo "E2E Financeiro"). Se hoje ainda não há caixa, a preparação abre um (valor inicial
 // 0) e ele fica: o recebimento da parcela o referencia e o banco não permite apagar.
-// Como o caixa de hoje e os avisos são globais, os 3 viewports se revezam por um lock em
-// arquivo (nunca rodam este spec ao mesmo tempo).
-import { mkdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+// Como o caixa de hoje e os avisos são globais, os 3 viewports e os specs caixa/cobranca se
+// revezam pela trava compartilhada de e2e/trava-caixa.ts (nunca rodam ao mesmo tempo).
 import { expect, test, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { ARQUIVO_ESTADO, USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, dataEm } from "./ficha-suporte";
+import { adquirirTravaCaixa } from "./trava-caixa";
 
 test.describe.configure({ mode: "serial" });
 
-const LOCK = join(tmpdir(), "e2e-financeiro.lock");
 const VIEWPORTS = ["computador", "tablet", "celular"];
 const TIMEZONE = "America/Sao_Paulo";
 
 let admin: SupabaseClient;
-let lockAdquirido = false;
+let liberarTrava: (() => Promise<void>) | null = null;
 let indice = 0;
 let prefixo = "";
 let donaId = "";
@@ -42,22 +39,6 @@ const descricaoReceber = () => `${prefixo} parcela`;
 async function falhar(p: PromiseLike<{ error: unknown }>) {
   const { error } = await p;
   if (error) throw error;
-}
-
-async function adquirirLock() {
-  const limite = Date.now() + 8 * 60_000;
-  while (Date.now() < limite) {
-    try {
-      await mkdir(LOCK);
-      lockAdquirido = true;
-      return;
-    } catch {
-      const s = await stat(LOCK).catch(() => null);
-      if (s && Date.now() - s.mtimeMs > 20 * 60_000) await rm(LOCK, { recursive: true, force: true });
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-  throw new Error("Não foi possível obter o lock do E2E do financeiro.");
 }
 
 async function colaboradorDe(email: string): Promise<string> {
@@ -84,7 +65,7 @@ test.beforeAll(async ({}, testInfo) => {
   await pularSemBackend("E2E do Financeiro");
   admin = clienteAdmin();
   indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));
-  await adquirirLock();
+  liberarTrava = await adquirirTravaCaixa();
 
   prefixo = `E2E Financeiro ${VIEWPORTS[indice]} ${Date.now()}`;
   valorCentavos = 12345 + indice;
@@ -141,7 +122,7 @@ test.beforeAll(async ({}, testInfo) => {
 
 test.afterAll(async () => {
   try {
-    if (lockAdquirido && admin) {
+    if (liberarTrava && admin) {
       const cancelamento = {
         cancelada_motivo: "Limpeza do E2E",
         cancelada_em: new Date().toISOString(),
@@ -162,7 +143,7 @@ test.afterAll(async () => {
       await admin.from("contas_fixas").update({ ativa: false }).like("descricao", `${prefixo}%`);
     }
   } finally {
-    if (lockAdquirido) await rm(LOCK, { recursive: true, force: true });
+    await liberarTrava?.();
   }
 });
 
