@@ -31,6 +31,19 @@ describe("marcarAvisosLidos", () => {
     expect(s.chamadas).toEqual([]);
   });
 
+  it("aceita até 1000 chaves; mais que isso recusa sem chamar o banco", async () => {
+    const s = criarSupabaseFalso();
+    s.responder("rpc:marcar_avisos_lidos", { data: null, error: null });
+    falso.atual = s.cliente;
+    const chaves = (n: number) => Array.from({ length: n }, (_, i) => `pagar:p${i}:3`);
+    expect(await marcarAvisosLidos(chaves(1000))).toEqual({ ok: true });
+    expect(await marcarAvisosLidos(chaves(1001))).toEqual({
+      ok: false,
+      erro: "Muitos avisos de uma vez; tente de novo.",
+    });
+    expect(s.chamadasRpc("marcar_avisos_lidos")).toHaveLength(1);
+  });
+
   it("erro do banco vira mensagem", async () => {
     const s = criarSupabaseFalso();
     s.responder("rpc:marcar_avisos_lidos", { data: null, error: { message: "x" } });

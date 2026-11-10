@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { marcarAvisosLidos } from "./actions";
 import type { AvisoItem } from "./dados";
-import { contagemBadge, textoAviso } from "./texto";
+import { contagemBadge, MAX_AVISOS_POR_VEZ, textoAviso } from "./texto";
 
 /** Sininho do topo (só a dona): contador, lista e "Marcar todos como lidos". */
 export function Sininho({ avisos }: { avisos: AvisoItem[] }) {
@@ -16,7 +16,7 @@ export function Sininho({ avisos }: { avisos: AvisoItem[] }) {
 
   function marcarTodos() {
     iniciar(async () => {
-      const r = await marcarAvisosLidos(avisos.map((a) => a.chave));
+      const r = await marcarAvisosLidos(avisos.slice(0, MAX_AVISOS_POR_VEZ).map((a) => a.chave));
       if (!r.ok) toast.error(r.erro);
     });
   }

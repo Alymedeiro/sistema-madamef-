@@ -3,6 +3,9 @@ import type { ContaAviso } from "@/lib/dominio/financeiro";
 
 // Módulo puro (sem "use client"): usado por Server e Client Components.
 
+/** Quantos avisos "Marcar todos como lidos" envia de uma vez (o resto fica para a próxima). */
+export const MAX_AVISOS_POR_VEZ = 1000;
+
 /** Texto do vencimento para qualquer d: "vence em N dias" / "vence amanhã" / "vence hoje" / "vencida há N dias". */
 export function textoVencimento(dias: number): string {
   if (dias < 0) return dias === -1 ? "vencida há 1 dia" : `vencida há ${-dias} dias`;

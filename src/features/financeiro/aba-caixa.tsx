@@ -127,7 +127,10 @@ export async function AbaCaixa({ ehDona }: { ehDona: boolean }) {
         recebimentos={recebimentos}
       />
 
-      <ReceberHoje parcelas={parcelasAReceber} caixaAberto={!!aberto} />
+      <ReceberHoje
+        parcelas={parcelasAReceber}
+        caixa={aberto ? "aberto" : caixaHoje ? "fechado" : "sem"}
+      />
 
       {ehDona && <CaixasNaoFechados caixas={naoFechados} />}
 

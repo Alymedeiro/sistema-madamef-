@@ -5,11 +5,20 @@ import { SituacaoConta } from "./lista-pagar";
 
 const dataBr = (s: string) => s.split("-").reverse().join("/");
 
+/** Situação do caixa de hoje: aberto, já fechado ou ainda não aberto. */
+export type EstadoCaixaHoje = "aberto" | "fechado" | "sem";
+
+const DICA: Record<Exclude<EstadoCaixaHoje, "aberto">, string> = {
+  fechado: "O caixa de hoje já foi fechado.",
+  sem: "Abra o caixa do dia antes de receber.",
+};
+
 /**
  * Bloco do Caixa do dia (dona e recepção): parcelas em aberto que vencem hoje
  * ou já venceram, com "Receber" (só com o caixa de hoje aberto).
  */
-export function ReceberHoje({ parcelas, caixaAberto }: { parcelas: ContaReceberLinha[]; caixaAberto: boolean }) {
+export function ReceberHoje({ parcelas, caixa }: { parcelas: ContaReceberLinha[]; caixa: EstadoCaixaHoje }) {
+  const caixaAberto = caixa === "aberto";
   return (
     <section aria-labelledby="receber-hoje-t" className="flex flex-col gap-3">
       <h2 id="receber-hoje-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
@@ -19,9 +28,7 @@ export function ReceberHoje({ parcelas, caixaAberto }: { parcelas: ContaReceberL
         <p className="text-muted-foreground">Nenhuma parcela para receber hoje.</p>
       ) : (
         <>
-          {!caixaAberto && (
-            <p className="text-sm text-muted-foreground">Abra o caixa do dia antes de receber.</p>
-          )}
+          {caixa !== "aberto" && <p className="text-sm text-muted-foreground">{DICA[caixa]}</p>}
           <ul className="flex flex-col divide-y rounded-xl border bg-card">
             {parcelas.map((p) => (
               <li

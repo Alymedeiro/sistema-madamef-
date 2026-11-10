@@ -6,11 +6,12 @@ import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
+import { MAX_AVISOS_POR_VEZ } from "./texto";
 
 const chavesSchema = z
   .array(z.string().min(1).max(120))
   .min(1, "Nenhum aviso para marcar.")
-  .max(500);
+  .max(MAX_AVISOS_POR_VEZ, "Muitos avisos de uma vez; tente de novo.");
 
 /** Marca avisos como lidos para a dona logada (a função do banco grava só os dela). */
 export async function marcarAvisosLidos(chaves: string[]): Promise<Resultado> {
