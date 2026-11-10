@@ -179,3 +179,60 @@ export function saldos(r: { recebido: number; pago: number; aReceber: number; aP
   const saldoCaixa = r.recebido - r.pago;
   return { saldoCaixa, saldoProjetado: saldoCaixa + r.aReceber - r.aPagar };
 }
+
+export type CategoriaDespesa =
+  | "aluguel"
+  | "fornecedor"
+  | "produto"
+  | "salario"
+  | "imposto"
+  | "vale"
+  | "outros";
+
+export const CATEGORIAS_DESPESA: readonly CategoriaDespesa[] = [
+  "aluguel",
+  "fornecedor",
+  "produto",
+  "salario",
+  "imposto",
+  "vale",
+  "outros",
+];
+
+/** Categorias das contas e contas fixas: `vale` só entra por "Lançar vale". */
+export const CATEGORIAS_CONTA: readonly Exclude<CategoriaDespesa, "vale">[] = [
+  "aluguel",
+  "fornecedor",
+  "produto",
+  "salario",
+  "imposto",
+  "outros",
+];
+
+export const ROTULO_CATEGORIA: Record<CategoriaDespesa, string> = {
+  aluguel: "Aluguel",
+  fornecedor: "Fornecedor",
+  produto: "Produto",
+  salario: "Salário",
+  imposto: "Imposto",
+  vale: "Vale",
+  outros: "Outros",
+};
+
+/** Formas de pagamento de uma saída (pagar conta, vale): nunca `a_receber`. */
+export const FORMAS_SAIDA = ["pix", "dinheiro", "debito", "credito", "credito_parcelado"] as const;
+export type FormaSaida = (typeof FORMAS_SAIDA)[number];
+
+/** Filtro de situação das listas (padrão "aberta"). */
+export type FiltroSituacao = "todas" | "aberta" | "vencida" | "paga" | "cancelada";
+export const FILTROS_SITUACAO: readonly FiltroSituacao[] = [
+  "todas",
+  "aberta",
+  "vencida",
+  "paga",
+  "cancelada",
+];
+
+export function filtroSituacao(v: string | undefined): FiltroSituacao {
+  return FILTROS_SITUACAO.includes(v as FiltroSituacao) ? (v as FiltroSituacao) : "aberta";
+}

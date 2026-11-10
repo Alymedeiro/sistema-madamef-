@@ -1,4 +1,10 @@
 import "server-only";
+import {
+  CATEGORIAS_DESPESA,
+  situacaoConta,
+  type CategoriaDespesa,
+  type FiltroSituacao,
+} from "@/lib/dominio/financeiro";
 import { dataNoFuso } from "@/lib/dominio/tempo";
 import type { createClient } from "@/lib/supabase/server";
 
@@ -128,4 +134,131 @@ export async function carregarProximosVencimentos(
     })),
   ];
   return itens.sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+}
+
+export type ContaPagarLinha = {
+  id: string;
+  descricao: string;
+  categoria: CategoriaDespesa;
+  /** Fornecedor ou, no vale, a colaboradora. */
+  quem: string | null;
+  fornecedor: string | null;
+  valorCentavos: number;
+  vencimento: string;
+  status: "aberta" | "paga" | "cancelada";
+  situacao: ReturnType<typeof situacaoConta>;
+  pagoEm: string | null;
+  forma: string | null;
+  anexoPath: string | null;
+  /** Gerada por uma conta fixa. */
+  fixa: boolean;
+};
+
+const MAX_LINHAS = 500;
+
+/** Tira da busca o que quebraria o filtro do PostgREST (vírgula, parênteses, curingas). */
+function termoBusca(busca: string | undefined): string {
+  return (busca ?? "").replace(/[,()%*\\:"]/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+}
+
+/**
+ * Contas a pagar da aba (só dona, por RLS). Situação:
+ * - `aberta` (padrão): em aberto vencendo no período e também as já vencidas;
+ * - `vencida`: em aberto com vencimento < hoje, de qualquer período (como o cartão Vencidos);
+ * - `paga`: pagas no período (pago_em); `cancelada` e `todas`: vencimento no período.
+ */
+export async function listarContasPagar(
+  supabase: Supabase,
+  f: { de: string; ate: string; situacao?: FiltroSituacao; busca?: string; categoria?: string },
+  hoje: string = dataNoFuso(new Date()),
+): Promise<ContaPagarLinha[]> {
+  let q = supabase
+    .from("contas_pagar")
+    .select(
+      "id, descricao, categoria, fornecedor, valor_centavos, vencimento, status, pago_em, forma, anexo_path, conta_fixa_id, colaborador:colaboradores!contas_pagar_colaborador_id_fkey(nome)",
+    );
+
+  switch (f.situacao ?? "aberta") {
+    case "aberta":
+      q = q.eq("status", "aberta").lte("vencimento", f.ate).or(`vencimento.gte.${f.de},vencimento.lt.${hoje}`);
+      break;
+    case "vencida":
+      q = q.eq("status", "aberta").lt("vencimento", hoje);
+      break;
+    case "paga":
+      q = q.eq("status", "paga").gte("pago_em", f.de).lte("pago_em", f.ate);
+      break;
+    case "cancelada":
+      q = q.eq("status", "cancelada").gte("vencimento", f.de).lte("vencimento", f.ate);
+      break;
+    case "todas":
+      q = q.gte("vencimento", f.de).lte("vencimento", f.ate);
+      break;
+  }
+
+  const termo = termoBusca(f.busca);
+  if (termo) q = q.or(`descricao.ilike.%${termo}%,fornecedor.ilike.%${termo}%`);
+  if (CATEGORIAS_DESPESA.includes(f.categoria as CategoriaDespesa)) {
+    q = q.eq("categoria", f.categoria as CategoriaDespesa);
+  }
+
+  const { data, error } = await q.order("vencimento").limit(MAX_LINHAS);
+  if (error) throw new Error(`Falha ao carregar as contas a pagar: ${error.message}`);
+
+  return (data ?? []).map((c) => {
+    const colaborador = (c as { colaborador?: { nome: string } | null }).colaborador;
+    return {
+      id: c.id,
+      descricao: c.descricao,
+      categoria: c.categoria,
+      quem: colaborador?.nome ?? c.fornecedor,
+      fornecedor: c.fornecedor,
+      valorCentavos: c.valor_centavos,
+      vencimento: c.vencimento,
+      status: c.status,
+      situacao: situacaoConta(c, hoje),
+      pagoEm: c.pago_em,
+      forma: c.forma,
+      anexoPath: c.anexo_path,
+      fixa: c.conta_fixa_id !== null,
+    };
+  });
+}
+
+export type ContaFixaLinha = {
+  id: string;
+  descricao: string;
+  categoria: CategoriaDespesa;
+  valorCentavos: number;
+  dia: number;
+};
+
+/** Contas fixas ativas (só dona). */
+export async function listarContasFixas(supabase: Supabase): Promise<ContaFixaLinha[]> {
+  const { data, error } = await supabase
+    .from("contas_fixas")
+    .select("id, descricao, categoria, valor_centavos, dia_vencimento")
+    .eq("ativa", true)
+    .order("descricao");
+  if (error) throw new Error(`Falha ao carregar as contas fixas: ${error.message}`);
+  return (data ?? []).map((c) => ({
+    id: c.id,
+    descricao: c.descricao,
+    categoria: c.categoria,
+    valorCentavos: c.valor_centavos,
+    dia: c.dia_vencimento,
+  }));
+}
+
+export type ColaboradoraOpcao = { id: string; nome: string };
+
+/** Colaboradoras ativas para o vale. */
+export async function listarColaboradorasAtivas(supabase: Supabase): Promise<ColaboradoraOpcao[]> {
+  const { data, error } = await supabase
+    .from("colaboradores")
+    .select("id, nome")
+    .eq("ativo", true)
+    .order("nome");
+  if (error) throw new Error(`Falha ao carregar a equipe: ${error.message}`);
+  return (data ?? []).map((c) => ({ id: c.id, nome: c.nome }));
 }
