@@ -1,6 +1,7 @@
 import "server-only";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
+import { carregarAvisos, type AvisoItem } from "@/features/avisos/dados";
 import { listarPedidos } from "@/features/pedidos/dados";
 import { createClient } from "@/lib/supabase/server";
 import { agruparPorHorario, estoqueBaixo, type ProdutoEstoque } from "./painel";
@@ -213,4 +214,9 @@ export async function pedidosAguardando(supabase: Supabase): Promise<PedidoAguar
     inicio: p.inicio,
     expiraEm: p.expiraEm,
   }));
+}
+
+/** Cartão "Contas vencendo" (só dona): os 5 primeiros avisos por vencimento. */
+export async function contasVencendo(supabase: Supabase, hoje: string): Promise<AvisoItem[]> {
+  return (await carregarAvisos(supabase, hoje)).slice(0, 5);
 }

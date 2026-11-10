@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ProximoVencimento } from "@/app/(app)/financeiro/dados";
+import { hrefConta } from "@/features/avisos/link";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +37,7 @@ export function PainelFinanceiro({
           {proximos.map((c) => (
             <li key={`${c.tipo}:${c.id}`}>
               <Link
-                href={`/financeiro?aba=${c.tipo}&conta=${c.id}`}
+                href={hrefConta(c.tipo, c.id, 0)}
                 className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 py-2 text-sm hover:bg-accent/50"
               >
                 <span

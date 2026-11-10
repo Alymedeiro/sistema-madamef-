@@ -10,7 +10,11 @@ import {
   ROTULO_PERFIL,
 } from "@/lib/dominio/permissoes";
 import { sair } from "@/app/login/actions";
+import { carregarAvisosDoPerfil } from "@/features/avisos/dados";
+import { Sininho } from "@/features/avisos/sininho";
+import { dataNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
+import { createClient } from "@/lib/supabase/server";
 
 // Sempre dinâmico: depende da sessão de cada requisição.
 export const dynamic = "force-dynamic";
@@ -19,6 +23,12 @@ export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const { colaborador } = await exigirPerfil();
+  // Só a dona tem avisos: para os outros perfis o carregador nem consulta.
+  const avisos = await carregarAvisosDoPerfil(
+    await createClient(),
+    dataNoFuso(new Date()),
+    colaborador.perfil,
+  );
   const itens = ITENS_MENU.filter((i) => podeAcessar(colaborador.perfil, i.recurso));
 
   return (
@@ -38,6 +48,7 @@ export default async function AppLayout({
           <Logo tamanho="sm" className="rounded-md" />
         </div>
         <div className="ml-auto flex min-w-0 items-center gap-3">
+          {colaborador.perfil === "dona" && <Sininho avisos={avisos} />}
           <div className="flex min-w-0 flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-2">
             <span className="max-w-[10rem] truncate text-sm font-medium sm:max-w-xs">
               {colaborador.nome}

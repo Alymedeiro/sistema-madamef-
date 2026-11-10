@@ -1,6 +1,7 @@
 import {
   CartaoPainel,
   ListaAniversariantes,
+  ListaContasVencendo,
   ListaAtendimentos,
   ListaEstoqueBaixo,
   ListaPedidosOnline,
@@ -12,6 +13,7 @@ import {
   atendidosSemPagamento,
   atendidosSemTermo,
   atendimentosDoDia,
+  contasVencendo,
   pedidosAguardando,
   produtosComEstoqueBaixo,
 } from "@/features/inicio/dados";
@@ -38,7 +40,7 @@ export default async function InicioPage() {
   const supabase = await createClient();
 
   // Cada cartão carrega por conta própria: uma falha não apaga o painel.
-  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo, online] =
+  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo, online, vencendo] =
     await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
@@ -48,6 +50,7 @@ export default async function InicioPage() {
     // Últimos 30 dias, contando hoje.
     carregarCartao(ehDona ? atendidosSemTermo(supabase, somarDias(hoje, -29), hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? pedidosAguardando(supabase) : Promise.resolve([])),
+    carregarCartao(ehDona ? contasVencendo(supabase, hoje) : Promise.resolve([])),
   ]);
   const estado = <T,>(c: Cartao<T[]>) => ({
     falhou: !c.ok,
@@ -61,6 +64,7 @@ export default async function InicioPage() {
   const cEstoque = estado(estoque);
   const cSemTermo = estado(semTermo);
   const cOnline = estado(online);
+  const cVencendo = estado(vencendo);
 
   return (
     <div className="flex flex-col gap-6">
@@ -125,6 +129,18 @@ export default async function InicioPage() {
               <ListaAniversariantes itens={cAniversarios.itens} />
             </CartaoPainel>
           </>
+        )}
+
+        {ehDona && (
+          <CartaoPainel
+            id="vencendo-t"
+            titulo="Contas vencendo"
+            vazio={cVencendo.vazio}
+            falhou={cVencendo.falhou}
+            vazioTexto="Nenhuma conta vencendo nos próximos 7 dias"
+          >
+            <ListaContasVencendo itens={cVencendo.itens} />
+          </CartaoPainel>
         )}
 
         {ehDona && (
