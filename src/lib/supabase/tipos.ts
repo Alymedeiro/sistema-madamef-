@@ -221,6 +221,34 @@ export type Database = {
           },
         ]
       }
+      // 0010: avisos de vencimento lidos (o aviso é calculado na leitura).
+      // Chave 1–120. Dona lê só os próprios; escrita só por marcar_avisos_lidos.
+      avisos_lidos: {
+        Row: {
+          chave: string
+          colaborador_id: string
+          lido_em: string
+        }
+        Insert: {
+          chave: string
+          colaborador_id: string
+          lido_em?: string
+        }
+        Update: {
+          chave?: string
+          colaborador_id?: string
+          lido_em?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "avisos_lidos_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bloqueios_agenda: {
         Row: {
           atualizado_em: string
@@ -1495,6 +1523,43 @@ export type Database = {
           },
         ]
       }
+      // 0010: PDFs exportados (aba 1–40, de <= ate). Só a dona lê; escrita só
+      // por registrar_relatorio.
+      relatorios_gerados: {
+        Row: {
+          aba: string
+          ate: string
+          colaborador_id: string
+          de: string
+          gerado_em: string
+          id: string
+        }
+        Insert: {
+          aba: string
+          ate: string
+          colaborador_id: string
+          de: string
+          gerado_em?: string
+          id?: string
+        }
+        Update: {
+          aba?: string
+          ate?: string
+          colaborador_id?: string
+          de?: string
+          gerado_em?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "relatorios_gerados_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       servico_produtos: {
         Row: {
           atualizado_em: string
@@ -1812,6 +1877,55 @@ export type Database = {
           p_forma: Database["public"]["Enums"]["forma_pagamento"]
         }
         Returns: string
+      }
+      // 0010 (seção 6): só a dona (senão P0001 "Acesso não autorizado").
+      // Período [p_de, p_ate] em dias de São Paulo. Recebido = pagamentos
+      // (valor − desconto, exceto 'a_receber') pela data do caixa + recebimentos
+      // por recebido_em; Pago = contas pagas por pago_em. Vencidos: em aberto
+      // com vencimento < hoje, qualquer período. Sempre uma linha (zeros).
+      resumo_financeiro: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          recebido: number
+          recebido_qtd: number
+          pago: number
+          pago_qtd: number
+          a_receber: number
+          ja_recebido: number
+          a_pagar: number
+          ja_pago: number
+          vencidos_qtd: number
+          vencidos_total: number
+        }[]
+      }
+      // 0010: só períodos com movimento, em ordem; 'mes' → periodo = 1º dia do
+      // mês. Outro p_agrupar → P0001 "Agrupamento inválido.".
+      fluxo_caixa: {
+        Args: { p_de: string; p_ate: string; p_agrupar: "dia" | "mes" }
+        Returns: { periodo: string; entradas: number; saidas: number }[]
+      }
+      // 0010: entradas do período por forma, maior primeiro.
+      fluxo_por_forma: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          forma: Database["public"]["Enums"]["forma_pagamento"]
+          total: number
+        }[]
+      }
+      // 0010: contas pagas no período (pago_em) por categoria, maior primeiro.
+      despesas_por_categoria: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          categoria: Database["public"]["Enums"]["categoria_despesa"]
+          total: number
+        }[]
+      }
+      // 0010: idempotente; chave 1–120 (23514).
+      marcar_avisos_lidos: { Args: { p_chaves: string[] }; Returns: undefined }
+      // 0010: aba 1–40, p_de <= p_ate (23514).
+      registrar_relatorio: {
+        Args: { p_aba: string; p_de: string; p_ate: string }
+        Returns: undefined
       }
       // 0007: só a dona; só pacote ativo.
       cancelar_pacote: { Args: { p_pacote: string }; Returns: undefined }

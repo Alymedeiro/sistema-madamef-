@@ -11,10 +11,11 @@
 --      (criar/cancelar conta a receber, receber_parcela) e RLS.
 --   5. fechar_caixa passa a somar os recebimentos do caixa (e não conta os
 --      pagamentos 'a_receber', que só entram quando a parcela é recebida).
---   (Seção seguinte: Task 3 da Fase 4.)
+--   6. Resumo do painel, fluxo de caixa (por dia/mês, por forma, por
+--      categoria), avisos lidos e relatórios gerados.
 --
--- Toda função recusa quem não é a dona com 'Apenas a dona pode lançar
--- contas.' (P0001).
+-- As funções das seções 1–4 recusam quem não é a dona com 'Apenas a dona
+-- pode lançar contas.' (P0001); as da seção 6 com 'Acesso não autorizado'.
 --
 -- Dependências: 0001_base (colaboradores, clientes, perfil_atual,
 -- colaborador_atual_id, set_atualizado_em), 0003_caixa (forma_pagamento,
@@ -806,3 +807,291 @@ begin
   );
 end;
 $$;
+
+-- =============================================================================
+-- 6. Resumo, fluxo de caixa, avisos lidos e relatórios gerados (só a dona)
+--
+-- Período P = [p_de, p_ate], dias de São Paulo. Ruling P4-R1:
+--   entradas = pagamentos (valor − desconto, exceto 'a_receber') pela data do
+--              caixa + recebimentos de parcelas por recebido_em em SP;
+--   saídas   = contas_pagar pagas, por pago_em.
+-- Assim a parcela "a receber" entra uma vez só: quando é recebida.
+-- =============================================================================
+
+create function public.exigir_dona_leitura_financeiro()
+returns void
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if public.perfil_atual() is distinct from 'dona' then
+    raise exception 'Acesso não autorizado' using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+revoke execute on function public.exigir_dona_leitura_financeiro()
+  from public, anon, authenticated, service_role;
+
+-- Entradas de dinheiro em P (uma linha por pagamento/recebimento, valor > 0).
+-- Uso interno: só as funções abaixo (que já conferiram a dona) chamam.
+create function public.entradas_financeiro(p_de date, p_ate date)
+returns table (dia date, forma public.forma_pagamento, valor bigint)
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select cx.data, p.forma, (p.valor_centavos - p.desconto_centavos)::bigint
+  from public.pagamentos p
+  join public.caixas cx on cx.id = p.caixa_id
+  where cx.data between p_de and p_ate
+    and p.forma <> 'a_receber'
+    and p.valor_centavos > p.desconto_centavos
+  union all
+  select (r.recebido_em at time zone 'America/Sao_Paulo')::date, r.forma, r.valor_centavos::bigint
+  from public.recebimentos r
+  where r.recebido_em >= (p_de::timestamp at time zone 'America/Sao_Paulo')
+    and r.recebido_em < ((p_ate + 1)::timestamp at time zone 'America/Sao_Paulo')
+$$;
+
+revoke execute on function public.entradas_financeiro(date, date)
+  from public, anon, authenticated, service_role;
+
+-- Os cartões do painel. Saldo em caixa (recebido − pago) e projetado
+-- (+ a_receber − a_pagar) são calculados na tela. Vencidos: contas em aberto
+-- (pagar + receber) com vencimento < hoje (SP), qualquer que seja P.
+create function public.resumo_financeiro(p_de date, p_ate date)
+returns table (
+  recebido bigint,
+  recebido_qtd int,
+  pago bigint,
+  pago_qtd int,
+  a_receber bigint,
+  ja_recebido bigint,
+  a_pagar bigint,
+  ja_pago bigint,
+  vencidos_qtd int,
+  vencidos_total bigint
+)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  v_hoje date := (now() at time zone 'America/Sao_Paulo')::date;
+begin
+  perform public.exigir_dona_leitura_financeiro();
+
+  return query
+  with
+  ent as (
+    select coalesce(sum(e.valor), 0)::bigint as total, count(*)::int as qtd
+    from public.entradas_financeiro(p_de, p_ate) e
+  ),
+  pag as (
+    select coalesce(sum(cp.valor_centavos), 0)::bigint as total, count(*)::int as qtd
+    from public.contas_pagar cp
+    where cp.status = 'paga' and cp.pago_em between p_de and p_ate
+  ),
+  rec_venc as (
+    select
+      coalesce(sum(cr.valor_centavos) filter (where cr.recebido_em is null), 0)::bigint as aberto,
+      coalesce(sum(cr.valor_centavos) filter (where cr.recebido_em is not null), 0)::bigint as feito
+    from public.contas_receber cr
+    where cr.cancelada_em is null and cr.vencimento between p_de and p_ate
+  ),
+  pag_venc as (
+    select
+      coalesce(sum(cp.valor_centavos) filter (where cp.status = 'aberta'), 0)::bigint as aberto,
+      coalesce(sum(cp.valor_centavos) filter (where cp.status = 'paga'), 0)::bigint as feito
+    from public.contas_pagar cp
+    where cp.status <> 'cancelada' and cp.vencimento between p_de and p_ate
+  ),
+  venc as (
+    select count(*)::int as qtd, coalesce(sum(v.valor), 0)::bigint as total
+    from (
+      select cp.valor_centavos as valor
+      from public.contas_pagar cp
+      where cp.status = 'aberta' and cp.vencimento < v_hoje
+      union all
+      select cr.valor_centavos
+      from public.contas_receber cr
+      where cr.recebido_em is null and cr.cancelada_em is null and cr.vencimento < v_hoje
+    ) v
+  )
+  select ent.total, ent.qtd, pag.total, pag.qtd,
+         rec_venc.aberto, rec_venc.feito, pag_venc.aberto, pag_venc.feito,
+         venc.qtd, venc.total
+  from ent, pag, rec_venc, pag_venc, venc;
+end;
+$$;
+
+revoke execute on function public.resumo_financeiro(date, date) from public, anon, authenticated;
+grant execute on function public.resumo_financeiro(date, date) to authenticated;
+
+-- Entradas e saídas por dia ou por mês (periodo = 1º dia do mês); só os
+-- períodos com movimento, em ordem.
+create function public.fluxo_caixa(p_de date, p_ate date, p_agrupar text)
+returns table (periodo date, entradas bigint, saidas bigint)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_dona_leitura_financeiro();
+  if p_agrupar is null or p_agrupar not in ('dia', 'mes') then
+    raise exception 'Agrupamento inválido.' using errcode = 'P0001';
+  end if;
+
+  return query
+  with mov as (
+    select e.dia, e.valor as entrada, 0::bigint as saida
+    from public.entradas_financeiro(p_de, p_ate) e
+    union all
+    select cp.pago_em, 0::bigint, cp.valor_centavos::bigint
+    from public.contas_pagar cp
+    where cp.status = 'paga' and cp.pago_em between p_de and p_ate
+  )
+  select case when p_agrupar = 'mes' then date_trunc('month', m.dia)::date else m.dia end as per,
+         sum(m.entrada)::bigint, sum(m.saida)::bigint
+  from mov m
+  group by per
+  order by per;
+end;
+$$;
+
+revoke execute on function public.fluxo_caixa(date, date, text) from public, anon, authenticated;
+grant execute on function public.fluxo_caixa(date, date, text) to authenticated;
+
+-- Entradas de P por forma (só as que tiveram movimento), maior primeiro.
+create function public.fluxo_por_forma(p_de date, p_ate date)
+returns table (forma public.forma_pagamento, total bigint)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_dona_leitura_financeiro();
+
+  return query
+  select e.forma, sum(e.valor)::bigint as t
+  from public.entradas_financeiro(p_de, p_ate) e
+  group by e.forma
+  order by t desc, e.forma;
+end;
+$$;
+
+revoke execute on function public.fluxo_por_forma(date, date) from public, anon, authenticated;
+grant execute on function public.fluxo_por_forma(date, date) to authenticated;
+
+-- Contas pagas em P (por pago_em) por categoria, maior primeiro.
+create function public.despesas_por_categoria(p_de date, p_ate date)
+returns table (categoria public.categoria_despesa, total bigint)
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_dona_leitura_financeiro();
+
+  return query
+  select cp.categoria, sum(cp.valor_centavos)::bigint as t
+  from public.contas_pagar cp
+  where cp.status = 'paga' and cp.pago_em between p_de and p_ate
+  group by cp.categoria
+  order by t desc, cp.categoria;
+end;
+$$;
+
+revoke execute on function public.despesas_por_categoria(date, date)
+  from public, anon, authenticated;
+grant execute on function public.despesas_por_categoria(date, date) to authenticated;
+
+-- Avisos de vencimento marcados como lidos (o aviso em si é calculado na
+-- leitura). Chave: '<pagar|receber>:<id>:<d>' ou '…:vencida:<AAAA-MM-DD>'.
+create table public.avisos_lidos (
+  colaborador_id uuid not null references public.colaboradores (id),
+  chave text not null check (char_length(chave) between 1 and 120),
+  lido_em timestamptz not null default now(),
+  primary key (colaborador_id, chave)
+);
+
+-- PDFs exportados (quem, qual aba, qual período).
+create table public.relatorios_gerados (
+  id uuid primary key default gen_random_uuid(),
+  colaborador_id uuid not null references public.colaboradores (id),
+  aba text not null check (char_length(aba) between 1 and 40),
+  de date not null,
+  ate date not null,
+  gerado_em timestamptz not null default now(),
+  constraint relatorios_gerados_periodo_check check (de <= ate)
+);
+
+create index relatorios_gerados_colaborador_idx on public.relatorios_gerados (colaborador_id);
+
+-- RLS: escrita só pelas funções abaixo; sem update/delete para ninguém.
+alter table public.avisos_lidos enable row level security;
+alter table public.relatorios_gerados enable row level security;
+
+revoke all on public.avisos_lidos, public.relatorios_gerados from anon, authenticated;
+revoke delete, truncate on public.avisos_lidos, public.relatorios_gerados from service_role;
+grant select on public.avisos_lidos, public.relatorios_gerados to authenticated;
+
+create policy avisos_lidos_select on public.avisos_lidos
+  for select to authenticated
+  using (
+    (select public.perfil_atual()) = 'dona'
+    and colaborador_id = (select public.colaborador_atual_id())
+  );
+
+create policy relatorios_gerados_select on public.relatorios_gerados
+  for select to authenticated
+  using ((select public.perfil_atual()) = 'dona');
+
+-- Idempotente (on conflict do nothing); nulos e repetidas são ignoradas.
+-- Chave vazia ou com mais de 120 caracteres → 23514.
+create function public.marcar_avisos_lidos(p_chaves text[])
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_dona_leitura_financeiro();
+
+  insert into public.avisos_lidos (colaborador_id, chave)
+  select distinct public.colaborador_atual_id(), k.chave
+  from unnest(p_chaves) as k (chave)
+  where k.chave is not null
+  on conflict (colaborador_id, chave) do nothing;
+end;
+$$;
+
+revoke execute on function public.marcar_avisos_lidos(text[]) from public, anon, authenticated;
+grant execute on function public.marcar_avisos_lidos(text[]) to authenticated;
+
+-- Aba vazia ou com mais de 40 caracteres, de > ate → 23514.
+create function public.registrar_relatorio(p_aba text, p_de date, p_ate date)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_dona_leitura_financeiro();
+
+  insert into public.relatorios_gerados (colaborador_id, aba, de, ate)
+  values (public.colaborador_atual_id(), p_aba, p_de, p_ate);
+end;
+$$;
+
+revoke execute on function public.registrar_relatorio(text, date, date)
+  from public, anon, authenticated;
+grant execute on function public.registrar_relatorio(text, date, date) to authenticated;
