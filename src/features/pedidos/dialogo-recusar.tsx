@@ -14,21 +14,38 @@ import {
 import { Label } from "@/components/ui/label";
 import { recusarPedido } from "@/app/(app)/agenda/pedidos/actions";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
-import { BotaoWhatsApp } from "./botao-whatsapp";
+import { BotaoWhatsApp, descricaoAviso } from "./botao-whatsapp";
 import type { PedidoLista } from "./dados";
 
 /** Recusa com motivo opcional (até 200 caracteres), depois o aviso no WhatsApp. */
-export function DialogoRecusar({ pedido, onFechar }: { pedido: PedidoLista | null; onFechar: () => void }) {
+export function DialogoRecusar({
+  pedido,
+  envioAtivo,
+  onFechar,
+}: {
+  pedido: PedidoLista | null;
+  /** Envio automático do WhatsApp ligado: a resposta sai pela fila. */
+  envioAtivo: boolean;
+  onFechar: () => void;
+}) {
   return (
     <Dialog open={!!pedido} onOpenChange={(v) => !v && onFechar()}>
       <DialogContent>
-        {pedido && <FormularioRecusar key={pedido.id} pedido={pedido} onFechar={onFechar} />}
+        {pedido && <FormularioRecusar key={pedido.id} pedido={pedido} envioAtivo={envioAtivo} onFechar={onFechar} />}
       </DialogContent>
     </Dialog>
   );
 }
 
-function FormularioRecusar({ pedido, onFechar }: { pedido: PedidoLista; onFechar: () => void }) {
+function FormularioRecusar({
+  pedido,
+  envioAtivo,
+  onFechar,
+}: {
+  pedido: PedidoLista;
+  envioAtivo: boolean;
+  onFechar: () => void;
+}) {
   const id = useId();
   const [motivo, setMotivo] = useState("");
   const [erro, setErro] = useState<string | null>(null);
@@ -53,9 +70,9 @@ function FormularioRecusar({ pedido, onFechar }: { pedido: PedidoLista; onFechar
       <>
         <DialogHeader>
           <DialogTitle>Pedido recusado</DialogTitle>
-          <DialogDescription>Avise a cliente pelo WhatsApp.</DialogDescription>
+          <DialogDescription>{descricaoAviso(envioAtivo)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} envioAtivo={envioAtivo} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar

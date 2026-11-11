@@ -18,17 +18,19 @@ import { aprovarPedido, sugerirClientes } from "@/app/(app)/agenda/pedidos/actio
 import { DialogoEncaixe } from "@/features/agenda/dialogo-agendamento";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { dataNoFuso, formatarNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
-import { BotaoWhatsApp } from "./botao-whatsapp";
+import { BotaoWhatsApp, descricaoAviso } from "./botao-whatsapp";
 import type { PedidoLista, ProfissionalPedido } from "./dados";
 
 type Props = {
   pedido: PedidoLista | null;
   profissionais: ProfissionalPedido[];
+  /** Envio automático do WhatsApp ligado: a resposta sai pela fila. */
+  envioAtivo: boolean;
   onFechar: () => void;
 };
 
 /** Aprovação de um pedido online: cliente, profissional e horário, depois o aviso. */
-export function DialogoAprovar({ pedido, profissionais, onFechar }: Props) {
+export function DialogoAprovar({ pedido, profissionais, envioAtivo, onFechar }: Props) {
   return (
     <Dialog open={!!pedido} onOpenChange={(v) => !v && onFechar()}>
       <DialogContent>
@@ -37,6 +39,7 @@ export function DialogoAprovar({ pedido, profissionais, onFechar }: Props) {
             key={pedido.id}
             pedido={pedido}
             profissionais={profissionais}
+            envioAtivo={envioAtivo}
             onFechar={onFechar}
           />
         )}
@@ -50,10 +53,12 @@ const NOVA = "nova";
 function FormularioAprovar({
   pedido,
   profissionais,
+  envioAtivo,
   onFechar,
 }: {
   pedido: PedidoLista;
   profissionais: ProfissionalPedido[];
+  envioAtivo: boolean;
   onFechar: () => void;
 }) {
   const id = useId();
@@ -128,9 +133,9 @@ function FormularioAprovar({
       <>
         <DialogHeader>
           <DialogTitle>Pedido aprovado</DialogTitle>
-          <DialogDescription>Avise a cliente pelo WhatsApp.</DialogDescription>
+          <DialogDescription>{descricaoAviso(envioAtivo)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} envioAtivo={envioAtivo} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar

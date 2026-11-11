@@ -60,7 +60,7 @@ export function SecaoWhatsapp({ inicial, estado, clinica, modelos }: Props) {
   }
 
   return (
-    <section className="flex max-w-3xl flex-col gap-6" aria-labelledby="titulo-whatsapp">
+    <section id="whatsapp" className="flex max-w-3xl flex-col gap-6" aria-labelledby="titulo-whatsapp">
       <h2 id="titulo-whatsapp" className="font-titulo text-lg font-semibold text-ouro-escuro">
         WhatsApp
       </h2>

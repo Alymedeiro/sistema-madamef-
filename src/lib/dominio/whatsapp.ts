@@ -23,6 +23,12 @@ export const ROTULO_STATUS_MENSAGEM: Record<StatusMensagem, string> = {
   cancelada: "Cancelada",
 };
 
+export const ROTULO_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
+  para_ler: "Para ler",
+  quer_remarcar: "Quer remarcar",
+  confirmou: "Confirmou",
+};
+
 export const VARIAVEIS_MENSAGEM = [
   "nome",
   "data",

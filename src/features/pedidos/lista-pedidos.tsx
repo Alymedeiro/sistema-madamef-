@@ -27,9 +27,11 @@ type Props = {
   agora: string;
   /** ?pedido=<id>: abre a aprovação dele (se aguardando) ou o destaca. */
   pedidoAberto: string | null;
+  /** Envio automático do WhatsApp ligado: sem o botão manual depois de responder. */
+  envioAtivo: boolean;
 };
 
-export function ListaPedidos({ status, pedidos, profissionais, agora, pedidoAberto }: Props) {
+export function ListaPedidos({ status, pedidos, profissionais, agora, pedidoAberto, envioAtivo }: Props) {
   const [aprovando, setAprovando] = useState<PedidoLista | null>(() =>
     status === "aguardando" ? (pedidos.find((p) => p.id === pedidoAberto) ?? null) : null,
   );
@@ -112,8 +114,13 @@ export function ListaPedidos({ status, pedidos, profissionais, agora, pedidoAber
         </ul>
       )}
 
-      <DialogoAprovar pedido={aprovando} profissionais={profissionais} onFechar={() => setAprovando(null)} />
-      <DialogoRecusar pedido={recusando} onFechar={() => setRecusando(null)} />
+      <DialogoAprovar
+        pedido={aprovando}
+        profissionais={profissionais}
+        envioAtivo={envioAtivo}
+        onFechar={() => setAprovando(null)}
+      />
+      <DialogoRecusar pedido={recusando} envioAtivo={envioAtivo} onFechar={() => setRecusando(null)} />
     </div>
   );
 }

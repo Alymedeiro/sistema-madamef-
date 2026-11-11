@@ -6,6 +6,7 @@ import {
   type StatusPedido,
 } from "@/features/pedidos/dados";
 import { ListaPedidos } from "@/features/pedidos/lista-pedidos";
+import { envioWhatsappAtivo } from "@/app/(app)/mensagens/dados";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
@@ -34,9 +35,11 @@ export default async function PedidosPage({ searchParams }: Props) {
     status = (await statusDoPedido(supabase, pedido)) ?? "aguardando";
   }
 
-  const [pedidos, profissionais] = await Promise.all([
+  const [pedidos, profissionais, envioAtivo] = await Promise.all([
     listarPedidos(supabase, status),
     profissionaisAtivas(supabase),
+    // Sem conseguir ler a configuração, mantém o botão manual (o aviso não se perde).
+    envioWhatsappAtivo(supabase).catch(() => false),
   ]);
 
   return (
@@ -49,6 +52,7 @@ export default async function PedidosPage({ searchParams }: Props) {
         profissionais={profissionais}
         agora={new Date().toISOString()}
         pedidoAberto={pedido}
+        envioAtivo={envioAtivo}
       />
     </div>
   );
