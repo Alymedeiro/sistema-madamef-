@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Pencil, Plus, TriangleAlert } from "lucide-react";
 import { BotaoAtivoItem } from "@/features/catalogo/botao-ativo-item";
+import { AbaEstoque, AbasProdutos } from "@/features/estoque/aba-estoque";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,10 +14,13 @@ import {
 } from "@/components/ui/table";
 import { estoqueBaixo, formatarQuantidade } from "@/lib/dominio/catalogo";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { perfisComAcesso } from "@/lib/dominio/permissoes";
+import { abaDeProdutos, abasDeProdutos, perfisComAcesso } from "@/lib/dominio/permissoes";
+import { dataNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
+import { idSchema } from "@/lib/validacao";
+import { carregarEstoque, periodoDoEstoque } from "./dados-estoque";
 
 export const metadata = { title: "Produtos | Madame Fê Clinic" };
 
@@ -47,6 +51,22 @@ function Estoque({ p }: { p: Produto }) {
   );
 }
 
+function Cabecalho({ ehDona }: { ehDona: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">Produtos</h1>
+      {ehDona ? (
+        <Button asChild>
+          <Link href="/produtos/novo">
+            <Plus aria-hidden />
+            Novo produto
+          </Link>
+        </Button>
+      ) : null}
+    </div>
+  );
+}
+
 function Acoes({ p }: { p: Produto }) {
   return (
     <>
@@ -61,12 +81,39 @@ function Acoes({ p }: { p: Produto }) {
   );
 }
 
-export default async function ProdutosPage() {
-  // Todos consultam; só a dona edita e só ela vê o custo (R10).
+type Parametro = string | string[] | undefined;
+const primeiro = (v: Parametro) => (Array.isArray(v) ? v[0] : v);
+
+export default async function ProdutosPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<"aba" | "produto" | "de" | "ate", Parametro>>;
+}) {
+  // Todos consultam; só a dona edita e só ela vê o custo (R10) e o estoque.
   const { colaborador } = await exigirPerfil(...perfisComAcesso("produtos"));
   const ehDona = colaborador.perfil === "dona";
+  const sp = await searchParams;
+  // Recepção/profissional: sempre a lista, sem abas.
+  const aba = abaDeProdutos(colaborador.perfil, primeiro(sp.aba));
+  const abas = abasDeProdutos(colaborador.perfil);
 
   const supabase = await createClient();
+
+  if (aba === "estoque") {
+    const agora = new Date();
+    const pedido = primeiro(sp.produto);
+    const produtoId = pedido && idSchema.safeParse(pedido).success ? pedido : null;
+    const periodo = periodoDoEstoque({ de: primeiro(sp.de), ate: primeiro(sp.ate) }, agora);
+    const dados = await carregarEstoque(supabase, { produtoId, ...periodo });
+    return (
+      <div className="flex flex-col gap-6">
+        <Cabecalho ehDona />
+        <AbasProdutos abas={abas} atual={aba} />
+        <AbaEstoque dados={dados} produtoId={produtoId} {...periodo} hoje={dataNoFuso(agora)} />
+      </div>
+    );
+  }
+
   let consultaProdutos = supabase
     .from("produtos")
     .select("id, nome, unidade, preco_venda_centavos, estoque_atual, estoque_minimo, ativo")
@@ -95,19 +142,8 @@ export default async function ProdutosPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">
-          Produtos
-        </h1>
-        {ehDona ? (
-          <Button asChild>
-            <Link href="/produtos/novo">
-              <Plus aria-hidden />
-              Novo produto
-            </Link>
-          </Button>
-        ) : null}
-      </div>
+      <Cabecalho ehDona={ehDona} />
+      {abas.length > 1 ? <AbasProdutos abas={abas} atual={aba} /> : null}
 
       {produtos.length === 0 ? (
         <p className="text-muted-foreground">Nenhum produto cadastrado.</p>
