@@ -5,7 +5,14 @@ import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, falha, OK, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
-import { configuracoesSchema, type ConfiguracoesInput } from "./schemas";
+import {
+  configuracoesSchema,
+  type ConfiguracoesInput,
+  modeloSchema,
+  type ModeloInput,
+  whatsappConfigSchema,
+  type WhatsappConfigInput,
+} from "./schemas";
 
 export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Resultado> {
   await exigirPerfil("dona");
@@ -40,6 +47,55 @@ export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Re
       },
       { onConflict: "linha_unica" },
     );
+    if (error) return falha(mensagemErroBanco(error));
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidatePath("/configuracoes");
+  return OK;
+}
+
+export async function salvarConfigWhatsapp(dados: WhatsappConfigInput): Promise<Resultado> {
+  await exigirPerfil("dona");
+
+  const parsed = whatsappConfigSchema.safeParse(dados);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+  const { ativo, janelaInicio, janelaFim, limitePorHora } = parsed.data;
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("configuracoes_clinica")
+      .update({
+        whatsapp_ativo: ativo,
+        whatsapp_janela_inicio: janelaInicio,
+        whatsapp_janela_fim: janelaFim,
+        whatsapp_limite_por_hora: limitePorHora,
+      })
+      .eq("linha_unica", true);
+    if (error) return falha(mensagemErroBanco(error));
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidatePath("/configuracoes");
+  return OK;
+}
+
+export async function salvarModelo(dados: ModeloInput): Promise<Resultado> {
+  await exigirPerfil("dona");
+
+  const parsed = modeloSchema.safeParse(dados);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+  const { tipo, variacoes, ativo } = parsed.data;
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase
+      .from("modelos_mensagem")
+      .update({ variacoes, ativo, atualizado_em: new Date().toISOString() })
+      .eq("tipo", tipo);
     if (error) return falha(mensagemErroBanco(error));
   } catch {
     return falha(ERRO_INESPERADO);
