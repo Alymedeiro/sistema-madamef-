@@ -404,6 +404,19 @@ describe("alterarStatus", () => {
     expect(falso.chamadasRpc("agendamentos_com_termo_pendente")).toHaveLength(0);
   });
 
+  it("dona desmarcando atendido com comissão paga recebe a mensagem do banco", async () => {
+    perfilAtual = "dona";
+    atual("atendido");
+    falso.responder("agendamentos", {
+      data: null,
+      error: { code: "P0001", message: "A comissão deste atendimento já foi paga." },
+    });
+    expect(await alterarStatus(AG, "confirmado")).toEqual({
+      ok: false,
+      erro: "A comissão deste atendimento já foi paga.",
+    });
+  });
+
   it("avisa quando outra pessoa mudou o status antes", async () => {
     atual("pendente");
     falso.responder("agendamentos", ok([]));

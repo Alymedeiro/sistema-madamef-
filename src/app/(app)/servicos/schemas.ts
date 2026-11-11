@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { centavosSchema, quantidadeNaoNegativaSchema, textoOpcional } from "@/lib/validacao";
+import {
+  centavosSchema,
+  percentualOpcionalSchema,
+  quantidadeNaoNegativaSchema,
+  textoOpcional,
+} from "@/lib/validacao";
 
 export const categoriaSchema = z.object({
   nome: z
@@ -13,7 +18,6 @@ export type CategoriaInput = z.input<typeof categoriaSchema>;
 
 const MSG_DURACAO = "A duração deve ser de 5 a 480 minutos, em múltiplos de 5.";
 
-// Sem comissão (R9): fica para a Fase 4, em armazenamento só da dona.
 export const servicoSchema = z.object({
   nome: z
     .string()
@@ -44,6 +48,8 @@ export const servicoSchema = z.object({
     .union([z.literal(""), z.uuid("Escolha um termo válido."), z.null()])
     .optional()
     .transform((v) => v || null),
+  /** "12,5" → 12.5; vazio = null (usa a padrão da profissional). Só a dona grava. */
+  comissaoPct: percentualOpcionalSchema,
 });
 
 export type ServicoInput = z.input<typeof servicoSchema>;

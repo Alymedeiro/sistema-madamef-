@@ -17,8 +17,16 @@ export const produtoSchema = z.object({
   precoVendaCentavos: centavosSchema.nullish().transform((v) => v ?? null),
   /** Custo unitário: gravado em produtos_custos, que só a dona enxerga (R10). */
   custoCentavos: centavosSchema,
-  estoqueAtual: quantidadeNaoNegativaSchema(MSG_ESTOQUE),
   estoqueMinimo: quantidadeNaoNegativaSchema(MSG_ESTOQUE),
 });
 
+/**
+ * Na criação, o estoque inicial entra como ajuste (motivo "Estoque inicial");
+ * depois disso o estoque só muda por entrada ou ajuste, nunca pelo cadastro.
+ */
+export const produtoNovoSchema = produtoSchema.extend({
+  estoqueInicial: quantidadeNaoNegativaSchema(MSG_ESTOQUE).optional().transform((v) => v ?? 0),
+});
+
 export type ProdutoInput = z.input<typeof produtoSchema>;
+export type ProdutoNovoInput = z.input<typeof produtoNovoSchema>;

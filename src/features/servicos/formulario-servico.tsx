@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { quantidadeParaCampo } from "@/lib/dominio/catalogo";
 import { formatarBRL, parseBRL } from "@/lib/dominio/dinheiro";
 import { cn } from "@/lib/utils";
 import { salvarServico } from "@/app/(app)/servicos/actions";
@@ -25,6 +26,7 @@ type Valores = {
   permiteOnline: boolean;
   exigeAvaliacao: boolean;
   modeloTermoId: string;
+  comissaoPct: string;
 };
 
 type Props = {
@@ -43,6 +45,8 @@ type Props = {
     permiteOnline: boolean;
     exigeAvaliacao: boolean;
     modeloTermoId: string | null;
+    /** Comissão própria do serviço (só a dona carrega); null = usa a padrão. */
+    comissaoPct: number | null;
   };
 };
 
@@ -54,6 +58,7 @@ const CAMPOS_ERRO: Record<string, keyof Valores> = {
   precoCentavos: "preco",
   diasRetorno: "diasRetorno",
   modeloTermoId: "modeloTermoId",
+  comissaoPct: "comissaoPct",
 };
 
 const texto = (n: number) => (Number.isFinite(n) ? String(n) : "");
@@ -73,6 +78,8 @@ export function FormularioServico({ categorias, termos = [], servico }: Props) {
     permiteOnline: servico?.permiteOnline ?? false,
     exigeAvaliacao: servico?.exigeAvaliacao ?? false,
     modeloTermoId: servico?.modeloTermoId ?? "",
+    comissaoPct:
+      servico && servico.comissaoPct !== null ? quantidadeParaCampo(servico.comissaoPct) : "",
   });
   const [erros, setErros] = useState<Partial<Record<keyof Valores, string>>>({});
   const [pendente, iniciar] = useTransition();
@@ -94,6 +101,7 @@ export function FormularioServico({ categorias, termos = [], servico }: Props) {
       permiteOnline: valores.permiteOnline,
       exigeAvaliacao: valores.exigeAvaliacao,
       modeloTermoId: valores.modeloTermoId,
+      comissaoPct: valores.comissaoPct,
     };
     const check = servicoSchema.safeParse(dados);
     if (!check.success) {
@@ -231,6 +239,23 @@ export function FormularioServico({ categorias, termos = [], servico }: Props) {
           Depois de quantos dias a cliente deve voltar. Deixe vazio se não há retorno.
         </p>
         {erroDe("diasRetorno")}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={campo("comissaoPct")}>Comissão (%)</Label>
+        <Input
+          id={campo("comissaoPct")}
+          inputMode="decimal"
+          value={valores.comissaoPct}
+          onChange={(e) => definir("comissaoPct", e.target.value)}
+          autoComplete="off"
+          className="sm:max-w-48"
+          {...aria("comissaoPct")}
+        />
+        <p className="text-sm text-muted-foreground">
+          Vazio = usa a comissão padrão da profissional.
+        </p>
+        {erroDe("comissaoPct")}
       </div>
 
       <div className="flex flex-col gap-2">

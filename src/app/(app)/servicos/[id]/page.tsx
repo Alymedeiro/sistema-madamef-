@@ -38,7 +38,8 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
   if (!novo && !idSchema.safeParse(id).success) notFound();
 
   const supabase = await createClient();
-  const [categorias, servico, vinculos, produtos, termos] = await Promise.all([
+  // Página só da dona (exigirPerfil acima): o percentual só é lido por ela.
+  const [categorias, servico, vinculos, produtos, termos, comissao] = await Promise.all([
     supabase.from("categorias_servico").select("id, nome").order("nome", { ascending: true }),
     novo
       ? Promise.resolve({ data: null, error: null })
@@ -58,8 +59,11 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
       .select("id, titulo")
       .eq("ativo", true)
       .order("titulo", { ascending: true }),
+    novo
+      ? Promise.resolve({ data: null, error: null })
+      : supabase.from("servicos_comissao").select("percentual").eq("servico_id", id).maybeSingle(),
   ]);
-  for (const r of [categorias, servico, vinculos, produtos, termos]) {
+  for (const r of [categorias, servico, vinculos, produtos, termos, comissao]) {
     if (r.error) throw new Error(`Falha ao carregar o serviço: ${r.error.message}`);
   }
   const s = servico.data;
@@ -114,6 +118,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
                 permiteOnline: s.permite_online,
                 exigeAvaliacao: s.exige_avaliacao,
                 modeloTermoId: s.modelo_termo_id,
+                comissaoPct: comissao.data ? Number(comissao.data.percentual) : null,
               }
             : undefined
         }

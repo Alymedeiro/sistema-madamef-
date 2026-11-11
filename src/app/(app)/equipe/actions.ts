@@ -35,12 +35,31 @@ function mensagemDeConvite(erro: { code?: string; message?: string }): string {
   return ERRO_INESPERADO;
 }
 
+/**
+ * Comissão padrão da profissional (colaboradores_comissao, só a dona lê e grava).
+ * `undefined` = campo não enviado, não mexe. Devolve a mensagem de erro, se houver.
+ */
+async function gravarComissaoPadrao(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  colaboradorId: string,
+  percentual: number | undefined,
+): Promise<string | null> {
+  if (percentual === undefined) return null;
+  const { error } = await supabase
+    .from("colaboradores_comissao")
+    .upsert(
+      { colaborador_id: colaboradorId, percentual },
+      { onConflict: "colaborador_id" },
+    );
+  return error ? mensagemErroBanco(error) : null;
+}
+
 export async function convidarColaborador(dados: ColaboradorInput): Promise<Resultado> {
   await exigirPerfil("dona");
 
   const parsed = colaboradorSchema.safeParse(dados);
   if (!parsed.success) return falha(parsed.error.issues[0].message);
-  const { email, nome, funcao, perfil, cor, telefone } = parsed.data;
+  const { email, nome, funcao, perfil, cor, telefone, comissaoPadraoPct } = parsed.data;
 
   try {
     const admin = createAdminClient();
@@ -50,18 +69,30 @@ export async function convidarColaborador(dados: ColaboradorInput): Promise<Resu
     const authId = data.user.id;
 
     const supabase = await createClient();
-    const { error: erroInsert } = await supabase.from("colaboradores").insert({
-      usuario_auth_id: authId,
-      nome,
-      funcao,
-      perfil,
-      cor,
-      telefone,
-    });
-    if (erroInsert) {
+    const { data: novo, error: erroInsert } = await supabase
+      .from("colaboradores")
+      .insert({
+        usuario_auth_id: authId,
+        nome,
+        funcao,
+        perfil,
+        cor,
+        telefone,
+      })
+      .select("id")
+      .single();
+    if (erroInsert || !novo) {
       // Sem órfãos: o usuário do Auth recém-criado não pode ficar sem colaborador.
       await admin.auth.admin.deleteUser(authId).catch(() => undefined);
-      return falha(mensagemErroBanco(erroInsert));
+      return falha(erroInsert ? mensagemErroBanco(erroInsert) : ERRO_INESPERADO);
+    }
+
+    const erroComissao = await gravarComissaoPadrao(supabase, novo.id, comissaoPadraoPct);
+    if (erroComissao) {
+      revalidatePath("/equipe");
+      return falha(
+        `O convite foi enviado, mas não foi possível salvar a comissão. ${erroComissao}`,
+      );
     }
   } catch {
     return falha(ERRO_INESPERADO);
@@ -83,16 +114,23 @@ export async function atualizarColaborador(
 
   const guarda = podeAlterarAcesso(sessao.colaborador.id, id, { perfil: parsed.data.perfil });
   if (!guarda.ok) return falha(guarda.erro);
+  const { comissaoPadraoPct, ...dadosColaborador } = parsed.data;
 
   try {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("colaboradores")
-      .update(parsed.data)
+      .update(dadosColaborador)
       .eq("id", id)
       .select("id");
     if (error) return falha(mensagemErroBanco(error));
     if (!data?.length) return falha("Colaborador não encontrado.");
+
+    const erroComissao = await gravarComissaoPadrao(supabase, id, comissaoPadraoPct);
+    if (erroComissao) {
+      revalidatePath(`/equipe/${id}`);
+      return falha(`Os dados foram salvos, mas não foi possível salvar a comissão. ${erroComissao}`);
+    }
   } catch {
     return falha(ERRO_INESPERADO);
   }

@@ -6,7 +6,7 @@ import {
   NOME_DIA,
   type Intervalo,
 } from "@/lib/dominio/intervalos";
-import { telefoneOpcional, textoOpcional } from "@/lib/validacao";
+import { percentualPadraoSchema, telefoneOpcional, textoOpcional } from "@/lib/validacao";
 
 export const PERFIS = ["dona", "recepcao", "profissional"] as const;
 
@@ -25,6 +25,8 @@ export const colaboradorSchema = z.object({
   perfil: z.enum(PERFIS, "Escolha o perfil."),
   cor: z.string().regex(/^#[0-9A-Fa-f]{6}$/, "Use uma cor no formato #RRGGBB."),
   telefone: telefoneOpcional,
+  /** "12,5" → 12.5; vazio = 0. Gravado em colaboradores_comissao (só a dona). */
+  comissaoPadraoPct: percentualPadraoSchema,
 });
 
 /** Na edição o e-mail não muda (é o login da pessoa). */

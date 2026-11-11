@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { produtoSchema } from "./schemas";
+import { produtoNovoSchema, produtoSchema } from "./schemas";
 
 const valido = {
   nome: "Ácido hialurônico",
   unidade: "ml",
   precoVendaCentavos: null,
   custoCentavos: 12000,
-  estoqueAtual: 10,
   estoqueMinimo: 2,
 };
 
@@ -15,14 +14,25 @@ describe("produtoSchema", () => {
     expect(produtoSchema.safeParse(valido).success).toBe(true);
   });
 
-  it("aceita estoque decimal até 3 casas e rejeita mais", () => {
-    expect(produtoSchema.safeParse({ ...valido, estoqueAtual: 0.125 }).success).toBe(true);
-    expect(produtoSchema.safeParse({ ...valido, estoqueAtual: 0.1255 }).success).toBe(false);
+  it("edição não carrega estoque: estoqueAtual/estoqueInicial são descartados", () => {
+    const r = produtoSchema.safeParse({ ...valido, estoqueAtual: 10, estoqueInicial: 3 });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect("estoqueAtual" in r.data).toBe(false);
+      expect("estoqueInicial" in r.data).toBe(false);
+    }
   });
 
-  it("rejeita estoque mínimo negativo e estoque atual negativo", () => {
+  it("criação: estoque inicial ausente vira 0; decimal até 3 casas; não negativo", () => {
+    const ausente = produtoNovoSchema.safeParse(valido);
+    expect(ausente.success && ausente.data.estoqueInicial).toBe(0);
+    expect(produtoNovoSchema.safeParse({ ...valido, estoqueInicial: 0.125 }).success).toBe(true);
+    expect(produtoNovoSchema.safeParse({ ...valido, estoqueInicial: 0.1255 }).success).toBe(false);
+    expect(produtoNovoSchema.safeParse({ ...valido, estoqueInicial: -1 }).success).toBe(false);
+  });
+
+  it("rejeita estoque mínimo negativo", () => {
     expect(produtoSchema.safeParse({ ...valido, estoqueMinimo: -1 }).success).toBe(false);
-    expect(produtoSchema.safeParse({ ...valido, estoqueAtual: -1 }).success).toBe(false);
   });
 
   it("rejeita custo negativo ou fracionado, aceita 0", () => {
