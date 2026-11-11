@@ -579,6 +579,122 @@ export type Database = {
         Relationships: [
         ]
       }
+      // 0011: % padrão da profissional (0–100, 2 casas); sem linha = 0%. Só a
+      // dona lê e escreve; ninguém apaga.
+      colaboradores_comissao: {
+        Row: {
+          atualizado_em: string
+          colaborador_id: string
+          percentual: number
+        }
+        Insert: {
+          atualizado_em?: string
+          colaborador_id: string
+          percentual: number
+        }
+        Update: {
+          atualizado_em?: string
+          colaborador_id?: string
+          percentual?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "colaboradores_comissao_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: true
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // 0011: uma por agendamento (unique), gravada pelo gatilho ao marcar
+      // 'atendido'; só a dona lê; sem escrita direta (gatilhos e
+      // pagar_comissoes). Competência = 1º dia do mês (SP). Paga ⇔ pago_em;
+      // cancelada ⇔ cancelada_em e cancelada_motivo; conta_pagar_id só se paga
+      // (nula quando o total pago foi 0).
+      comissoes: {
+        Row: {
+          agendamento_id: string
+          atualizado_em: string
+          base_centavos: number
+          cancelada_em: string | null
+          cancelada_motivo: string | null
+          competencia: string
+          conta_pagar_id: string | null
+          criado_em: string
+          id: string
+          pago_em: string | null
+          percentual: number
+          profissional_id: string
+          servico_id: string
+          status: Database["public"]["Enums"]["status_comissao"]
+          valor_centavos: number
+        }
+        Insert: {
+          agendamento_id: string
+          atualizado_em?: string
+          base_centavos: number
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          competencia: string
+          conta_pagar_id?: string | null
+          criado_em?: string
+          id?: string
+          pago_em?: string | null
+          percentual: number
+          profissional_id: string
+          servico_id: string
+          status?: Database["public"]["Enums"]["status_comissao"]
+          valor_centavos: number
+        }
+        Update: {
+          agendamento_id?: string
+          atualizado_em?: string
+          base_centavos?: number
+          cancelada_em?: string | null
+          cancelada_motivo?: string | null
+          competencia?: string
+          conta_pagar_id?: string | null
+          criado_em?: string
+          id?: string
+          pago_em?: string | null
+          percentual?: number
+          profissional_id?: string
+          servico_id?: string
+          status?: Database["public"]["Enums"]["status_comissao"]
+          valor_centavos?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "comissoes_agendamento_id_fkey"
+            columns: ["agendamento_id"]
+            isOneToOne: true
+            referencedRelation: "agendamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comissoes_conta_pagar_id_fkey"
+            columns: ["conta_pagar_id"]
+            isOneToOne: false
+            referencedRelation: "contas_pagar"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comissoes_profissional_id_fkey"
+            columns: ["profissional_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "comissoes_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       configuracoes_clinica: {
         Row: {
           atualizado_em: string
@@ -1665,6 +1781,34 @@ export type Database = {
           },
         ]
       }
+      // 0011: % do serviço (0–100), sobrepõe a da profissional; sem linha = usa
+      // a da profissional. Só a dona lê, escreve e apaga.
+      servicos_comissao: {
+        Row: {
+          atualizado_em: string
+          servico_id: string
+          percentual: number
+        }
+        Insert: {
+          atualizado_em?: string
+          servico_id: string
+          percentual: number
+        }
+        Update: {
+          atualizado_em?: string
+          servico_id?: string
+          percentual?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "servicos_comissao_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: true
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       termos_assinados: {
         Row: {
           agendamento_id: string | null
@@ -1930,6 +2074,34 @@ export type Database = {
         Args: { p_aba: string; p_de: string; p_ate: string }
         Returns: undefined
       }
+      // 0011: só a dona (senão "Apenas a dona pode lançar contas."). Paga as
+      // comissões em aberto da profissional no mês de p_competencia; nenhuma →
+      // "Não há comissões em aberto.". Total > 0 cria conta salario paga
+      // ("Comissão — <nome> — <MM/AAAA>") e devolve o id; total 0 → null.
+      // p_forma nunca 'a_receber' (23514).
+      pagar_comissoes: {
+        Args: {
+          p_profissional: string
+          p_competencia: string
+          p_pago_em: string
+          p_forma: Database["public"]["Enums"]["forma_pagamento"]
+        }
+        Returns: string | null
+      }
+      // 0011: só a dona (senão "Acesso não autorizado"). Por profissional e
+      // competência, de date_trunc('month', p_de) até p_ate; sem canceladas.
+      resumo_comissoes: {
+        Args: { p_de: string; p_ate: string }
+        Returns: {
+          profissional_id: string
+          nome: string
+          competencia: string
+          qtd: number
+          base: number
+          aberto: number
+          pago: number
+        }[]
+      }
       // 0007: só a dona; só pacote ativo.
       cancelar_pacote: { Args: { p_pacote: string }; Returns: undefined }
       cliente_do_caminho: { Args: { p_nome: string }; Returns: string | null }
@@ -2116,6 +2288,7 @@ export type Database = {
         | "faltou"
         | "cancelado"
       status_pacote: "ativo" | "concluido" | "expirado" | "cancelado"
+      status_comissao: "aberta" | "paga" | "cancelada"
       status_conta: "aberta" | "paga" | "cancelada"
       status_pedido_online: "aguardando" | "aprovado" | "recusado" | "expirado"
       tipo_foto: "antes" | "depois" | "evolucao"
@@ -2275,6 +2448,7 @@ export const Constants = {
         "cancelado",
       ],
       status_pacote: ["ativo", "concluido", "expirado", "cancelado"],
+      status_comissao: ["aberta", "paga", "cancelada"],
       status_conta: ["aberta", "paga", "cancelada"],
       status_pedido_online: ["aguardando", "aprovado", "recusado", "expirado"],
       tipo_foto: ["antes", "depois", "evolucao"],

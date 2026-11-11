@@ -290,6 +290,8 @@ describe("aniversariantes_entre", () => {
 
   beforeAll(async () => {
     await comoSuperusuario(async (c) => {
+      // Comissões (0011) referenciam o agendamento.
+      await c.query("delete from comissoes");
       await c.query("delete from agendamentos");
       const cliente = async (nome: string, nascimento: string | null, ativo = true) => {
         const r = await c.query<{ id: string }>(

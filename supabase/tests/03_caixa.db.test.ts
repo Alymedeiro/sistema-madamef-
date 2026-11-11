@@ -1229,6 +1229,11 @@ describe("agendamentos_sem_pagamento", () => {
     await comoSuperusuario(async (c) => {
       await c.query("delete from pagamentos where agendamento_id is not null");
       await c.query("delete from cobrancas where agendamento_id is not null");
+      // Comissões (0011) referenciam o agendamento.
+      await c.query(
+        `delete from comissoes where agendamento_id in (
+           select id from agendamentos where inicio >= '2030-03-01' and inicio < '2030-04-01')`,
+      );
       await c.query(
         "delete from agendamentos where inicio >= '2030-03-01' and inicio < '2030-04-01'",
       );
