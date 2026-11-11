@@ -9,7 +9,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts", "e2e/*.unit.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx", "e2e/*.unit.ts"],
     // Garante que os testes de domínio não dependam do fuso do aparelho.
     env: { TZ: "UTC" },
   },

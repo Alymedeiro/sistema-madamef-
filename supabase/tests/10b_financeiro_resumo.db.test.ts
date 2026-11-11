@@ -360,6 +360,30 @@ describe("avisos lidos", () => {
   });
 });
 
+describe("avisos lidos: renovação", () => {
+  it("marcar de novo uma chave antiga renova lido_em para agora", async () => {
+    const chave = "pagar:antiga:7";
+    await comoSuperusuario((c) =>
+      c.query(
+        "insert into avisos_lidos (colaborador_id, chave, lido_em) values ($1, $2, now() - interval '3 days')",
+        [donaId, chave],
+      ),
+    );
+    try {
+      await comoUsuario(dona, async (c) => {
+        await c.query("select marcar_avisos_lidos(array[$1]::text[])", [chave]);
+        const r = await c.query<{ recente: boolean; n: string }>(
+          "select lido_em >= now() - interval '1 minute' as recente, (select count(*) from avisos_lidos where chave = $1) as n from avisos_lidos where chave = $1",
+          [chave],
+        );
+        expect(r.rows).toEqual([{ recente: true, n: "1" }]);
+      });
+    } finally {
+      await comoSuperusuario((c) => c.query("delete from avisos_lidos where chave = $1", [chave]));
+    }
+  });
+});
+
 describe("relatórios gerados", () => {
   it("registra aba e período da dona; só dona lê; de > ate → 23514", async () => {
     await comoUsuario(dona, async (c) => {

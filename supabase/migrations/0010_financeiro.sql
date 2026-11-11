@@ -1073,7 +1073,8 @@ create policy relatorios_gerados_select on public.relatorios_gerados
   for select to authenticated
   using ((select public.perfil_atual()) = 'dona');
 
--- Idempotente (on conflict do nothing); nulos e repetidas são ignoradas.
+-- Idempotente; reler uma chave já marcada renova lido_em (o sino só vale as lidas hoje).
+-- Nulos e repetidas são ignoradas.
 -- Chave vazia ou com mais de 120 caracteres → 23514.
 create function public.marcar_avisos_lidos(p_chaves text[])
 returns void
@@ -1088,7 +1089,7 @@ begin
   select distinct public.colaborador_atual_id(), k.chave
   from unnest(p_chaves) as k (chave)
   where k.chave is not null
-  on conflict (colaborador_id, chave) do nothing;
+  on conflict (colaborador_id, chave) do update set lido_em = now();
 end;
 $$;
 
