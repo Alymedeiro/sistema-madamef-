@@ -11,6 +11,10 @@
 // telefone e nome são únicos por execução, e as verificações se limitam ao que esta execução
 // criou. Como a configuração é global, os 3 viewports se revezam por um lock em arquivo
 // (nunca rodam este spec ao mesmo tempo).
+// Os diálogos "Pedido aprovado/recusado" só mostram "Avisar no WhatsApp" com o envio
+// automático DESLIGADO, e whatsapp.spec liga e desliga configuracoes_clinica.whatsapp_ativo:
+// por isso este spec também pega a trava compartilhada de e2e/trava-caixa.ts (a mesma do
+// whatsapp.spec; sempre ANTES do lock próprio) e grava whatsapp_ativo = false enquanto a tem.
 import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +23,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, dataEm, entrar, profissionalDeTeste } from "./ficha-suporte";
 import { liberarHorario } from "./horario-livre";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
 test.describe.configure({ mode: "serial" });
 
@@ -28,6 +33,7 @@ const VIEWPORTS = ["computador", "tablet", "celular"];
 
 let admin: SupabaseClient;
 let lockAdquirido = false;
+let liberarTrava: (() => Promise<void>) | null = null;
 let indice = 0;
 let dia = "";
 let profissional: { id: string; nome: string };
@@ -84,10 +90,11 @@ async function limparTeste() {
 }
 
 test.beforeAll(async ({}, testInfo) => {
-  test.setTimeout(10 * 60_000);
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E do agendamento online");
   admin = clienteAdmin();
   indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));
+  liberarTrava = await adquirirTravaCaixa();
   await adquirirLock();
 
   dia = diaComSemana(4 + indice);
@@ -102,10 +109,11 @@ test.beforeAll(async ({}, testInfo) => {
   if (ec) throw ec;
   configId = cfg.id;
   telefoneOriginal = cfg.telefone;
+  // Envio automático desligado: os diálogos mostram "Avisar no WhatsApp" (o caminho manual).
   await falhar(
     admin
       .from("configuracoes_clinica")
-      .update({ online_ativo: true, telefone: cfg.telefone ?? "(11) 3333-0000" })
+      .update({ online_ativo: true, whatsapp_ativo: false, telefone: cfg.telefone ?? "(11) 3333-0000" })
       .eq("id", configId),
   );
 
@@ -152,7 +160,12 @@ test.afterAll(async () => {
         .eq("id", configId);
     }
   } finally {
-    if (lockAdquirido) await rm(LOCK, { recursive: true, force: true });
+    try {
+      if (lockAdquirido) await rm(LOCK, { recursive: true, force: true });
+    } finally {
+      await liberarTrava?.();
+      liberarTrava = null;
+    }
   }
 });
 

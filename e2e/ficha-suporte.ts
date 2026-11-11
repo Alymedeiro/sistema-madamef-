@@ -51,14 +51,16 @@ export async function profissionalDeTeste(
 
 /**
  * Cria uma cliente nova, um serviço com termo próprio (preço R$ 100,00) e um atendimento
- * confirmado da profissional de teste (ou de `usuario`) em `dataEm(5)`, na hora indicada (um
- * horário por viewport, para os projetos paralelos não se atropelarem). O horário é liberado
- * antes com `liberarHorario` (cancela ou arquiva o que sobrou de execuções anteriores).
+ * confirmado da profissional de teste (ou de `usuario`) em `dataEm(dias)` (padrão hoje+5), na
+ * hora indicada (um horário por viewport, para os projetos paralelos não se atropelarem). O
+ * horário é liberado antes com `liberarHorario` (cancela ou arquiva o que sobrou de execuções
+ * anteriores). Um spec que não pode dividir o dia com os outros passa `dias` próprio.
  */
 export async function prepararFicha(
   admin: SupabaseClient,
   hora: string,
   usuario: { email: string } = USUARIOS.profissional,
+  dias = 5,
 ): Promise<FixtureFicha> {
   const profissional = await profissionalDeTeste(admin, usuario);
   const sufixo = `${Date.now()}-${hora}`;
@@ -98,7 +100,7 @@ export async function prepararFicha(
     .single();
   if (ec) throw ec;
 
-  const data = dataEm(5);
+  const data = dataEm(dias);
   const h = hora.padStart(2, "0");
   await liberarHorario(admin, profissional.id, `${data}T${h}:00:00-03:00`, `${data}T${h}:59:00-03:00`);
   const { data: ag, error: ea } = await admin

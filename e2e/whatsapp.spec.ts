@@ -3,7 +3,8 @@
 // ATENÇÃO: nada é apagado. fila_mensagens e mensagens_recebidas não têm "delete" nem "update"
 // para o service_role (só as funções security definer mexem): a mensagem avulsa fica na fila
 // como Cancelada, a resposta fica como lida, a cliente e o atendimento ficam no projeto de
-// testes (cliente e telefone únicos por execução; o horário é liberado por prepararFicha).
+// testes (cliente e telefone únicos por execução; o horário, em hoje+24, é liberado por
+// prepararFicha).
 // A resposta recebida entra por registrar_recebida (service role), como o webhook faz.
 // O spec NUNCA deixa "Envio automático ativo" ligado (o projeto de testes não pode enviar):
 // o afterAll grava whatsapp_ativo = false e devolve o texto original do modelo editado. Como
@@ -11,13 +12,20 @@
 // de e2e/trava-caixa.ts.
 import { expect, test, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ARQUIVO_ESTADO, pularSemBackend } from "./suporte";
+import { ARQUIVO_ESTADO, USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, prepararFicha, type FixtureFicha } from "./ficha-suporte";
 import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
 test.describe.configure({ mode: "serial" });
 
 const VIEWPORTS = ["computador", "tablet", "celular"];
+
+/**
+ * Dia do atendimento (hoje + N). Os outros specs usam, para a mesma profissional: ficha e
+ * comissões hoje+5, cobrança hoje e hoje+6, permissões hoje+3, agendar hoje+14…20 (o dia todo)
+ * e agenda uma terça entre hoje+2 e hoje+22 (o dia todo). hoje+24 não é de ninguém.
+ */
+const DIAS_WHATSAPP = 24;
 
 let admin: SupabaseClient;
 let liberarTrava: (() => Promise<void>) | null = null;
@@ -42,8 +50,9 @@ test.beforeAll(async ({}, testInfo) => {
   const indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));
   liberarTrava = await adquirirTravaCaixa();
 
-  // Cliente nova com WhatsApp único e um atendimento confirmado (horário 8 + viewport).
-  fx = await prepararFicha(admin, String(8 + indice));
+  // Cliente nova com WhatsApp único e um atendimento confirmado em hoje+DIAS_WHATSAPP (dia que
+  // nenhum outro spec usa para a profissional de teste), às 8 + viewport.
+  fx = await prepararFicha(admin, String(8 + indice), USUARIOS.profissional, DIAS_WHATSAPP);
   sufixo = `${VIEWPORTS[indice]} ${Date.now()}`;
   whatsapp = `55119${String(Date.now()).slice(-7)}${indice}`;
   await falhar(admin.from("clientes").update({ whatsapp }).eq("id", fx.cliente.id));
