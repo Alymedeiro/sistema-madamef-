@@ -171,6 +171,37 @@ export async function carregarRespostas(
   return ((data ?? []) as unknown as LinhaResposta[]).map(paraResposta);
 }
 
+const SELECT_CHAVE = "status, tipo, cliente_id, agendamento_id, pedido_online_id, criado_em";
+
+export type LinhaChave = {
+  status: StatusMensagem;
+  tipo: TipoMensagem;
+  cliente_id: string | null;
+  agendamento_id: string | null;
+  pedido_online_id: string | null;
+  criado_em: string;
+};
+
+/**
+ * Falhas que ainda pedem atenção: "Tentar de novo" cria uma mensagem nova e a
+ * antiga fica `falhou`; ela deixa de contar quando há uma mais nova, não
+ * cancelada nem com falha, do mesmo tipo, cliente e agendamento/pedido.
+ */
+export function contarFalhasSemReenvio(linhas: LinhaChave[]): number {
+  const chave = (l: LinhaChave) =>
+    [l.tipo, l.cliente_id ?? "", l.agendamento_id ?? "", l.pedido_online_id ?? ""].join("|");
+  const ultimaViva = new Map<string, number>();
+  for (const l of linhas) {
+    if (l.status === "falhou") continue;
+    const t = new Date(l.criado_em).getTime();
+    const k = chave(l);
+    ultimaViva.set(k, Math.max(ultimaViva.get(k) ?? -Infinity, t));
+  }
+  return linhas.filter(
+    (l) => l.status === "falhou" && !((ultimaViva.get(chave(l)) ?? -Infinity) > new Date(l.criado_em).getTime()),
+  ).length;
+}
+
 /**
  * Alertas do Início: conexão caída com o envio ligado, falhas dos últimos 7
  * dias e respostas não lidas que pedem atenção (quer remarcar e para ler).
@@ -185,9 +216,10 @@ export async function carregarAlertasWhatsapp(
     supabase.from("whatsapp_status").select("estado").maybeSingle(),
     supabase
       .from("fila_mensagens")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "falhou")
-      .gte("atualizado_em", desde),
+      .select(SELECT_CHAVE)
+      .in("status", ["falhou", "pendente", "enviando", "enviada"])
+      .gte("atualizado_em", desde)
+      .limit(1000),
     supabase
       .from("mensagens_recebidas")
       .select(SELECT_RESPOSTA)
@@ -199,13 +231,14 @@ export async function carregarAlertasWhatsapp(
   falhou("a configuração do WhatsApp", config.error);
   falhou("o estado do WhatsApp", status.error);
   falhou("as mensagens com falha", falhas.error);
+  const linhasFalhas = (falhas.data ?? []) as unknown as LinhaChave[];
   falhou("as respostas do WhatsApp", respostas.error);
 
   const ativo = config.data?.whatsapp_ativo ?? false;
   return {
     desconectado: ativo && status.data?.estado !== "conectado",
     semChaves: ativo && status.data?.estado === "sem_chaves",
-    falhas: falhas.count ?? 0,
+    falhas: contarFalhasSemReenvio(linhasFalhas),
     respostas: ((respostas.data ?? []) as unknown as LinhaResposta[]).map(paraResposta),
   };
 }

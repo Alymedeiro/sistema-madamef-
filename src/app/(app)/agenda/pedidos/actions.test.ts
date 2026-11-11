@@ -93,6 +93,7 @@ describe("aprovarPedido", () => {
     prepararPedido();
     prepararContexto();
     falso.responder("rpc:aprovar_pedido_online", ok(AG));
+    falso.responder("fila_mensagens", ok([{ id: "f1" }]));
 
     const r = await aprovarPedido(entrada);
 
@@ -111,7 +112,11 @@ describe("aprovarPedido", () => {
       profissional: "Fernanda",
       inicio: new Date("2026-11-03T12:00:00.000Z"),
     });
-    expect(r).toEqual({ ok: true, agendamentoId: AG, mensagem, link: expect.any(String) });
+    expect(r).toEqual({ ok: true, agendamentoId: AG, mensagem, link: expect.any(String), naFila: true });
+    expect(falso.chamadasDe("fila_mensagens", "eq").map((c) => c.args)).toEqual([
+      ["pedido_online_id", PEDIDO],
+      ["tipo", "pedido_aprovado"],
+    ]);
     if (!r.ok) throw new Error();
     expect(r.link.startsWith("https://wa.me/55")).toBe(true);
     expect(r.link).toContain(encodeURIComponent(mensagem));
@@ -314,6 +319,7 @@ describe("recusarPedido", () => {
   it("sucesso chama a RPC e devolve o link com mensagemRecusado", async () => {
     prepararPedido();
     falso.responder("rpc:recusar_pedido_online", ok(null));
+    falso.responder("fila_mensagens", ok([{ id: "f1" }]));
     const r = await recusarPedido({ pedidoId: PEDIDO, motivo: "  Agenda cheia " });
 
     expect(falso.chamadasRpc("recusar_pedido_online")[0].args[0]).toEqual({
@@ -325,10 +331,31 @@ describe("recusarPedido", () => {
       servico: "Limpeza de pele",
       site: "https://clinica.exemplo",
     });
-    expect(r).toEqual({ ok: true, mensagem, link: expect.any(String) });
+    expect(r).toEqual({ ok: true, mensagem, link: expect.any(String), naFila: true });
     if (!r.ok) throw new Error();
     expect(r.link.startsWith("https://wa.me/5511987654321")).toBe(true);
     expect(r.link).toContain(encodeURIComponent(mensagem));
+  });
+
+  it("número estrangeiro (o gatilho não enfileira) → naFila false: mantém o botão manual", async () => {
+    prepararPedido({ whatsapp: "351912345678" });
+    falso.responder("rpc:recusar_pedido_online", ok(null));
+    falso.responder("fila_mensagens", ok([]));
+    const r = await recusarPedido({ pedidoId: PEDIDO });
+    expect(r).toMatchObject({ ok: true, naFila: false });
+    if (!r.ok) throw new Error();
+    expect(r.link.startsWith("https://wa.me/351912345678")).toBe(true);
+    expect(falso.chamadasDe("fila_mensagens", "eq").map((c) => c.args)).toEqual([
+      ["pedido_online_id", PEDIDO],
+      ["tipo", "pedido_recusado"],
+    ]);
+  });
+
+  it("erro ao consultar a fila → naFila false (na dúvida, botão manual)", async () => {
+    prepararPedido();
+    falso.responder("rpc:recusar_pedido_online", ok(null));
+    falso.responder("fila_mensagens", { data: null, error: { message: "x" } });
+    expect(await recusarPedido({ pedidoId: PEDIDO })).toMatchObject({ ok: true, naFila: false });
   });
 
   it("sem motivo envia null e repassa erro da RPC", async () => {

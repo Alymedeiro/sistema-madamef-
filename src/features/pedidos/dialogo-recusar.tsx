@@ -20,18 +20,15 @@ import type { PedidoLista } from "./dados";
 /** Recusa com motivo opcional (até 200 caracteres), depois o aviso no WhatsApp. */
 export function DialogoRecusar({
   pedido,
-  envioAtivo,
   onFechar,
 }: {
   pedido: PedidoLista | null;
-  /** Envio automático do WhatsApp ligado: a resposta sai pela fila. */
-  envioAtivo: boolean;
   onFechar: () => void;
 }) {
   return (
     <Dialog open={!!pedido} onOpenChange={(v) => !v && onFechar()}>
       <DialogContent>
-        {pedido && <FormularioRecusar key={pedido.id} pedido={pedido} envioAtivo={envioAtivo} onFechar={onFechar} />}
+        {pedido && <FormularioRecusar key={pedido.id} pedido={pedido} onFechar={onFechar} />}
       </DialogContent>
     </Dialog>
   );
@@ -39,17 +36,15 @@ export function DialogoRecusar({
 
 function FormularioRecusar({
   pedido,
-  envioAtivo,
   onFechar,
 }: {
   pedido: PedidoLista;
-  envioAtivo: boolean;
   onFechar: () => void;
 }) {
   const id = useId();
   const [motivo, setMotivo] = useState("");
   const [erro, setErro] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<{ mensagem: string; link: string } | null>(null);
+  const [resultado, setResultado] = useState<{ mensagem: string; link: string; naFila: boolean } | null>(null);
   const [pendente, iniciar] = useTransition();
 
   function enviar() {
@@ -58,7 +53,7 @@ function FormularioRecusar({
       const r = await recusarPedido({ pedidoId: pedido.id, motivo });
       if (r.ok) {
         toast.success("Pedido recusado. O horário foi liberado.");
-        setResultado({ mensagem: r.mensagem, link: r.link });
+        setResultado({ mensagem: r.mensagem, link: r.link, naFila: r.naFila });
       } else {
         setErro(r.erro);
       }
@@ -70,9 +65,9 @@ function FormularioRecusar({
       <>
         <DialogHeader>
           <DialogTitle>Pedido recusado</DialogTitle>
-          <DialogDescription>{descricaoAviso(envioAtivo)}</DialogDescription>
+          <DialogDescription>{descricaoAviso(resultado.naFila)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} envioAtivo={envioAtivo} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} naFila={resultado.naFila} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar

@@ -3,7 +3,13 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 
 vi.mock("server-only", () => ({}));
 
-import { carregarAlertasWhatsapp, carregarFila, carregarRespostas } from "./dados";
+import {
+  carregarAlertasWhatsapp,
+  carregarFila,
+  carregarRespostas,
+  contarFalhasSemReenvio,
+  type LinhaChave,
+} from "./dados";
 
 const ok = (data: unknown) => ({ data, error: null });
 let falso = criarSupabaseFalso();
@@ -26,11 +32,52 @@ const linhaResposta = {
   agendamentos: { inicio: "2026-11-12T13:00:00Z" },
 };
 
+const falha = (extra: Partial<LinhaChave> = {}): LinhaChave => ({
+  status: "falhou",
+  tipo: "confirmacao",
+  cliente_id: "c1",
+  agendamento_id: "a1",
+  pedido_online_id: null,
+  criado_em: "2026-11-10T10:00:00Z",
+  ...extra,
+});
+
+describe("contarFalhasSemReenvio", () => {
+  it("não conta a falha que já tem uma mais nova viva com a mesma chave", () => {
+    expect(
+      contarFalhasSemReenvio([
+        falha(),
+        falha({ status: "pendente", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    ).toBe(0);
+  });
+
+  it("conta quando a viva é mais antiga, é de outra chave, ou a nova também falhou", () => {
+    expect(
+      contarFalhasSemReenvio([
+        falha(),
+        falha({ status: "enviada", criado_em: "2026-11-09T10:00:00Z" }),
+        falha({ status: "pendente", tipo: "lembrete", criado_em: "2026-11-10T11:00:00Z" }),
+        falha({ criado_em: "2026-11-10T12:00:00Z" }),
+        falha({ tipo: "pedido_recusado", cliente_id: null, agendamento_id: null, pedido_online_id: "p1" }),
+        falha({
+          status: "enviada",
+          tipo: "pedido_recusado",
+          cliente_id: null,
+          agendamento_id: null,
+          pedido_online_id: "p1",
+          criado_em: "2026-11-10T13:00:00Z",
+        }),
+      ]),
+    ).toBe(2);
+  });
+});
+
 describe("carregarAlertasWhatsapp", () => {
   it("com o envio desligado não acusa desconexão nem falta de chaves", async () => {
     falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: false }));
     falso.responder("whatsapp_status", ok({ estado: "sem_chaves" }));
-    falso.responder("fila_mensagens", { data: null, error: null, count: 0 } as never);
+    falso.responder("fila_mensagens", ok([]));
     falso.responder("mensagens_recebidas", ok([]));
     const r = await carregarAlertasWhatsapp(falso.cliente as never);
     expect(r).toEqual({ desconectado: false, semChaves: false, falhas: 0, respostas: [] });
@@ -40,7 +87,7 @@ describe("carregarAlertasWhatsapp", () => {
     for (const estado of ["desconectado", "sem_chaves"]) {
       falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: true }));
       falso.responder("whatsapp_status", ok({ estado }));
-      falso.responder("fila_mensagens", { data: null, error: null, count: 3 } as never);
+      falso.responder("fila_mensagens", ok([1, 2, 3].map((i) => falha({ cliente_id: `c${i}` }))));
       falso.responder("mensagens_recebidas", ok([linhaResposta]));
       const r = await carregarAlertasWhatsapp(falso.cliente as never);
       expect(r.desconectado).toBe(true);
@@ -68,7 +115,10 @@ describe("carregarAlertasWhatsapp", () => {
     falso.responder("whatsapp_status", ok({ estado: "conectado" }));
     const r = await carregarAlertasWhatsapp(falso.cliente as never, new Date("2026-11-11T12:00:00Z"));
     expect(r.desconectado).toBe(false);
-    expect(falso.chamadasDe("fila_mensagens", "eq")[0].args).toEqual(["status", "falhou"]);
+    expect(falso.chamadasDe("fila_mensagens", "in")[0].args).toEqual([
+      "status",
+      ["falhou", "pendente", "enviando", "enviada"],
+    ]);
     expect(falso.chamadasDe("fila_mensagens", "gte")[0].args).toEqual([
       "atualizado_em",
       "2026-11-04T12:00:00.000Z",

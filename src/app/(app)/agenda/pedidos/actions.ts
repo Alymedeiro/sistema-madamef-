@@ -20,12 +20,15 @@ const NAO_ENCONTRADO = "Pedido não encontrado.";
 const erro = (mensagem: string) => ({ ok: false as const, erro: mensagem });
 
 export type ResultadoAprovacao =
-  | { ok: true; agendamentoId: string; mensagem: string; link: string }
+  /** naFila: a resposta automática entrou mesmo na fila do WhatsApp. */
+  | { ok: true; agendamentoId: string; mensagem: string; link: string; naFila: boolean }
   /** clienteId: a cliente já ficou cadastrada (ou reaproveitada); repetir com ela. */
   | { ok: false; erro: string; clienteId?: string }
   | { ok: false; aviso: "fora_da_jornada"; erro: string };
 
-export type ResultadoRecusa = { ok: true; mensagem: string; link: string } | { ok: false; erro: string };
+export type ResultadoRecusa =
+  | { ok: true; mensagem: string; link: string; naFila: boolean }
+  | { ok: false; erro: string };
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -45,6 +48,29 @@ function respondivel(p: { status: string; criado_em: string }): boolean {
     p.status === "aguardando" &&
     new Date(p.criado_em).getTime() > Date.now() - RESERVA_HORAS * 3600_000
   );
+}
+
+/**
+ * A resposta automática entrou na fila? O gatilho só enfileira com o envio
+ * ligado e WhatsApp brasileiro válido, e engole erro: sem a linha, a tela
+ * mantém o botão manual. Na dúvida (erro na consulta), também.
+ */
+async function respostaNaFila(
+  supabase: Supabase,
+  pedidoId: string,
+  tipo: "pedido_aprovado" | "pedido_recusado",
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("fila_mensagens")
+      .select("id")
+      .eq("pedido_online_id", pedidoId)
+      .eq("tipo", tipo)
+      .limit(1);
+    return !error && (data?.length ?? 0) > 0;
+  } catch {
+    return false;
+  }
 }
 
 function revalidar() {
@@ -137,7 +163,8 @@ export async function aprovarPedido(dados: AprovacaoInput): Promise<ResultadoApr
       inicio: aprovado.inicio,
     });
     const numero = pedido.whatsapp ?? d.novaCliente?.whatsapp ?? "";
-    return { ok: true, agendamentoId, mensagem, link: linkWhatsApp(numero, mensagem) };
+    const naFila = await respostaNaFila(supabase, d.pedidoId, "pedido_aprovado");
+    return { ok: true, agendamentoId, mensagem, link: linkWhatsApp(numero, mensagem), naFila };
   } catch {
     return erro(ERRO_INESPERADO);
   }
@@ -169,7 +196,8 @@ export async function recusarPedido(dados: RecusaInput): Promise<ResultadoRecusa
       servico: pedido.servicos?.nome ?? "",
       site,
     });
-    return { ok: true, mensagem, link: linkWhatsApp(pedido.whatsapp ?? "", mensagem) };
+    const naFila = await respostaNaFila(supabase, d.pedidoId, "pedido_recusado");
+    return { ok: true, mensagem, link: linkWhatsApp(pedido.whatsapp ?? "", mensagem), naFila };
   } catch {
     return erro(ERRO_INESPERADO);
   }

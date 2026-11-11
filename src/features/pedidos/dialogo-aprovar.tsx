@@ -24,13 +24,11 @@ import type { PedidoLista, ProfissionalPedido } from "./dados";
 type Props = {
   pedido: PedidoLista | null;
   profissionais: ProfissionalPedido[];
-  /** Envio automático do WhatsApp ligado: a resposta sai pela fila. */
-  envioAtivo: boolean;
   onFechar: () => void;
 };
 
 /** Aprovação de um pedido online: cliente, profissional e horário, depois o aviso. */
-export function DialogoAprovar({ pedido, profissionais, envioAtivo, onFechar }: Props) {
+export function DialogoAprovar({ pedido, profissionais, onFechar }: Props) {
   return (
     <Dialog open={!!pedido} onOpenChange={(v) => !v && onFechar()}>
       <DialogContent>
@@ -39,7 +37,6 @@ export function DialogoAprovar({ pedido, profissionais, envioAtivo, onFechar }: 
             key={pedido.id}
             pedido={pedido}
             profissionais={profissionais}
-            envioAtivo={envioAtivo}
             onFechar={onFechar}
           />
         )}
@@ -53,12 +50,10 @@ const NOVA = "nova";
 function FormularioAprovar({
   pedido,
   profissionais,
-  envioAtivo,
   onFechar,
 }: {
   pedido: PedidoLista;
   profissionais: ProfissionalPedido[];
-  envioAtivo: boolean;
   onFechar: () => void;
 }) {
   const id = useId();
@@ -73,7 +68,7 @@ function FormularioAprovar({
   const [hora, setHora] = useState(horaNoFuso(pedido.inicio));
   const [erro, setErro] = useState<string | null>(null);
   const [encaixe, setEncaixe] = useState(false);
-  const [resultado, setResultado] = useState<{ mensagem: string; link: string } | null>(null);
+  const [resultado, setResultado] = useState<{ mensagem: string; link: string; naFila: boolean } | null>(null);
   const [pendente, iniciar] = useTransition();
 
   // Sugestão pelo WhatsApp normalizado: a primeira cadastrada já vem escolhida.
@@ -110,7 +105,7 @@ function FormularioAprovar({
       if (r.ok) {
         setEncaixe(false);
         toast.success("Pedido aprovado. O horário está na agenda.");
-        setResultado({ mensagem: r.mensagem, link: r.link });
+        setResultado({ mensagem: r.mensagem, link: r.link, naFila: r.naFila });
       } else if ("aviso" in r) {
         setEncaixe(true);
       } else {
@@ -133,9 +128,9 @@ function FormularioAprovar({
       <>
         <DialogHeader>
           <DialogTitle>Pedido aprovado</DialogTitle>
-          <DialogDescription>{descricaoAviso(envioAtivo)}</DialogDescription>
+          <DialogDescription>{descricaoAviso(resultado.naFila)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} envioAtivo={envioAtivo} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} naFila={resultado.naFila} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar
