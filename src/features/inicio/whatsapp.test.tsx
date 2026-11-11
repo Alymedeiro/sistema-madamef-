@@ -21,6 +21,13 @@ describe("Início: WhatsApp", () => {
     expect(recepcao).not.toContain("/configuracoes");
   });
 
+  it("sem chaves: título próprio, ainda com o link de configurações", () => {
+    const html = renderToStaticMarkup(<AlertaWhatsappDesconectado ehDona semChaves />);
+    expect(html).toContain("Chaves da Z-API não configuradas");
+    expect(html).not.toContain("WhatsApp desconectado");
+    expect(html).toContain('href="/configuracoes#whatsapp"');
+  });
+
   it("falhas levam à fila filtrada", () => {
     const html = renderToStaticMarkup(<ResumoFalhasWhatsapp falhas={2} />);
     expect(html).toContain("2 mensagens falharam nos últimos 7 dias.");

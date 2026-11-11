@@ -46,7 +46,14 @@ export type Resposta = {
 
 export type FiltroFila = { status?: StatusMensagem; tipo?: TipoMensagem; busca?: string };
 
-export type AlertasWhatsapp = { desconectado: boolean; falhas: number; respostas: Resposta[] };
+export type AlertasWhatsapp = {
+  /** Envio ligado e estado ≠ conectado (inclui sem chaves). */
+  desconectado: boolean;
+  /** Envio ligado e as chaves da Z-API não estão no servidor. */
+  semChaves: boolean;
+  falhas: number;
+  respostas: Resposta[];
+};
 
 function falhou(onde: string, error: { message: string } | null) {
   if (error) throw new Error(`Falha ao carregar ${onde}: ${error.message}`);
@@ -197,6 +204,7 @@ export async function carregarAlertasWhatsapp(
   const ativo = config.data?.whatsapp_ativo ?? false;
   return {
     desconectado: ativo && status.data?.estado !== "conectado",
+    semChaves: ativo && status.data?.estado === "sem_chaves",
     falhas: falhas.count ?? 0,
     respostas: ((respostas.data ?? []) as unknown as LinhaResposta[]).map(paraResposta),
   };

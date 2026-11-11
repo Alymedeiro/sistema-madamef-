@@ -592,6 +592,7 @@ describe("pedido online", () => {
 
   it("aprovar → pedido_aprovado pendente para o telefone do pedido", async () => {
     await emTeste(async (c) => {
+      await c.query("update configuracoes_clinica set whatsapp_ativo = true");
       const pedido = await criarPedido(c, "2026-12-10 10:00:00-03");
       await logarComo(c, recepcao);
       const ag = (
@@ -622,6 +623,7 @@ describe("pedido online", () => {
 
   it("recusar → pedido_recusado; WhatsApp do pedido fora do padrão → nada", async () => {
     await emTeste(async (c) => {
+      await c.query("update configuracoes_clinica set whatsapp_ativo = true");
       const pedido = await criarPedido(c, "2026-12-11 10:00:00-03");
       const estrangeiro = await criarPedido(c, "2026-12-11 11:00:00-03", "351912345678");
       await logarComo(c, dona);
@@ -643,6 +645,28 @@ describe("pedido online", () => {
         estrangeiro,
       ]);
       expect(st.rows[0].status).toBe("recusado");
+    });
+  });
+
+  it("envio desligado → aprovar e recusar não enfileiram (o caminho é o botão manual)", async () => {
+    await emTeste(async (c) => {
+      await c.query("update configuracoes_clinica set whatsapp_ativo = false");
+      const aprovado = await criarPedido(c, "2026-12-12 10:00:00-03");
+      const recusado = await criarPedido(c, "2026-12-12 11:00:00-03");
+      await logarComo(c, recepcao);
+      const ag = (
+        await c.query<{ id: string }>(
+          `select aprovar_pedido_online($1, $2, $3, '2026-12-12 10:00:00-03',
+             '2026-12-12 10:30:00-03', 20000) as id`,
+          [aprovado, cli, profId],
+        )
+      ).rows[0].id;
+      await c.query("select recusar_pedido_online($1, null)", [recusado]);
+      await comoSuper(c);
+      expect(await filaDoPedido(c, aprovado)).toEqual([]);
+      expect(await filaDoPedido(c, recusado)).toEqual([]);
+      // As mensagens da agenda continuam (o lembrete do agendamento criado).
+      expect((await filaDe(c, ag)).map((m) => m.tipo)).toEqual(["lembrete"]);
     });
   });
 });

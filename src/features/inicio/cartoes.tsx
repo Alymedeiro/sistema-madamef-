@@ -189,17 +189,26 @@ export function ListaContasVencendo({ itens }: { itens: ContaVencendo[] }) {
 }
 
 /** Alerta do topo do Início: envio ligado e a Z-API fora do ar (ou sem chaves). */
-export function AlertaWhatsappDesconectado({ ehDona }: { ehDona: boolean }) {
+export function AlertaWhatsappDesconectado({
+  ehDona,
+  semChaves = false,
+}: {
+  ehDona: boolean;
+  semChaves?: boolean;
+}) {
   return (
     <div
       role="alert"
       className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="font-semibold text-destructive">WhatsApp desconectado</p>
+        <p className="font-semibold text-destructive">
+          {semChaves ? "Chaves da Z-API não configuradas" : "WhatsApp desconectado"}
+        </p>
         <p>
-          As mensagens automáticas estão paradas na fila. Reconecte o número da clínica no painel
-          da Z-API.
+          {semChaves
+            ? "As mensagens automáticas estão paradas na fila. Cadastre as chaves da Z-API no servidor (Vercel)."
+            : "As mensagens automáticas estão paradas na fila. Reconecte o número da clínica no painel da Z-API."}
         </p>
       </div>
       {ehDona && (

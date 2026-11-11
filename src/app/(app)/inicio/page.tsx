@@ -44,7 +44,7 @@ export default async function InicioPage() {
   const supabase = await createClient();
 
   // Cada cartão carrega por conta própria: uma falha não apaga o painel.
-  const sem: AlertasWhatsapp = { desconectado: false, falhas: 0, respostas: [] };
+  const sem: AlertasWhatsapp = { desconectado: false, semChaves: false, falhas: 0, respostas: [] };
   const [
     atendimentos,
     pendentes,
@@ -90,7 +90,7 @@ export default async function InicioPage() {
       </h1>
 
       {gerencia && whatsapp.ok && whatsapp.dados.desconectado && (
-        <AlertaWhatsappDesconectado ehDona={ehDona} />
+        <AlertaWhatsappDesconectado ehDona={ehDona} semChaves={whatsapp.dados.semChaves} />
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">

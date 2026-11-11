@@ -291,7 +291,8 @@ create trigger agendamentos_whatsapp
 
 -- Pedido online respondido: aprovado (quando aprovar_pedido_online liga o
 -- agendamento criado) → pedido_aprovado; recusado → pedido_recusado. Agendado
--- para agora, para o WhatsApp do pedido (se válido). Nunca falha o comando.
+-- para agora, para o WhatsApp do pedido (se válido), só com o envio ligado.
+-- Nunca falha o comando.
 create function public.pedidos_online_whatsapp()
 returns trigger
 language plpgsql
@@ -314,6 +315,12 @@ begin
     end if;
 
     if new.whatsapp is null or new.whatsapp !~ '^55\d{10,11}$' then
+      return null;
+    end if;
+
+    -- Envio desligado: a equipe avisa pelo botão manual "Avisar no WhatsApp";
+    -- nada fica na fila para sair (duplicado) quando o envio for ligado.
+    if not coalesce((select cc.whatsapp_ativo from public.configuracoes_clinica cc limit 1), false) then
       return null;
     end if;
 
@@ -576,7 +583,9 @@ revoke execute on function public.classificar_resposta(text)
 -- Antes de escolher: mensagens em envio há mais de 10 minutos (rota caiu
 -- sem concluir) viram 'falhou' — não são reenviadas sozinhas, para não
 -- duplicar; a equipe pode reenviar — e as vencidas de um modelo desativado
--- viram 'cancelada' ('Modelo desativado').
+-- viram 'cancelada' ('Modelo desativado'); pós-atendimento, aniversário e
+-- respostas de pedido vencidas há mais de 24 h viram 'cancelada' ('Mensagem
+-- perdeu a validade').
 create function public.proxima_mensagem()
 returns table (
   id uuid,
@@ -640,6 +649,14 @@ begin
     and not m.ativo
     and f.status = 'pendente'
     and f.agendado_para <= now();
+
+  -- Envio desligado (ou parado) por dias: pós-atendimento, aniversário e
+  -- respostas de pedido com mais de 24 h de atraso não fazem mais sentido.
+  update public.fila_mensagens f
+  set status = 'cancelada', cancelada_motivo = 'Mensagem perdeu a validade'
+  where f.status = 'pendente'
+    and f.tipo in ('pos_atendimento', 'aniversario', 'pedido_aprovado', 'pedido_recusado')
+    and f.agendado_para < now() - interval '24 hours';
 
   select f.id into v_id
   from public.fila_mensagens f

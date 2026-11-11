@@ -420,6 +420,43 @@ describe("proxima_mensagem — ritmo, janela e liga/desliga", () => {
     });
   });
 
+  it("pós-atendimento, aniversário e respostas de pedido com mais de 24 h de atraso → canceladas ('Mensagem perdeu a validade')", async () => {
+    await emTeste(async (c) => {
+      await configurar(c);
+      const inserir = async (tipo: string, ha: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into fila_mensagens (tipo, cliente_id, telefone, agendado_para)
+             values ($1, $2, $3, now() - $4::interval) returning id`,
+            [tipo, cli, ZAP, ha],
+          )
+        ).rows[0].id;
+      const velhas = [
+        await inserir("pos_atendimento", "25 hours"),
+        await inserir("aniversario", "3 days"),
+        await inserir("pedido_aprovado", "25 hours"),
+        await inserir("pedido_recusado", "25 hours"),
+      ];
+      // No limite (23 h) ainda vale; avulsa atrasada não perde a validade.
+      const dentro = await inserir("pos_atendimento", "23 hours");
+      const avulsaVelha = (
+        await c.query<{ id: string }>(
+          `insert into fila_mensagens (tipo, cliente_id, telefone, texto, agendado_para)
+           values ('avulsa', $1, $2, 'Oi', now() - interval '2 days') returning id`,
+          [cli, ZAP],
+        )
+      ).rows[0].id;
+      expect((await proxima(c)).map((m) => m.id)).toEqual([avulsaVelha]);
+      for (const id of velhas) {
+        expect(await msg(c, id)).toMatchObject({
+          status: "cancelada",
+          cancelada_motivo: "Mensagem perdeu a validade",
+        });
+      }
+      expect((await msg(c, dentro)).status).toBe("pendente");
+    });
+  });
+
   it("enviando travada há mais de 10 min → falhou ('Envio interrompido') e não segura a fila", async () => {
     await emTeste(async (c) => {
       await configurar(c);

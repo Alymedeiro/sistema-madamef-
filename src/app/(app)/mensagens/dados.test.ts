@@ -27,13 +27,13 @@ const linhaResposta = {
 };
 
 describe("carregarAlertasWhatsapp", () => {
-  it("com o envio desligado não acusa desconexão", async () => {
+  it("com o envio desligado não acusa desconexão nem falta de chaves", async () => {
     falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: false }));
-    falso.responder("whatsapp_status", ok({ estado: "desconectado" }));
+    falso.responder("whatsapp_status", ok({ estado: "sem_chaves" }));
     falso.responder("fila_mensagens", { data: null, error: null, count: 0 } as never);
     falso.responder("mensagens_recebidas", ok([]));
     const r = await carregarAlertasWhatsapp(falso.cliente as never);
-    expect(r).toEqual({ desconectado: false, falhas: 0, respostas: [] });
+    expect(r).toEqual({ desconectado: false, semChaves: false, falhas: 0, respostas: [] });
   });
 
   it("com o envio ligado e estado ≠ conectado acusa desconexão", async () => {
@@ -44,6 +44,7 @@ describe("carregarAlertasWhatsapp", () => {
       falso.responder("mensagens_recebidas", ok([linhaResposta]));
       const r = await carregarAlertasWhatsapp(falso.cliente as never);
       expect(r.desconectado).toBe(true);
+      expect(r.semChaves).toBe(estado === "sem_chaves");
       expect(r.falhas).toBe(3);
       expect(r.respostas).toEqual([
         {
