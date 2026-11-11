@@ -98,6 +98,9 @@ alter table public.comissoes enable row level security;
 revoke all on public.colaboradores_comissao, public.servicos_comissao, public.comissoes
   from anon, authenticated;
 revoke delete, truncate on public.colaboradores_comissao, public.comissoes from service_role;
+-- Comissão só muda pelos gatilhos e funções (rodam como dono): nem o service_role
+-- atualiza direto (ex.: reabrir uma paga ou mudar o valor sem recalcular).
+revoke update on public.comissoes from service_role;
 grant select, insert, update on public.colaboradores_comissao, public.servicos_comissao
   to authenticated;
 grant delete on public.servicos_comissao to authenticated;
@@ -542,6 +545,9 @@ alter table public.movimentos_estoque enable row level security;
 
 revoke all on public.movimentos_estoque from anon, authenticated;
 revoke delete, truncate on public.movimentos_estoque from service_role;
+-- Atualizar a quantidade passaria por fora do gatilho de saldo (só soma no insert):
+-- nem o service_role atualiza movimentos.
+revoke update on public.movimentos_estoque from service_role;
 grant select on public.movimentos_estoque to authenticated;
 
 create policy movimentos_estoque_select on public.movimentos_estoque

@@ -194,6 +194,8 @@ describe("estrutura e migração", () => {
                 has_table_privilege('authenticated', 'movimentos_estoque', 'delete') as del,
                 has_table_privilege('service_role', 'movimentos_estoque', 'delete') as srv_del,
                 has_table_privilege('service_role', 'movimentos_estoque', 'truncate') as srv_trunc,
+                has_table_privilege('service_role', 'movimentos_estoque', 'update') as srv_upd,
+                has_table_privilege('service_role', 'comissoes', 'update') as srv_upd_comissoes,
                 has_table_privilege('anon', 'movimentos_estoque', 'select') as anon_sel`,
       );
       return { e: e.rows[0].v, f: f.rows, t: t.rows[0] };
@@ -215,6 +217,8 @@ describe("estrutura e migração", () => {
       del: false,
       srv_del: false,
       srv_trunc: false,
+      srv_upd: false,
+      srv_upd_comissoes: false,
       anon_sel: false,
     });
   });
@@ -632,5 +636,52 @@ describe("acesso", () => {
     await comoUsuario(null, (c) =>
       esperarErroSql(c.query(AJUSTAR, [acido, 1, "x"]), "42501"),
     );
+  });
+
+  it("service_role (E2E): não atualiza movimentos nem comissões; libera o horário cancelando ou movendo", async () => {
+    const comoServico = async (c: PoolClient) => {
+      await c.query("set local role service_role");
+      await c.query("select set_config('request.jwt.claims', $1, true)", [
+        JSON.stringify({ role: "service_role" }),
+      ]);
+    };
+    await comoUsuario(dona, async (c) => {
+      await comoSuper(c);
+      const aberto = await agendar(c, { status: "atendido" });
+      expect(await saldo(c, acido)).toBe(9.5);
+
+      await comoServico(c);
+      await falha(c, "update movimentos_estoque set quantidade = 100 where agendamento_id = $1", [aberto], "42501");
+      await falha(c, "update comissoes set valor_centavos = 1 where agendamento_id = $1", [aberto], "42501");
+      await falha(c, "delete from movimentos_estoque where agendamento_id = $1", [aberto], "42501");
+
+      // Comissão em aberto: cancelar (como liberarHorario) cancela a comissão e estorna.
+      await c.query("update agendamentos set status = 'cancelado' where id = $1", [aberto]);
+      await comoSuper(c);
+      expect(await saldo(c, acido)).toBe(10);
+      let r = await c.query("select status::text from comissoes where agendamento_id = $1", [aberto]);
+      expect(r.rows).toEqual([{ status: "cancelada" }]);
+
+      // Comissão paga: cancelar é recusado, mas mover início/fim para o passado é aceito.
+      const pago = await agendar(c, { status: "atendido" });
+      await logarComo(c, dona);
+      await c.query("select pagar_comissoes($1, '2026-11-01', '2026-11-25', 'pix')", [profId]);
+      await comoServico(c);
+      expect(
+        (await falha(c, "update agendamentos set status = 'cancelado' where id = $1", [pago])).message,
+      ).toBe(MSG_PAGA);
+      await c.query(
+        `update agendamentos set inicio = '2003-05-06T07:08:00Z', fim = '2003-05-06T07:09:00Z'
+         where id = $1`,
+        [pago],
+      );
+      await comoSuper(c);
+      r = await c.query(
+        "select status::text, competencia::text from comissoes where agendamento_id = $1",
+        [pago],
+      );
+      expect(r.rows).toEqual([{ status: "paga", competencia: "2026-11-01" }]);
+      expect(await saldo(c, acido)).toBe(9.5);
+    });
   });
 });
