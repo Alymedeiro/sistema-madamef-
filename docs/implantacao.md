@@ -21,7 +21,7 @@ A `service_role key` é secreta: dá acesso total ao banco. Nunca a envie por e-
 
 ## 2. Criar as tabelas (migrations)
 
-As tabelas e as regras de segurança estão em `supabase/migrations/`, em nove arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`. (Se o projeto já está em uso, veja as seções "Fase 2" e "Fase 3A" abaixo antes de aplicar 0006 a 0009.)
+As tabelas e as regras de segurança estão em `supabase/migrations/`, em onze arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`, `0010_financeiro.sql`, `0011_comissoes_estoque.sql`. (Se o projeto já está em uso, veja as seções "Fase 2", "Fase 3A", "Fase 4" e "Fase 4B" abaixo antes de aplicar 0006 a 0011.)
 
 Escolha uma das formas, para cada projeto:
 
@@ -79,7 +79,7 @@ Depois, para ter serviços de exemplo no projeto de **testes**, rode também `su
 
 Cuidados com os testes de tela da Fase 2:
 
-- `cobranca.spec.ts` **apaga** o caixa de hoje do projeto de testes (com cobranças, pagamentos e contas a receber dele) e os agendamentos não cancelados da profissional de teste hoje às 13:00 e em 6 dias às 10:00, para poder rodar de novo no mesmo dia.
+- `cobranca.spec.ts` **tenta apagar** o caixa de hoje do projeto de testes (com cobranças, pagamentos e contas a receber dele) e **libera** (cancela, ou arquiva no passado se a comissão já foi paga — ver Fase 4B) os agendamentos não cancelados da profissional de teste hoje às 13:00 e em 6 dias às 10:00, para poder rodar de novo no mesmo dia.
 - Os E2E com backend deixam linhas permanentes no projeto de testes (clientes, serviços, termos, pacotes, fotos e auditoria "E2E"); nada disso vai para a produção, mas o projeto de testes cresce a cada execução.
 - `pnpm e2e` faz o build com `NEXT_PUBLIC_E2E_HARNESS=1` e deixa esse build (com a página `/e2e-harness`) em `.next`. Antes de `pnpm start` para outro uso, rode `pnpm build` de novo.
 
@@ -138,12 +138,16 @@ A Fase 4B gera a comissão da profissional e dá baixa nos produtos do serviço 
 
 **Estado atual:** 0011 ainda não aplicada (nem no projeto de testes nem na produção).
 
-0. **Aplique a 0011 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 4B depende dela; publicado antes, a aba Comissões, a aba Estoque e marcar "atendido" quebram. Aplique primeiro no projeto de testes, confira, e só então na produção.
-1. Aplique `0011_comissoes_estoque.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`). Nunca aplique `shim.sql`.
-2. Conferências (rode nos dois projetos):
+0. **No projeto de testes, antes de tudo:** aplique a 0011 lá, faça as conferências do passo 2 e rode o E2E da Fase 4B (abaixo). Isso pode ser feito com folga, dias antes.
+1. **Na produção, a 0011 vai IMEDIATAMENTE antes do merge em main (o merge publica na Vercel)** — de preferência fora do horário de atendimento, com o merge pronto para ser feito logo em seguida. O código da Fase 4B depende dela (publicado antes, a aba Comissões, a aba Estoque e marcar "atendido" quebram), mas a 0011 também **liga os gatilhos na hora em que é aplicada**, enquanto o sistema antigo ainda está publicado. Nessa janela entre aplicar e publicar:
+   - **Comissão a 0%:** todo atendimento marcado como atendido já gera a comissão, e o **percentual é gravado no momento em que se marca** (depois só a base é recalculada, por exemplo quando a cobrança é lançada). Como ainda não há percentuais preenchidos, o que for marcado nessa janela — e depois dela, até a dona preencher os percentuais — fica com **0%**.
+   - **Cadastro de produto antigo:** o formulário de produto antigo ainda tem o campo de estoque; o banco **recusa** criar um produto com estoque maior que zero e recusa mudar o estoque ao editar ("O estoque só muda por entrada ou ajuste."). Editar os outros campos continua funcionando; para cadastrar produto novo, deixe o estoque em 0 e lance a entrada pela aba Estoque depois do merge.
+   Aplique `0011_comissoes_estoque.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`) e faça o merge logo depois. Nunca aplique `shim.sql`.
+2. Conferências (rode nos dois projetos, logo depois de aplicar):
    - Políticas de segurança: `select tablename, count(*) from pg_policies where tablename in ('comissoes','movimentos_estoque','colaboradores_comissao','servicos_comissao') group by tablename;` deve listar as **4** tabelas, todas só para a dona; RLS ligado nas quatro, sem acesso do `anon`.
    - Estoque consistente: para todo produto, a soma de `movimentos_estoque.quantidade` é igual a `produtos.estoque_atual`. Por SQL: `select p.id, p.nome from public.produtos p where p.estoque_atual <> coalesce((select sum(m.quantidade) from public.movimentos_estoque m where m.produto_id = p.id), 0);` deve voltar **zero linhas** (os saldos que já existiam viram um movimento "Saldo anterior" na migração).
-3. **Depois de publicar**, a dona: (a) preenche **Comissão padrão (%)** de cada profissional em *Equipe*; (b) preenche **Comissão (%)** dos serviços que têm percentual próprio (vazio = usa a padrão da profissional); (c) confere, em *Serviços*, os **produtos consumidos** por serviço, porque é eles que dão baixa no estoque a cada atendimento.
+3. **Assim que publicar, ANTES de a equipe marcar atendimentos**, a dona: (a) preenche **Comissão padrão (%)** de cada profissional em *Equipe*; (b) preenche **Comissão (%)** dos serviços que têm percentual próprio (vazio = usa a padrão da profissional); (c) confere, em *Serviços*, os **produtos consumidos** por serviço, porque é eles que dão baixa no estoque a cada atendimento.
+4. **Remédio para comissões a 0%:** se algum atendimento foi marcado como atendido antes de os percentuais estarem preenchidos (aparece em *Financeiro > Comissões* com 0%), a dona abre o atendimento na agenda, **desmarca** (volta para confirmado) e **marca de novo** como atendido: a comissão é recalculada com o percentual atual (e o estoque é estornado e baixado de novo, sem duplicar). Só funciona enquanto a comissão estiver **em aberto**; depois de paga ela não muda.
 
 **Como a dona usa**
 
@@ -153,7 +157,9 @@ A Fase 4B gera a comissão da profissional e dá baixa nos produtos do serviço 
 - **Recepção e profissional** não veem as abas Comissões nem Estoque; marcar atendido continua funcionando para eles.
 - Nada é apagado: comissões canceladas e movimentos continuam no histórico.
 
-**Teste de tela da Fase 4B:** `e2e/comissoes-estoque.spec.ts` (dona configura 20% no serviço, entrada e ajuste de estoque, recepção marca atendido e não vê as abas, dona vê a comissão em aberto e o estoque baixado, `?produto=<id>` destacando e filtrando, `Pagar comissões` com despesa em Contas a pagar, nos 3 tamanhos) exige o projeto de testes **com a 0011 aplicada** e `E2E_PERMITIR_PROJETO`. Comissões, movimentos e despesas não podem ser apagados: a limpeza só desativa o produto e o serviço criados ("E2E Comissões ..."); a comissão paga, a despesa de salário e os movimentos ficam no projeto de testes. Como "Pagar comissões" paga todas as comissões em aberto da profissional de teste no mês, os três tamanhos se revezam pela trava em arquivo de `e2e/trava-caixa.ts`.
+**Teste de tela da Fase 4B:** `e2e/comissoes-estoque.spec.ts` (dona configura 20% no serviço, entrada e ajuste de estoque, recepção marca atendido e não vê as abas, dona vê a comissão em aberto e o estoque baixado, `?produto=<id>` destacando e filtrando, `Pagar comissões` com despesa em Contas a pagar, nos 3 tamanhos) exige o projeto de testes **com a 0011 aplicada** e `E2E_PERMITIR_PROJETO`. Comissões, movimentos e despesas não podem ser apagados: a limpeza só desativa o produto e o serviço criados ("E2E Comissões ..."); a comissão paga, a despesa de salário e os movimentos ficam no projeto de testes. O atendimento é da **segunda profissional de teste** (`E2E_PROFISSIONAL2_EMAIL`), que nenhum outro spec marca como atendido: "Pagar comissões" paga todas as comissões em aberto dela no mês sem tocar nas dos outros specs; os três tamanhos se revezam pela trava em arquivo de `e2e/trava-caixa.ts`.
+
+**Rodar de novo no mesmo dia:** desde a 0011, um atendimento marcado como atendido tem comissão (e talvez movimentos de estoque) ligada a ele e **não pode mais ser apagado** (nem pela chave de serviço). Por isso os specs que reutilizam um horário fixo (`caixa`, `cobranca`, os que usam `prepararFicha` e a preparação `auth.setup.ts`) liberam o horário com `e2e/horario-livre.ts`: cancelam o agendamento que sobrou da execução anterior (a comissão em aberto é cancelada e o estoque estornado) ou, se a comissão dele já foi paga, movem o agendamento para um minuto "arquivado" entre 2000 e 2009. Esses agendamentos antigos ficam no projeto de testes.
 
 ## 3. Configurar o login (Authentication)
 
@@ -247,7 +253,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar` e `financeiro` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar`, `financeiro` e `comissoes-estoque` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -263,11 +269,12 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0010 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0011 aplicadas, na ordem, e `shim.sql` **não** aplicado.
 - [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
 - [ ] 0009 aplicada na produção ANTES do merge; job `pedidos_online_limpeza` presente em `cron.job`.
 - [ ] `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` definidas juntas na Vercel; `/agendar` abre e um pedido de teste chega ao Início.
 - [ ] 0010 aplicada na produção ANTES do merge; 5 tabelas do Financeiro com política (`pg_policies`) e bucket `financeiro` privado de 5 MB.
+- [ ] 0011 aplicada na produção ANTES do merge (imediatamente antes); 4 tabelas com política (`comissoes`, `movimentos_estoque`, `colaboradores_comissao`, `servicos_comissao`); soma dos movimentos = `estoque_atual` em todos os produtos; percentuais de comissão preenchidos pela dona antes de a equipe marcar atendimentos.
 - [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).
