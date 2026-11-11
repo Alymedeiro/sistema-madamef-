@@ -3,13 +3,15 @@
 // ATENÇÃO: comissões, movimentos de estoque e contas a pagar não têm "delete" (nem para o
 // service_role). A limpeza só desativa o produto e o serviço criados (prefixo "E2E Comissões");
 // a comissão paga, a despesa de salário, os movimentos, a cliente e o atendimento ficam no
-// projeto de testes. "Pagar comissões" paga TODAS as comissões em aberto da profissional de
-// teste naquele mês, então os 3 viewports (e os specs que mexem em caixa/financeiro) se
-// revezam pela trava compartilhada de e2e/trava-caixa.ts, e as verificações se limitam ao que
-// esta execução criou.
+// projeto de testes. O atendimento é da profissional 2 (USUARIOS.profissional2), que nenhum
+// outro spec marca como atendido: "Pagar comissões" paga TODAS as comissões em aberto dela
+// naquele mês sem tocar nas comissões dos outros specs. Os 3 viewports (e os specs que mexem
+// em caixa/financeiro) se revezam pela trava compartilhada de e2e/trava-caixa.ts, e as
+// verificações se limitam ao que esta execução criou. Para rodar de novo no mesmo dia, o
+// horário é liberado por prepararFicha (e2e/horario-livre.ts).
 import { expect, test, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { ARQUIVO_ESTADO, pularSemBackend } from "./suporte";
+import { ARQUIVO_ESTADO, USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, prepararFicha, type FixtureFicha } from "./ficha-suporte";
 import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
@@ -50,8 +52,8 @@ test.beforeAll(async ({}, testInfo) => {
   indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));
   liberarTrava = await adquirirTravaCaixa();
 
-  // Atendimento confirmado de R$ 100,00 em hoje+5 (um horário por viewport).
-  fx = await prepararFicha(admin, String(15 + indice));
+  // Atendimento confirmado de R$ 100,00 da profissional 2 em hoje+5 (um horário por viewport).
+  fx = await prepararFicha(admin, String(15 + indice), USUARIOS.profissional2);
   prefixo = `E2E Comissões ${VIEWPORTS[indice]} ${Date.now()}`;
   comissaoCentavos = 2000; // 20% de R$ 100,00
   competencia = `${fx.data.slice(5, 7)}/${fx.data.slice(0, 4)}`;
@@ -245,7 +247,12 @@ test.describe("dona e recepção", () => {
       await dialogo.getByRole("button", { name: "Confirmar pagamento" }).click();
       await expect(dialogo).toBeHidden();
 
+      // A lista volta no filtro padrão (Em aberto), onde a paga some: "Todas" mostra a paga.
+      await page.goto(
+        `/financeiro?aba=comissoes&periodo=personalizado&de=${fx.data}&ate=${fx.data}&profissional=${fx.profissional.id}&situacao=todas`,
+      );
       const linha = page.getByTestId("comissao").filter({ hasText: fx.cliente.nome });
+      await expect(linha).toHaveCount(1);
       await expect(linha).toContainText("Paga");
 
       // O filtro de situação só mostra comissões pagas.
@@ -265,7 +272,8 @@ test.describe("dona e recepção", () => {
       expect(Math.max(...despesas!.map((d) => d.valor_centavos))).toBeGreaterThanOrEqual(comissaoCentavos);
 
       // Aparece em Contas a pagar na mesma tela do Financeiro.
-      await page.goto(`/financeiro?aba=pagar&periodo=ano`);
+      // Situação "Pagas" (pela data do pagamento): o padrão (Em aberto) não mostra a despesa paga.
+      await page.goto(`/financeiro?aba=pagar&periodo=ano&situacao=paga`);
       await expect(page.getByTestId("conta-pagar").filter({ hasText: `Comissão — ${fx.profissional.nome}` }).first()).toBeVisible();
     } finally {
       await contexto.close();

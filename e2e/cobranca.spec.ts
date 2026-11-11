@@ -1,13 +1,14 @@
 // Pagamento dividido e pacotes ponta a ponta (só viewport desktop: há um único caixa por dia).
 // Roda contra o projeto Supabase de TESTES; sem E2E_PERMITIR_PROJETO/backend é pulado (Ruling R3).
-// ATENÇÃO: a preparação TENTA apagar contas a receber, pagamentos, cobranças e o caixa de hoje (tolerante após a 0010: se não der, reaproveita o caixa aberto ou pula se fechado), sob a trava de e2e/trava-caixa.ts, e apaga os
-// agendamentos (não cancelados) da profissional de teste hoje 13:00–14:00 e em dataEm(6)
-// 10:00–11:00 — assim o spec roda de novo no mesmo dia. Clientes, serviços e pacotes criados
+// ATENÇÃO: a preparação TENTA apagar contas a receber, pagamentos, cobranças e o caixa de hoje (tolerante após a 0010: se não der, reaproveita o caixa aberto ou pula se fechado), sob a trava de e2e/trava-caixa.ts, e libera (e2e/horario-livre.ts: cancela, ou arquiva no passado se a
+// comissão já foi paga) os agendamentos da profissional de teste hoje 13:00–14:00 e em
+// dataEm(6) 10:00–11:00 — assim o spec roda de novo no mesmo dia. Clientes, serviços e pacotes criados
 // ficam no projeto de testes.
 import { expect, test } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
 import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
+import { liberarHorario } from "./horario-livre";
 import {
   clienteAdmin,
   entrar,
@@ -58,15 +59,7 @@ test.beforeAll(async ({}, testInfo) => {
     [hoje, "13:00", "14:00"],
     [diaPacote, "10:00", "11:00"],
   ]) {
-    await falhar(
-      admin
-        .from("agendamentos")
-        .delete()
-        .eq("profissional_id", profissional.id)
-        .neq("status", "cancelado")
-        .gte("inicio", `${dia}T${de}:00-03:00`)
-        .lt("inicio", `${dia}T${ate}:00-03:00`),
-    );
+    await liberarHorario(admin, profissional.id, `${dia}T${de}:00-03:00`, `${dia}T${ate}:00-03:00`);
   }
   fx = await prepararFicha(admin, "13");
   // Atendimento de hoje às 13:00 (a preparação usa hoje+5; move para hoje).
