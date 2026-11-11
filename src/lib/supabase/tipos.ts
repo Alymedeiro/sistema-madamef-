@@ -711,6 +711,7 @@ export type Database = {
           online_ativo: boolean
           online_aviso_privacidade: string
           telefone: string | null
+          whatsapp_ativo: boolean
           whatsapp_janela_fim: string
           whatsapp_janela_inicio: string
           whatsapp_limite_por_hora: number
@@ -730,6 +731,7 @@ export type Database = {
           online_ativo?: boolean
           online_aviso_privacidade?: string
           telefone?: string | null
+          whatsapp_ativo?: boolean
           whatsapp_janela_fim?: string
           whatsapp_janela_inicio?: string
           whatsapp_limite_por_hora?: number
@@ -749,6 +751,7 @@ export type Database = {
           online_ativo?: boolean
           online_aviso_privacidade?: string
           telefone?: string | null
+          whatsapp_ativo?: boolean
           whatsapp_janela_fim?: string
           whatsapp_janela_inicio?: string
           whatsapp_limite_por_hora?: number
@@ -1052,6 +1055,102 @@ export type Database = {
           },
         ]
       }
+      // 0012: dona e recepção leem; sem escrita direta (gatilhos da agenda e
+      // do pedido online, enviar_avulsa / cancelar_mensagem /
+      // reenviar_mensagem, enfileirar_aniversarios). texto nulo até enviar
+      // (exceto avulsa); cliente_id nulo na resposta de pedido recusado.
+      fila_mensagens: {
+        Row: {
+          agendado_para: string
+          agendamento_id: string | null
+          atualizado_em: string
+          cancelada_motivo: string | null
+          cliente_id: string | null
+          criado_em: string
+          criado_por: string | null
+          enviada_em: string | null
+          erro: string | null
+          id: string
+          id_externo: string | null
+          pedido_online_id: string | null
+          proxima_tentativa_em: string | null
+          status: Database["public"]["Enums"]["status_mensagem"]
+          telefone: string
+          tentativas: number
+          texto: string | null
+          tipo: Database["public"]["Enums"]["tipo_mensagem"]
+        }
+        Insert: {
+          agendado_para: string
+          agendamento_id?: string | null
+          atualizado_em?: string
+          cancelada_motivo?: string | null
+          cliente_id?: string | null
+          criado_em?: string
+          criado_por?: string | null
+          enviada_em?: string | null
+          erro?: string | null
+          id?: string
+          id_externo?: string | null
+          pedido_online_id?: string | null
+          proxima_tentativa_em?: string | null
+          status?: Database["public"]["Enums"]["status_mensagem"]
+          telefone: string
+          tentativas?: number
+          texto?: string | null
+          tipo: Database["public"]["Enums"]["tipo_mensagem"]
+        }
+        Update: {
+          agendado_para?: string
+          agendamento_id?: string | null
+          atualizado_em?: string
+          cancelada_motivo?: string | null
+          cliente_id?: string | null
+          criado_em?: string
+          criado_por?: string | null
+          enviada_em?: string | null
+          erro?: string | null
+          id?: string
+          id_externo?: string | null
+          pedido_online_id?: string | null
+          proxima_tentativa_em?: string | null
+          status?: Database["public"]["Enums"]["status_mensagem"]
+          telefone?: string
+          tentativas?: number
+          texto?: string | null
+          tipo?: Database["public"]["Enums"]["tipo_mensagem"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fila_mensagens_agendamento_id_fkey"
+            columns: ["agendamento_id"]
+            isOneToOne: false
+            referencedRelation: "agendamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fila_mensagens_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fila_mensagens_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fila_mensagens_pedido_online_id_fkey"
+            columns: ["pedido_online_id"]
+            isOneToOne: false
+            referencedRelation: "pedidos_online"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       fotos: {
         Row: {
           agendamento_id: string | null
@@ -1200,6 +1299,30 @@ export type Database = {
             referencedRelation: "colaboradores"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      // 0012: autenticados leem; só a dona altera variacoes/ativo (1–5
+      // variações, cada 1–1000 caracteres após trim); sem insert/delete.
+      modelos_mensagem: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          tipo: Database["public"]["Enums"]["tipo_mensagem"]
+          variacoes: string[]
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          tipo: Database["public"]["Enums"]["tipo_mensagem"]
+          variacoes: string[]
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          tipo?: Database["public"]["Enums"]["tipo_mensagem"]
+          variacoes?: string[]
+        }
+        Relationships: [
         ]
       }
       modelos_termo: {
@@ -2022,6 +2145,10 @@ export type Database = {
       // cancelada → "Esta conta foi cancelada."; anexo fora do padrão → 23514;
       // anexo não enviado → P0001 "Anexo não encontrado. Envie o arquivo de novo."
       cancelar_conta_pagar: { Args: { p_conta: string; p_motivo: string }; Returns: undefined }
+      // 0012: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
+      // mensagens."); só pendente — enviada/enviando → "Esta mensagem já foi
+      // enviada."; motivo vazio → "Cancelada pela equipe".
+      cancelar_mensagem: { Args: { p_id: string; p_motivo: string }; Returns: undefined }
       criar_conta_fixa: {
         Args: {
           p_descricao: string
@@ -2063,6 +2190,13 @@ export type Database = {
       // ≤ 0 → "A quantidade deve ser maior que zero."; atualiza produtos_custos;
       // p_lancar_despesa e total > 0 → conta a pagar 'produto' em aberto
       // ("Compra — <nome>"). Devolve o id do movimento.
+      // 0012: dona/recepção; avulsa pendente para agora; devolve o id. Texto
+      // vazio → "Escreva a mensagem."; sem WhatsApp → "Esta cliente não tem
+      // WhatsApp cadastrado.".
+      enviar_avulsa: {
+        Args: { p_cliente: string; p_texto: string; p_agendamento?: string | null }
+        Returns: string
+      }
       entrada_estoque: {
         Args: {
           p_produto: string
@@ -2270,6 +2404,9 @@ export type Database = {
       }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
+      // 0012: dona/recepção; só falhou/cancelada (senão "Só é possível
+      // reenviar mensagens com falha ou canceladas."); nova pendente agora.
+      reenviar_mensagem: { Args: { p_id: string }; Returns: string }
       registrar_acesso: {
         Args: {
           p_entidade:
@@ -2344,6 +2481,7 @@ export type Database = {
       }
       // 0007: cria o pacote e a cobrança dele; devolve o id do pacote.
       // 0008: p_id opcional (gerado pela tela); repetir o id → 23505 pacotes_vendidos_pkey.
+      variacoes_mensagem_validas: { Args: { p_variacoes: string[] }; Returns: boolean }
       vender_pacote: {
         Args: {
           p_cliente: string
@@ -2387,8 +2525,17 @@ export type Database = {
       status_comissao: "aberta" | "paga" | "cancelada"
       status_conta: "aberta" | "paga" | "cancelada"
       status_pacote: "ativo" | "concluido" | "expirado" | "cancelado"
+      status_mensagem: "pendente" | "enviando" | "enviada" | "falhou" | "cancelada"
       status_pedido_online: "aguardando" | "aprovado" | "recusado" | "expirado"
       tipo_foto: "antes" | "depois" | "evolucao"
+      tipo_mensagem:
+        | "confirmacao"
+        | "lembrete"
+        | "pos_atendimento"
+        | "aniversario"
+        | "pedido_aprovado"
+        | "pedido_recusado"
+        | "avulsa"
       tipo_movimento_estoque:
         | "entrada"
         | "ajuste"
@@ -2552,8 +2699,18 @@ export const Constants = {
       status_comissao: ["aberta", "paga", "cancelada"],
       status_conta: ["aberta", "paga", "cancelada"],
       status_pacote: ["ativo", "concluido", "expirado", "cancelado"],
+      status_mensagem: ["pendente", "enviando", "enviada", "falhou", "cancelada"],
       status_pedido_online: ["aguardando", "aprovado", "recusado", "expirado"],
       tipo_foto: ["antes", "depois", "evolucao"],
+      tipo_mensagem: [
+        "confirmacao",
+        "lembrete",
+        "pos_atendimento",
+        "aniversario",
+        "pedido_aprovado",
+        "pedido_recusado",
+        "avulsa",
+      ],
       tipo_movimento_estoque: [
         "entrada",
         "ajuste",
