@@ -1,6 +1,7 @@
 import "server-only";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
+import { carregarContasVencendo, type ContaVencendo } from "@/features/avisos/dados";
 import { listarPedidos } from "@/features/pedidos/dados";
 import { createClient } from "@/lib/supabase/server";
 import { agruparPorHorario, estoqueBaixo, type ProdutoEstoque } from "./painel";
@@ -213,4 +214,9 @@ export async function pedidosAguardando(supabase: Supabase): Promise<PedidoAguar
     inicio: p.inicio,
     expiraEm: p.expiraEm,
   }));
+}
+
+/** Cartão "Contas vencendo" (só dona): as 5 primeiras por vencimento, sem olhar os lidos. */
+export async function contasVencendo(supabase: Supabase, hoje: string): Promise<ContaVencendo[]> {
+  return carregarContasVencendo(supabase, hoje, 5);
 }

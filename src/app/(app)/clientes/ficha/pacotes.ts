@@ -48,7 +48,7 @@ export async function venderPacote(
     if (!data) return erro(ERRO_INESPERADO);
 
     revalidatePath(`/clientes/${d.clienteId}`);
-    revalidatePath("/caixa");
+    revalidatePath("/financeiro");
     return { ok: true, id: data };
   } catch {
     return erro(ERRO_INESPERADO);

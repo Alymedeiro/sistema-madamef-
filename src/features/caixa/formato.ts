@@ -36,12 +36,13 @@ export type CaixaNaoFechado = {
 /**
  * Caixas de dias anteriores a `hoje` que ninguém fechou (a dona pode fechá-los
  * depois), do mais antigo para o mais recente, com o resumo calculado dos
- * pagamentos de cada um.
+ * pagamentos e das parcelas recebidas de cada um (como o fechar_caixa).
  */
 export function caixasNaoFechados(
   caixas: { id: string; data: string; valor_inicial_centavos: number; fechado_em: string | null }[],
   pagamentos: { caixa_id: string; forma: string; valor_centavos: number; desconto_centavos: number }[],
   hoje: string,
+  recebimentos: { caixa_id: string; forma: string; valor_centavos: number }[] = [],
 ): CaixaNaoFechado[] {
   return caixas
     .filter((c) => c.fechado_em === null && c.data < hoje)
@@ -59,6 +60,9 @@ export function caixasNaoFechados(
             valorCentavos: p.valor_centavos,
             descontoCentavos: p.desconto_centavos,
           })),
+        recebimentos
+          .filter((r) => r.caixa_id === c.id)
+          .map((r) => ({ forma: r.forma as FormaPagamento, valorCentavos: r.valor_centavos })),
       ),
     }));
 }

@@ -47,6 +47,35 @@ describe("resumoCaixa", () => {
     expect(r.dinheiroEsperado).toBe(12500);
   });
 
+  it("igual ao fechar_caixa: a_receber fica fora e os recebimentos do dia entram pela forma", () => {
+    // Mesmo caso do teste do banco: pix 100,00 + parcela recebida em pix 50,00 + venda a receber 50,00.
+    const r = resumoCaixa(
+      0,
+      [
+        { forma: "pix", valorCentavos: 10000, descontoCentavos: 0 },
+        { forma: "a_receber", valorCentavos: 5000, descontoCentavos: 0 },
+      ],
+      [{ forma: "pix", valorCentavos: 5000 }],
+    );
+    expect(r.totalPorForma.pix).toBe(15000);
+    expect(r.totalPorForma.a_receber).toBe(0);
+    expect(r.totalGeral).toBe(15000);
+    expect(r.vendidoAReceber).toBe(5000);
+    expect(r.recebidoParcelas).toBe(5000);
+  });
+
+  it("parcela recebida em dinheiro aumenta o dinheiro esperado", () => {
+    const r = resumoCaixa(2000, [], [{ forma: "dinheiro", valorCentavos: 3000 }]);
+    expect(r.totalPorForma.dinheiro).toBe(3000);
+    expect(r.dinheiroEsperado).toBe(5000);
+  });
+
+  it("a_receber com desconto: informa o líquido vendido a receber", () => {
+    const r = resumoCaixa(0, [{ forma: "a_receber", valorCentavos: 10000, descontoCentavos: 1000 }]);
+    expect(r.totalGeral).toBe(0);
+    expect(r.vendidoAReceber).toBe(9000);
+  });
+
   it("sem lançamentos, esperado é só o troco inicial", () => {
     const r = resumoCaixa(5000, []);
     expect(r.totalGeral).toBe(0);

@@ -43,14 +43,14 @@ export async function abrirCaixa(valorInicial: string): Promise<Resultado> {
         // Aberto por outra pessoa: tudo certo. Fechado (ou invisível à recepção): avisa.
         const { data: hoje } = await supabase.rpc("caixa_de_hoje");
         if (hoje?.id && !hoje.fechado_em) {
-          revalidatePath("/caixa");
+          revalidatePath("/financeiro");
           return { ok: true };
         }
         return erro(CAIXA_FECHADO);
       }
       return erro(mensagemErroBanco(error));
     }
-    revalidatePath("/caixa");
+    revalidatePath("/financeiro");
     return { ok: true };
   } catch {
     return erro(ERRO_INESPERADO);
@@ -119,7 +119,7 @@ export async function registrarCobranca(dados: CobrancaInput): Promise<Resultado
     });
     if (error) return erro(mensagemErroBanco(error));
 
-    revalidatePath("/caixa");
+    revalidatePath("/financeiro");
     revalidatePath("/agenda");
     revalidatePath("/inicio");
     return { ok: true };
@@ -149,7 +149,7 @@ export async function fecharCaixa(caixaId: string, valorContado: string): Promis
     if (typeof r.diferenca !== "number" || typeof r.dinheiro_esperado !== "number") {
       return erro(ERRO_INESPERADO);
     }
-    revalidatePath("/caixa");
+    revalidatePath("/financeiro");
     return {
       ok: true,
       diferencaCentavos: r.diferenca,

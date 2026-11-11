@@ -45,13 +45,27 @@ const ROTULO_ORIGEM: Record<CobrancaPainel["origem"], string> = {
 
 const liquidoParte = (p: CobrancaPainel["partes"][number]) => p.valorCentavos - p.descontoCentavos;
 
+/** Parcela (conta a receber) recebida no caixa aberto. */
+export type RecebimentoPainel = {
+  id: string;
+  hora: string;
+  clienteNome: string;
+  parcela: string;
+  forma: FormaPagamento;
+  valorCentavos: number;
+};
+
 type Props = {
   /** Caixa de hoje aberto, ou null. */
   caixa: { id: string; valorInicialCentavos: number } | null;
   /** Dona viu o caixa de hoje já fechado. */
   fechadoHoje: boolean;
   cobrancas: CobrancaPainel[];
+  recebimentos?: RecebimentoPainel[];
 };
+
+/** "A receber" não entra no caixa (só quando a parcela é recebida). */
+const FORMAS_DO_CAIXA = FORMAS_PAGAMENTO.filter((f) => f !== "a_receber");
 
 const CLASSE_ERRO =
   "rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive";
@@ -234,7 +248,7 @@ function TabelaResumo({ valorInicialCentavos, resumo }: { valorInicialCentavos: 
     <dl className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-1 text-sm">
       <dt className="text-muted-foreground">Troco inicial</dt>
       <dd className="text-right">{formatarBRL(valorInicialCentavos)}</dd>
-      {FORMAS_PAGAMENTO.map((f) => (
+      {FORMAS_DO_CAIXA.map((f) => (
         <div key={f} className="contents">
           <dt className="text-muted-foreground">{ROTULO_FORMA[f]}</dt>
           <dd className="text-right">{formatarBRL(resumo.totalPorForma[f])}</dd>
@@ -244,6 +258,18 @@ function TabelaResumo({ valorInicialCentavos, resumo }: { valorInicialCentavos: 
       <dd className="border-t pt-1 text-right font-medium">{formatarBRL(resumo.totalGeral)}</dd>
       <dt className="font-medium">Dinheiro esperado na gaveta</dt>
       <dd className="text-right font-medium">{formatarBRL(resumo.dinheiroEsperado)}</dd>
+      {resumo.recebidoParcelas > 0 && (
+        <>
+          <dt className="pt-1 text-muted-foreground">Parcelas recebidas (já no total)</dt>
+          <dd className="pt-1 text-right text-muted-foreground">{formatarBRL(resumo.recebidoParcelas)}</dd>
+        </>
+      )}
+      {resumo.vendidoAReceber > 0 && (
+        <>
+          <dt className="text-muted-foreground">Vendido a receber (fora do total)</dt>
+          <dd className="text-right text-muted-foreground">{formatarBRL(resumo.vendidoAReceber)}</dd>
+        </>
+      )}
     </dl>
   );
 }
@@ -311,7 +337,7 @@ export function CaixasNaoFechados({ caixas }: { caixas: CaixaNaoFechado[] }) {
   );
 }
 
-export function PainelCaixa({ caixa, fechadoHoje, cobrancas }: Props) {
+export function PainelCaixa({ caixa, fechadoHoje, cobrancas, recebimentos = [] }: Props) {
   const [fechamento, setFechamento] = useState<{ diferenca: number } | null>(null);
 
   if (fechamento) {
@@ -342,6 +368,7 @@ export function PainelCaixa({ caixa, fechadoHoje, cobrancas }: Props) {
         descontoCentavos: p.descontoCentavos,
       })),
     ),
+    recebimentos,
   );
 
   return (
@@ -402,6 +429,26 @@ export function PainelCaixa({ caixa, fechadoHoje, cobrancas }: Props) {
           </div>
         )}
       </section>
+
+      {recebimentos.length > 0 && (
+        <section aria-labelledby="recebidas-t" className="flex flex-col gap-3">
+          <h2 id="recebidas-t" className="font-titulo text-lg font-semibold text-ouro-escuro">
+            Parcelas recebidas hoje
+          </h2>
+          <ul className="flex flex-col divide-y rounded-xl border bg-card">
+            {recebimentos.map((r) => (
+              <li key={r.id} className="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                <span className="tabular-nums text-muted-foreground">{r.hora}</span>
+                <span className="font-medium">{r.clienteNome}</span>
+                <span className="text-muted-foreground">
+                  parcela {r.parcela} · {ROTULO_FORMA[r.forma]}
+                </span>
+                <span className="ml-auto font-semibold tabular-nums">{formatarBRL(r.valorCentavos)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section aria-labelledby="resumo-t" className="flex max-w-md flex-col gap-2 rounded-xl border bg-card p-4">
         <h2 id="resumo-t" className="font-titulo text-lg font-semibold text-ouro-escuro">

@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { COR_STATUS } from "@/lib/dominio/status";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
+import type { ContaVencendo } from "@/features/avisos/dados";
+import { textoAviso } from "@/features/avisos/texto";
 import { tempoRestante } from "@/features/pedidos/prazo";
 import type { Aniversariante, ItemAgenda, ItemSemTermo, PedidoAguardando } from "./dados";
 import type { ProdutoEstoque } from "./painel";
@@ -149,6 +151,34 @@ export function ListaPedidosOnline({ itens, agora }: { itens: PedidoAguardando[]
         className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
       >
         Ver pedidos online
+      </Link>
+    </div>
+  );
+}
+
+export function ListaContasVencendo({ itens }: { itens: ContaVencendo[] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col divide-y">
+        {itens.map((a) => (
+          <li key={a.chave}>
+            <Link
+              href={a.href}
+              className={cn(
+                "flex min-h-11 items-center py-2 text-sm hover:bg-accent/50",
+                a.dias < 0 && "text-destructive",
+              )}
+            >
+              {textoAviso(a.conta, a.texto)}
+            </Link>
+          </li>
+        ))}
+      </ul>
+      <Link
+        href="/financeiro"
+        className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      >
+        Ver Financeiro
       </Link>
     </div>
   );

@@ -83,31 +83,61 @@ export type LancamentoCaixa = {
   descontoCentavos: number;
 };
 
-export type ResumoCaixa = {
-  totalPorForma: Record<FormaPagamento, number>;
-  /** Inclui "a receber" (ainda não entrou dinheiro). */
-  totalGeral: number;
-  dinheiroEsperado: number;
+/** Parcela recebida no caixa (receber_parcela): entra pela forma em que foi paga. */
+export type RecebimentoCaixa = {
+  forma: FormaPagamento;
+  valorCentavos: number;
 };
 
-/** Totais líquidos de desconto; dinheiro esperado = troco inicial + dinheiro recebido. */
+export type ResumoCaixa = {
+  /** `a_receber` fica sempre 0: só entra quando a parcela é recebida. */
+  totalPorForma: Record<FormaPagamento, number>;
+  /** Pagamentos (sem "a receber") + parcelas recebidas — o mesmo do fechar_caixa. */
+  totalGeral: number;
+  dinheiroEsperado: number;
+  /** Informativo: vendido hoje "a receber" (líquido), fora do total. */
+  vendidoAReceber: number;
+  /** Parcelas recebidas neste caixa (já incluídas no total por forma). */
+  recebidoParcelas: number;
+};
+
+/**
+ * Espelho do fechar_caixa (0010): totais líquidos de desconto, sem os
+ * pagamentos "a receber" e com as parcelas recebidas no caixa pela forma;
+ * dinheiro esperado = troco inicial + dinheiro.
+ */
 export function resumoCaixa(
   valorInicialCentavos: number,
   pagamentos: LancamentoCaixa[],
+  recebimentos: RecebimentoCaixa[] = [],
 ): ResumoCaixa {
   const totalPorForma = Object.fromEntries(FORMAS_PAGAMENTO.map((f) => [f, 0])) as Record<
     FormaPagamento,
     number
   >;
   let totalGeral = 0;
+  let vendidoAReceber = 0;
+  let recebidoParcelas = 0;
   for (const p of pagamentos) {
     const liquido = p.valorCentavos - p.descontoCentavos;
+    if (p.forma === "a_receber") {
+      vendidoAReceber += liquido;
+      continue;
+    }
     totalPorForma[p.forma] += liquido;
     totalGeral += liquido;
+  }
+  for (const r of recebimentos) {
+    if (r.forma === "a_receber") continue; // o banco nunca grava; por garantia.
+    totalPorForma[r.forma] += r.valorCentavos;
+    totalGeral += r.valorCentavos;
+    recebidoParcelas += r.valorCentavos;
   }
   return {
     totalPorForma,
     totalGeral,
     dinheiroEsperado: valorInicialCentavos + totalPorForma.dinheiro,
+    vendidoAReceber,
+    recebidoParcelas,
   };
 }

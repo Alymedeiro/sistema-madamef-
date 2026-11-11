@@ -19,6 +19,8 @@ const METODOS = [
   "in",
   "like",
   "ilike",
+  "is",
+  "not",
   "or",
   "order",
   "limit",

@@ -1,12 +1,13 @@
 // Pagamento dividido e pacotes ponta a ponta (só viewport desktop: há um único caixa por dia).
 // Roda contra o projeto Supabase de TESTES; sem E2E_PERMITIR_PROJETO/backend é pulado (Ruling R3).
-// ATENÇÃO: a preparação APAGA contas a receber, pagamentos, cobranças e o caixa de hoje, e os
+// ATENÇÃO: a preparação TENTA apagar contas a receber, pagamentos, cobranças e o caixa de hoje (tolerante após a 0010: se não der, reaproveita o caixa aberto ou pula se fechado), sob a trava de e2e/trava-caixa.ts, e apaga os
 // agendamentos (não cancelados) da profissional de teste hoje 13:00–14:00 e em dataEm(6)
 // 10:00–11:00 — assim o spec roda de novo no mesmo dia. Clientes, serviços e pacotes criados
 // ficam no projeto de testes.
 import { expect, test } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 import {
   clienteAdmin,
   entrar,
@@ -20,6 +21,9 @@ test.describe.configure({ mode: "serial" });
 
 let admin: SupabaseClient;
 let fx: FixtureFicha;
+let liberarTrava: (() => Promise<void>) | null = null;
+let caixaFechado = false;
+let caixaNovo = true;
 const hoje = dataEm(0);
 const diaPacote = dataEm(6);
 
@@ -30,18 +34,24 @@ async function falhar(p: PromiseLike<{ error: unknown }>) {
 
 test.beforeAll(async ({}, testInfo) => {
   test.skip(testInfo.project.name !== "computador", "E2E de cobrança roda só no desktop: há um único caixa por dia.");
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E da cobrança dividida");
+  liberarTrava = await adquirirTravaCaixa();
   admin = clienteAdmin();
-  // Zera o caixa de hoje (filhos primeiro).
+  // Tenta zerar o caixa de hoje (filhos primeiro). Após a 0010 não há delete em contas a
+  // receber/recebimentos: falhas são ignoradas e o caixa existente é reaproveitado.
   const { data: caixa } = await admin.from("caixas").select("id").eq("data", hoje).maybeSingle();
   if (caixa) {
     const { data: pags } = await admin.from("pagamentos").select("id").eq("caixa_id", caixa.id);
     const ids = (pags ?? []).map((p) => p.id);
-    if (ids.length) await falhar(admin.from("contas_receber").delete().in("pagamento_id", ids));
-    await falhar(admin.from("pagamentos").delete().eq("caixa_id", caixa.id));
-    await falhar(admin.from("cobrancas").delete().eq("caixa_id", caixa.id));
-    await falhar(admin.from("caixas").delete().eq("id", caixa.id));
+    if (ids.length) await admin.from("contas_receber").delete().in("pagamento_id", ids);
+    await admin.from("pagamentos").delete().eq("caixa_id", caixa.id);
+    await admin.from("cobrancas").delete().eq("caixa_id", caixa.id);
+    await admin.from("caixas").delete().eq("id", caixa.id);
   }
+  const { data: restante } = await admin.from("caixas").select("fechado_em").eq("data", hoje).maybeSingle();
+  caixaNovo = !restante;
+  caixaFechado = !!restante?.fechado_em;
   // Horários usados pelos testes, livres de execuções anteriores (restrição de sobreposição).
   const profissional = await profissionalDeTeste(admin);
   for (const [dia, de, ate] of [
@@ -68,7 +78,12 @@ test.beforeAll(async ({}, testInfo) => {
   );
 });
 
+test.afterAll(async () => {
+  await liberarTrava?.();
+});
+
 test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mostra as duas partes", async ({ page }) => {
+  test.skip(caixaFechado, "O caixa de hoje já está fechado e não pode ser apagado: nada a lançar.");
   await entrar(page, USUARIOS.recepcao.email, USUARIOS.recepcao.senha);
   await page.goto(`/agenda?data=${hoje}&visao=dia&prof=${fx.profissional.id}`);
   await page.getByRole("button", { name: new RegExp(`^13:00 ${fx.cliente.nome}`) }).click();
@@ -76,7 +91,7 @@ test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mos
 
   const dialogo = page.getByRole("dialog", { name: "Pagamento do atendimento" });
   await expect(dialogo).toBeVisible();
-  await dialogo.getByRole("button", { name: "Abrir caixa agora" }).click();
+  if (caixaNovo) await dialogo.getByRole("button", { name: "Abrir caixa agora" }).click();
   await expect(dialogo.getByTestId("total-atendimento")).toHaveText(/R\$\s*100,00/);
 
   await dialogo.getByLabel("Forma de pagamento").selectOption("pix");
@@ -97,8 +112,8 @@ test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mos
   await expect(linha.first()).toBeVisible();
   await expect(linha.first()).toContainText(/R\$\s*70,00/);
   await expect(linha.first()).toContainText(/R\$\s*30,00/);
-  await expect(page.getByText("Pix").first()).toBeVisible();
-  await expect(page.getByText("Dinheiro").first()).toBeVisible();
+  await expect(linha.first().getByText("Pix")).toBeVisible();
+  await expect(linha.first().getByText("Dinheiro")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Resumo" })).toBeVisible();
 
   // O atendimento já pago não volta a oferecer "Lançar pagamento". Controle positivo: a
@@ -109,6 +124,7 @@ test("pagamento dividido: Pix menor, 'Falta' até fechar com Dinheiro; caixa mos
 });
 
 test("pacote: venda dividida na ficha e 'Usar sessão do pacote' na agenda", async ({ page }) => {
+  test.skip(caixaFechado, "O caixa de hoje já está fechado e não pode ser apagado: nada a lançar.");
   await entrar(page, USUARIOS.recepcao.email, USUARIOS.recepcao.senha);
   await page.goto(`/clientes/${fx.cliente.id}?aba=pacotes`);
   await page.getByRole("button", { name: "Vender pacote" }).click();

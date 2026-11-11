@@ -1,0 +1,46 @@
+import { describe, expect, it } from "vitest";
+import { hrefExportarPdf, hrefFinanceiro } from "./url";
+
+describe("hrefFinanceiro", () => {
+  it("mantém a aba e o período; omite padrões e vazios", () => {
+    expect(hrefFinanceiro({ aba: "painel", periodo: "mes" })).toBe("/financeiro");
+    expect(hrefFinanceiro({ aba: "pagar", periodo: "ano" })).toBe("/financeiro?aba=pagar&periodo=ano");
+    expect(
+      hrefFinanceiro({ aba: "fluxo", periodo: "personalizado", de: "2026-01-01", ate: "2026-03-31" }),
+    ).toBe("/financeiro?aba=fluxo&periodo=personalizado&de=2026-01-01&ate=2026-03-31");
+  });
+
+  it("de/até só acompanham o personalizado", () => {
+    expect(hrefFinanceiro({ aba: "painel", periodo: "tudo", de: "2026-01-01", ate: "2026-02-01" })).toBe(
+      "/financeiro?periodo=tudo",
+    );
+  });
+});
+
+describe("hrefExportarPdf", () => {
+  it("leva a aba, o período e os filtros atuais para a rota do PDF", () => {
+    expect(hrefExportarPdf({ aba: "painel", periodo: "mes" })).toBe("/financeiro/exportar?aba=painel");
+    expect(
+      hrefExportarPdf({
+        aba: "pagar",
+        periodo: "personalizado",
+        de: "2026-01-01",
+        ate: "2026-03-31",
+        situacao: "vencida",
+        busca: "luz",
+        categoria: "aluguel",
+      }),
+    ).toBe(
+      "/financeiro/exportar?aba=pagar&periodo=personalizado&de=2026-01-01&ate=2026-03-31&situacao=vencida&busca=luz&categoria=aluguel",
+    );
+  });
+
+  it("situação, busca e categoria só nas listas; categoria só em Contas a pagar", () => {
+    expect(
+      hrefExportarPdf({ aba: "fluxo", periodo: "ano", situacao: "paga", busca: "x", categoria: "aluguel" }),
+    ).toBe("/financeiro/exportar?aba=fluxo&periodo=ano");
+    expect(
+      hrefExportarPdf({ aba: "receber", periodo: "mes", situacao: "aberta", busca: "", categoria: "aluguel" }),
+    ).toBe("/financeiro/exportar?aba=receber&situacao=aberta");
+  });
+});

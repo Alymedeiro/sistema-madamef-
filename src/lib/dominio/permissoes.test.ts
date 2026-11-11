@@ -16,14 +16,14 @@ describe("podeAcessar", () => {
     expect(podeAcessar("dona", "equipe")).toBe(true);
   });
 
-  it("recepção acessa caixa mas não equipe nem configurações", () => {
-    expect(podeAcessar("recepcao", "caixa")).toBe(true);
+  it("recepção acessa financeiro mas não equipe nem configurações", () => {
+    expect(podeAcessar("recepcao", "financeiro")).toBe(true);
     expect(podeAcessar("recepcao", "equipe")).toBe(false);
     expect(podeAcessar("recepcao", "configuracoes")).toBe(false);
   });
 
-  it("profissional vê agenda e consulta serviços, mas não caixa", () => {
-    expect(podeAcessar("profissional", "caixa")).toBe(false);
+  it("profissional vê agenda e consulta serviços, mas não financeiro", () => {
+    expect(podeAcessar("profissional", "financeiro")).toBe(false);
     expect(podeAcessar("profissional", "agenda")).toBe(true);
     expect(podeAcessar("profissional", "servicos")).toBe(true);
   });
@@ -47,7 +47,7 @@ describe("ITENS_MENU", () => {
       "clientes",
       "servicos",
       "produtos",
-      "caixa",
+      "financeiro",
       "equipe",
       "configuracoes",
     ];
@@ -58,10 +58,21 @@ describe("ITENS_MENU", () => {
       "Clientes",
       "Serviços",
       "Produtos",
-      "Caixa",
+      "Financeiro",
       "Equipe",
       "Configurações",
     ]);
+  });
+
+  it("Financeiro (ícone Wallet) aponta para /financeiro", () => {
+    const item = ITENS_MENU.find((i) => i.recurso === "financeiro");
+    expect(item).toEqual({
+      recurso: "financeiro",
+      rotulo: "Financeiro",
+      href: "/financeiro",
+      icone: "Wallet",
+    });
+    expect(ITENS_MENU.some((i) => i.href === "/caixa")).toBe(false);
   });
 
   it("usa href absoluto por recurso", () => {
@@ -74,7 +85,7 @@ describe("ITENS_MENU", () => {
 describe("perfisComAcesso", () => {
   it("lista só os perfis que podem acessar o recurso", () => {
     expect(perfisComAcesso("equipe")).toEqual(["dona"]);
-    expect(perfisComAcesso("caixa")).toEqual(["dona", "recepcao"]);
+    expect(perfisComAcesso("financeiro")).toEqual(["dona", "recepcao"]);
     expect(perfisComAcesso("servicos")).toEqual(["dona", "recepcao", "profissional"]);
   });
 
@@ -88,15 +99,15 @@ describe("dividirMenuInferior (barra do celular)", () => {
   const menuDe = (perfil: Perfil) => ITENS_MENU.filter((i) => podeAcessar(perfil, i.recurso));
   const recursos = (itens: { recurso: Recurso }[]) => itens.map((i) => i.recurso);
 
-  it("dona (8 itens): Início, Agenda, Clientes, Caixa + Mais com o resto", () => {
+  it("dona (8 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
     const r = dividirMenuInferior(menuDe("dona"));
-    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "caixa"]);
+    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
     expect(recursos(r.mais)).toEqual(["servicos", "produtos", "equipe", "configuracoes"]);
   });
 
   it("recepção (6 itens): mesmos 4 + Mais com Serviços e Produtos", () => {
     const r = dividirMenuInferior(menuDe("recepcao"));
-    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "caixa"]);
+    expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
     expect(recursos(r.mais)).toEqual(["servicos", "produtos"]);
   });
 
@@ -128,5 +139,32 @@ describe("ficha", () => {
     expect(podeNaFicha("recepcao", "vender_pacote")).toBe(true);
     expect(podeNaFicha("profissional", "vender_pacote")).toBe(false);
     expect(podeNaFicha("dona", "ver_acessos")).toBe(true);
+  });
+});
+
+describe("financeiro (abas)", () => {
+  it("dona vê as 5 abas na ordem; recepção só Caixa do dia; profissional nenhuma", async () => {
+    const { abasDoFinanceiro, ROTULO_ABA_FINANCEIRO } = await import("./permissoes");
+    expect(abasDoFinanceiro("dona")).toEqual(["painel", "receber", "pagar", "fluxo", "caixa"]);
+    expect(abasDoFinanceiro("dona").map((a) => ROTULO_ABA_FINANCEIRO[a])).toEqual([
+      "Painel",
+      "Contas a receber",
+      "Contas a pagar",
+      "Fluxo de caixa",
+      "Caixa do dia",
+    ]);
+    expect(abasDoFinanceiro("recepcao")).toEqual(["caixa"]);
+    expect(abasDoFinanceiro("profissional")).toEqual([]);
+  });
+
+  it("aba pedida: padrão painel para a dona; recepção sempre caixa", async () => {
+    const { abaDoFinanceiro } = await import("./permissoes");
+    expect(abaDoFinanceiro("dona", undefined)).toBe("painel");
+    expect(abaDoFinanceiro("dona", "pagar")).toBe("pagar");
+    expect(abaDoFinanceiro("dona", "caixa")).toBe("caixa");
+    expect(abaDoFinanceiro("dona", "xyz")).toBe("painel");
+    for (const a of [undefined, "painel", "receber", "pagar", "fluxo", "caixa", "xyz"]) {
+      expect(abaDoFinanceiro("recepcao", a)).toBe("caixa");
+    }
   });
 });

@@ -9,7 +9,7 @@ export type Recurso =
   | "clientes"
   | "servicos"
   | "produtos"
-  | "caixa"
+  | "financeiro"
   | "equipe"
   | "configuracoes";
 
@@ -27,7 +27,8 @@ const ACESSO: Record<Recurso, readonly Perfil[]> = {
   // Serviços e produtos: dona edita; recepção e profissional consultam.
   servicos: ["dona", "recepcao", "profissional"],
   produtos: ["dona", "recepcao", "profissional"],
-  caixa: ["dona", "recepcao"],
+  // Recepção só vê a aba Caixa do dia (a página força ?aba=caixa).
+  financeiro: ["dona", "recepcao"],
   equipe: ["dona"],
   configuracoes: ["dona"],
 };
@@ -55,7 +56,7 @@ export const ITENS_MENU: ItemMenu[] = [
   { recurso: "clientes", rotulo: "Clientes", href: "/clientes", icone: "Users" },
   { recurso: "servicos", rotulo: "Serviços", href: "/servicos", icone: "Sparkles" },
   { recurso: "produtos", rotulo: "Produtos", href: "/produtos", icone: "Package" },
-  { recurso: "caixa", rotulo: "Caixa", href: "/caixa", icone: "Wallet" },
+  { recurso: "financeiro", rotulo: "Financeiro", href: "/financeiro", icone: "Wallet" },
   { recurso: "equipe", rotulo: "Equipe", href: "/equipe", icone: "UserCog" },
   {
     recurso: "configuracoes",
@@ -66,7 +67,7 @@ export const ITENS_MENU: ItemMenu[] = [
 ];
 
 /** Itens fixos da barra inferior (os mais usados), nesta ordem. */
-const PRINCIPAIS_INFERIOR: readonly Recurso[] = ["inicio", "agenda", "clientes", "caixa"];
+const PRINCIPAIS_INFERIOR: readonly Recurso[] = ["inicio", "agenda", "clientes", "financeiro"];
 /** Até este número de itens, todos cabem na barra de 390 px. */
 const MAX_ITENS_INFERIOR = 5;
 
@@ -146,4 +147,34 @@ const ACAO_FICHA: Record<AcaoFicha, readonly Perfil[]> = {
 
 export function podeNaFicha(perfil: Perfil, acao: AcaoFicha): boolean {
   return ACAO_FICHA[acao].includes(perfil);
+}
+
+// ---------------------------------------------------------------------------
+// Financeiro (spec Fase 4 §3): dona vê tudo; recepção só o Caixa do dia.
+// ---------------------------------------------------------------------------
+
+export type AbaFinanceiro = "painel" | "receber" | "pagar" | "fluxo" | "caixa";
+
+export const ROTULO_ABA_FINANCEIRO: Record<AbaFinanceiro, string> = {
+  painel: "Painel",
+  receber: "Contas a receber",
+  pagar: "Contas a pagar",
+  fluxo: "Fluxo de caixa",
+  caixa: "Caixa do dia",
+};
+
+const ABAS_FINANCEIRO: Record<Perfil, readonly AbaFinanceiro[]> = {
+  dona: ["painel", "receber", "pagar", "fluxo", "caixa"],
+  recepcao: ["caixa"],
+  profissional: [],
+};
+
+export function abasDoFinanceiro(perfil: Perfil): AbaFinanceiro[] {
+  return [...ABAS_FINANCEIRO[perfil]];
+}
+
+/** Aba a mostrar: a pedida se permitida; senão a primeira (painel / caixa). */
+export function abaDoFinanceiro(perfil: Perfil, pedida: string | undefined): AbaFinanceiro {
+  const abas = ABAS_FINANCEIRO[perfil];
+  return abas.find((a) => a === pedida) ?? abas[0] ?? "caixa";
 }
