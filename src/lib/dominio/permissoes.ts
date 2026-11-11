@@ -153,18 +153,19 @@ export function podeNaFicha(perfil: Perfil, acao: AcaoFicha): boolean {
 // Financeiro (spec Fase 4 §3): dona vê tudo; recepção só o Caixa do dia.
 // ---------------------------------------------------------------------------
 
-export type AbaFinanceiro = "painel" | "receber" | "pagar" | "fluxo" | "caixa";
+export type AbaFinanceiro = "painel" | "receber" | "pagar" | "fluxo" | "comissoes" | "caixa";
 
 export const ROTULO_ABA_FINANCEIRO: Record<AbaFinanceiro, string> = {
   painel: "Painel",
   receber: "Contas a receber",
   pagar: "Contas a pagar",
   fluxo: "Fluxo de caixa",
+  comissoes: "Comissões",
   caixa: "Caixa do dia",
 };
 
 const ABAS_FINANCEIRO: Record<Perfil, readonly AbaFinanceiro[]> = {
-  dona: ["painel", "receber", "pagar", "fluxo", "caixa"],
+  dona: ["painel", "receber", "pagar", "fluxo", "comissoes", "caixa"],
   recepcao: ["caixa"],
   profissional: [],
 };
@@ -177,4 +178,30 @@ export function abasDoFinanceiro(perfil: Perfil): AbaFinanceiro[] {
 export function abaDoFinanceiro(perfil: Perfil, pedida: string | undefined): AbaFinanceiro {
   const abas = ABAS_FINANCEIRO[perfil];
   return abas.find((a) => a === pedida) ?? abas[0] ?? "caixa";
+}
+
+// ---------------------------------------------------------------------------
+// Produtos (spec Fase 4B): estoque só para a dona.
+// ---------------------------------------------------------------------------
+
+export type AbaProdutos = "produtos" | "estoque";
+
+export const ROTULO_ABA_PRODUTOS: Record<AbaProdutos, string> = {
+  produtos: "Produtos",
+  estoque: "Estoque",
+};
+
+const ABAS_PRODUTOS: Record<Perfil, readonly AbaProdutos[]> = {
+  dona: ["produtos", "estoque"],
+  recepcao: ["produtos"],
+  profissional: ["produtos"],
+};
+
+export function abasDeProdutos(perfil: Perfil): AbaProdutos[] {
+  return [...ABAS_PRODUTOS[perfil]];
+}
+
+/** Aba a mostrar: a pedida se permitida; senão `produtos`. */
+export function abaDeProdutos(perfil: Perfil, pedida: string | undefined): AbaProdutos {
+  return ABAS_PRODUTOS[perfil].find((a) => a === pedida) ?? "produtos";
 }

@@ -143,14 +143,22 @@ describe("ficha", () => {
 });
 
 describe("financeiro (abas)", () => {
-  it("dona vê as 5 abas na ordem; recepção só Caixa do dia; profissional nenhuma", async () => {
+  it("dona vê as 6 abas na ordem; recepção só Caixa do dia; profissional nenhuma", async () => {
     const { abasDoFinanceiro, ROTULO_ABA_FINANCEIRO } = await import("./permissoes");
-    expect(abasDoFinanceiro("dona")).toEqual(["painel", "receber", "pagar", "fluxo", "caixa"]);
+    expect(abasDoFinanceiro("dona")).toEqual([
+      "painel",
+      "receber",
+      "pagar",
+      "fluxo",
+      "comissoes",
+      "caixa",
+    ]);
     expect(abasDoFinanceiro("dona").map((a) => ROTULO_ABA_FINANCEIRO[a])).toEqual([
       "Painel",
       "Contas a receber",
       "Contas a pagar",
       "Fluxo de caixa",
+      "Comissões",
       "Caixa do dia",
     ]);
     expect(abasDoFinanceiro("recepcao")).toEqual(["caixa"]);
@@ -163,8 +171,36 @@ describe("financeiro (abas)", () => {
     expect(abaDoFinanceiro("dona", "pagar")).toBe("pagar");
     expect(abaDoFinanceiro("dona", "caixa")).toBe("caixa");
     expect(abaDoFinanceiro("dona", "xyz")).toBe("painel");
-    for (const a of [undefined, "painel", "receber", "pagar", "fluxo", "caixa", "xyz"]) {
+    for (const a of [undefined, "painel", "receber", "pagar", "fluxo", "comissoes", "caixa", "xyz"]) {
       expect(abaDoFinanceiro("recepcao", a)).toBe("caixa");
     }
+  });
+});
+
+describe("produtos (abas)", () => {
+  it("dona vê Produtos e Estoque; recepção e profissional só Produtos", async () => {
+    const { abasDeProdutos, ROTULO_ABA_PRODUTOS } = await import("./permissoes");
+    expect(abasDeProdutos("dona")).toEqual(["produtos", "estoque"]);
+    expect(abasDeProdutos("dona").map((a) => ROTULO_ABA_PRODUTOS[a])).toEqual([
+      "Produtos",
+      "Estoque",
+    ]);
+    expect(abasDeProdutos("recepcao")).toEqual(["produtos"]);
+    expect(abasDeProdutos("profissional")).toEqual(["produtos"]);
+  });
+
+  it("aba pedida: estoque só para a dona", async () => {
+    const { abaDeProdutos } = await import("./permissoes");
+    expect(abaDeProdutos("dona", "estoque")).toBe("estoque");
+    expect(abaDeProdutos("dona", undefined)).toBe("produtos");
+    expect(abaDeProdutos("dona", "xyz")).toBe("produtos");
+    expect(abaDeProdutos("recepcao", "estoque")).toBe("produtos");
+    expect(abaDeProdutos("profissional", "estoque")).toBe("produtos");
+  });
+
+  it("recepção não tem comissões", async () => {
+    const { abasDoFinanceiro } = await import("./permissoes");
+    expect(abasDoFinanceiro("recepcao")).not.toContain("comissoes");
+    expect(abasDoFinanceiro("profissional")).not.toContain("comissoes");
   });
 });
