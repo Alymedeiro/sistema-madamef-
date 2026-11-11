@@ -5,18 +5,24 @@
 --      tabela de comissões (uma por agendamento), com RLS (só a dona lê;
 --      escrita das comissões só por gatilhos e funções; nada é apagado).
 --   2. Comissão automática: gatilho em agendamentos (entrada/saída de
---      'atendido') e em cobrancas (recalcula a base); pagar_comissoes e
---      resumo_comissoes (dona).
+--      'atendido'; edição de um atendido recalcula a aberta) e em cobrancas
+--      (recalcula a base); pagar_comissoes e resumo_comissoes (dona).
+--   3. Movimentos de estoque: produtos.estoque_atual só muda pelo gatilho de
+--      movimentos_estoque; o saldo existente vira um ajuste "Saldo anterior".
+--   4. Baixa automática: gatilho em agendamentos (entrada/saída de
+--      'atendido', troca de serviço); entrada_estoque e ajustar_estoque (dona).
 --
--- pagar_comissoes recusa quem não é a dona com 'Apenas a dona pode lançar
--- contas.' (exigir_dona_financeiro); resumo_comissoes com 'Acesso não
--- autorizado' (exigir_dona_leitura_financeiro).
+-- pagar_comissoes, entrada_estoque e ajustar_estoque recusam quem não é a
+-- dona com 'Apenas a dona pode lançar contas.' (exigir_dona_financeiro);
+-- resumo_comissoes com 'Acesso não autorizado'
+-- (exigir_dona_leitura_financeiro).
 --
--- Dependências: 0001_base (colaboradores, servicos, perfil_atual,
--- colaborador_atual_id, set_atualizado_em), 0002_agenda (agendamentos),
+-- Dependências: 0001_base (colaboradores, servicos, produtos,
+-- produtos_custos, servico_produtos, perfil_atual, colaborador_atual_id,
+-- set_atualizado_em), 0002_agenda (agendamentos),
 -- 0003_caixa (forma_pagamento), 0007_pacotes_cobranca (pacotes_vendidos,
 -- cobrancas), 0010_financeiro (contas_pagar, exigir_dona_financeiro,
--- exigir_dona_leitura_financeiro).
+-- exigir_dona_leitura_financeiro, criar_conta_pagar).
 -- =============================================================================
 
 -- =============================================================================
@@ -239,7 +245,10 @@ revoke execute on function public.gravar_comissao(uuid)
   from public, anon, authenticated, service_role;
 
 -- Entrando em 'atendido': grava/reabre a comissão. Saindo: paga → recusa (a
--- mudança de status é desfeita); aberta → cancelada.
+-- mudança de status é desfeita); aberta → cancelada. Continuando 'atendido'
+-- com profissional, serviço, início ou valor previsto alterados (Ruling
+-- P4B-R3): recalcula a comissão aberta (paga não muda; atendido de antes da
+-- 0011, sem comissão, continua sem).
 create function public.agendamentos_comissao()
 returns trigger
 language plpgsql
@@ -252,6 +261,16 @@ begin
   if new.status = 'atendido'
      and (tg_op = 'INSERT' or old.status is distinct from 'atendido') then
     perform public.gravar_comissao(new.id);
+  elsif tg_op = 'UPDATE' and old.status = 'atendido' and new.status = 'atendido' then
+    if (old.profissional_id, old.servico_id, old.inicio, old.valor_previsto_centavos)
+       is distinct from
+       (new.profissional_id, new.servico_id, new.inicio, new.valor_previsto_centavos)
+       and exists (
+         select 1 from public.comissoes c
+         where c.agendamento_id = new.id and c.status = 'aberta'
+       ) then
+      perform public.gravar_comissao(new.id);
+    end if;
   elsif tg_op = 'UPDATE' and old.status = 'atendido'
         and new.status is distinct from 'atendido' then
     select c.status into v_status
@@ -275,7 +294,8 @@ $$;
 revoke execute on function public.agendamentos_comissao() from public, anon, authenticated;
 
 create trigger agendamentos_comissao
-  after insert or update of status on public.agendamentos
+  after insert or update of status, profissional_id, servico_id, inicio, valor_previsto_centavos
+  on public.agendamentos
   for each row execute function public.agendamentos_comissao();
 
 -- Cobrança do agendamento lançada depois do atendido: recalcula base e valor
@@ -408,3 +428,309 @@ $$;
 
 revoke execute on function public.resumo_comissoes(date, date) from public, anon, authenticated;
 grant execute on function public.resumo_comissoes(date, date) to authenticated;
+
+-- =============================================================================
+-- 3. Movimentos de estoque
+-- =============================================================================
+
+create type public.tipo_movimento_estoque as enum (
+  'entrada', 'ajuste', 'baixa_atendimento', 'estorno_atendimento'
+);
+
+-- Histórico do estoque: estoque_atual de cada produto = soma das quantidades
+-- (com sinal) dos seus movimentos. Nada é alterado nem apagado.
+create table public.movimentos_estoque (
+  id uuid primary key default gen_random_uuid(),
+  produto_id uuid not null references public.produtos (id),
+  tipo public.tipo_movimento_estoque not null,
+  -- Entrada > 0; baixa < 0; estorno > 0; ajuste com o sinal da diferença.
+  quantidade numeric(12, 3) not null check (quantidade <> 0),
+  -- Entrada: custo unitário da compra (também gravado em produtos_custos).
+  custo_unitario_centavos int check (custo_unitario_centavos >= 0),
+  -- Baixa/estorno: o atendimento que gerou o movimento.
+  agendamento_id uuid references public.agendamentos (id),
+  motivo text check (char_length(btrim(motivo)) between 1 and 200),
+  -- Entrada com "lançar despesa": a conta a pagar (produto) criada junto.
+  conta_pagar_id uuid references public.contas_pagar (id),
+  -- Null quando gerado por gatilho sem usuário (ex.: migração, service_role).
+  responsavel_id uuid references public.colaboradores (id),
+  criado_em timestamptz not null default now(),
+  constraint movimentos_estoque_entrada_check check (
+    tipo <> 'entrada' or (quantidade > 0 and custo_unitario_centavos is not null)
+  ),
+  constraint movimentos_estoque_baixa_check check (
+    tipo <> 'baixa_atendimento' or (quantidade < 0 and agendamento_id is not null)
+  ),
+  constraint movimentos_estoque_estorno_check check (
+    tipo <> 'estorno_atendimento' or (quantidade > 0 and agendamento_id is not null)
+  ),
+  constraint movimentos_estoque_ajuste_check check (tipo <> 'ajuste' or motivo is not null)
+);
+
+create index movimentos_estoque_produto_criado_idx
+  on public.movimentos_estoque (produto_id, criado_em);
+create index movimentos_estoque_agendamento_idx on public.movimentos_estoque (agendamento_id);
+create index movimentos_estoque_conta_pagar_idx
+  on public.movimentos_estoque (conta_pagar_id) where conta_pagar_id is not null;
+
+-- Soma o movimento no saldo do produto. O marcador local da transação
+-- libera a mudança de estoque_atual no gatilho de produtos abaixo.
+create function public.movimentos_estoque_saldo()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform set_config('app.movimento_estoque', '1', true);
+  update public.produtos
+  set estoque_atual = estoque_atual + new.quantidade
+  where id = new.produto_id;
+  perform set_config('app.movimento_estoque', '', true);
+  return null;
+end;
+$$;
+
+revoke execute on function public.movimentos_estoque_saldo() from public, anon, authenticated;
+
+create trigger movimentos_estoque_saldo
+  after insert on public.movimentos_estoque
+  for each row execute function public.movimentos_estoque_saldo();
+
+-- estoque_atual só muda pelo gatilho acima (marcador + chamada vinda de um
+-- gatilho: um set_config feito pelo cliente sozinho não basta). Produto novo
+-- nasce com estoque 0 (o estoque inicial entra como ajuste).
+create function public.produtos_estoque_protegido()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.estoque_atual <> 0 then
+      raise exception 'O estoque só muda por entrada ou ajuste.' using errcode = 'P0001';
+    end if;
+  elsif new.estoque_atual is distinct from old.estoque_atual
+        and (coalesce(current_setting('app.movimento_estoque', true), '') <> '1'
+             or pg_trigger_depth() < 2) then
+    raise exception 'O estoque só muda por entrada ou ajuste.' using errcode = 'P0001';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.produtos_estoque_protegido() from public, anon, authenticated;
+
+create trigger produtos_estoque_protegido
+  before insert or update on public.produtos
+  for each row execute function public.produtos_estoque_protegido();
+
+-- Saldo existente: um ajuste "Saldo anterior" por produto com estoque ≠ 0,
+-- sem somar de novo (gatilho de saldo desligado), para o histórico fechar
+-- com o saldo.
+alter table public.movimentos_estoque disable trigger movimentos_estoque_saldo;
+insert into public.movimentos_estoque (produto_id, tipo, quantidade, motivo)
+select p.id, 'ajuste', p.estoque_atual, 'Saldo anterior'
+from public.produtos p
+where p.estoque_atual <> 0;
+alter table public.movimentos_estoque enable trigger movimentos_estoque_saldo;
+
+-- RLS: só a dona lê; escrita só por gatilhos e pelas funções da seção 4.
+-- Ninguém apaga.
+alter table public.movimentos_estoque enable row level security;
+
+revoke all on public.movimentos_estoque from anon, authenticated;
+revoke delete, truncate on public.movimentos_estoque from service_role;
+grant select on public.movimentos_estoque to authenticated;
+
+create policy movimentos_estoque_select on public.movimentos_estoque
+  for select to authenticated
+  using ((select public.perfil_atual()) = 'dona');
+
+-- =============================================================================
+-- 4. Baixa automática no atendimento, entrada e ajuste
+-- =============================================================================
+
+-- Uma baixa por item de servico_produtos do serviço (quantidade negativa).
+create function public.baixar_estoque_atendimento(p_agendamento uuid, p_servico uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.movimentos_estoque (
+    produto_id, tipo, quantidade, agendamento_id, responsavel_id
+  )
+  select sp.produto_id, 'baixa_atendimento', -sp.quantidade, p_agendamento,
+         public.colaborador_atual_id()
+  from public.servico_produtos sp
+  where sp.servico_id = p_servico
+  order by sp.produto_id;
+end;
+$$;
+
+revoke execute on function public.baixar_estoque_atendimento(uuid, uuid)
+  from public, anon, authenticated, service_role;
+
+-- Estorna o que foi baixado nesse agendamento: por produto, a soma líquida
+-- (baixas − estornos) quando negativa, independente da lista atual do serviço.
+create function public.estornar_estoque_atendimento(p_agendamento uuid, p_motivo text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  insert into public.movimentos_estoque (
+    produto_id, tipo, quantidade, agendamento_id, motivo, responsavel_id
+  )
+  select m.produto_id, 'estorno_atendimento', -sum(m.quantidade), p_agendamento,
+         p_motivo, public.colaborador_atual_id()
+  from public.movimentos_estoque m
+  where m.agendamento_id = p_agendamento
+  group by m.produto_id
+  having sum(m.quantidade) < 0
+  order by m.produto_id;
+end;
+$$;
+
+revoke execute on function public.estornar_estoque_atendimento(uuid, text)
+  from public, anon, authenticated, service_role;
+
+-- Entrando em 'atendido': baixas. Saindo: estornos ("Atendimento
+-- desmarcado"). Continuando 'atendido' com outro serviço (Ruling P4B-R3):
+-- estorna o do serviço anterior ("Serviço alterado") e baixa o do novo. Roda
+-- junto com agendamentos_comissao no mesmo comando: se um levantar erro, tudo
+-- é desfeito.
+create function public.agendamentos_estoque()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if new.status = 'atendido'
+     and (tg_op = 'INSERT' or old.status is distinct from 'atendido') then
+    perform public.baixar_estoque_atendimento(new.id, new.servico_id);
+  elsif tg_op = 'UPDATE' and old.status = 'atendido'
+        and new.status is distinct from 'atendido' then
+    perform public.estornar_estoque_atendimento(new.id, 'Atendimento desmarcado');
+  elsif tg_op = 'UPDATE' and old.status = 'atendido' and new.status = 'atendido'
+        and new.servico_id is distinct from old.servico_id then
+    perform public.estornar_estoque_atendimento(new.id, 'Serviço alterado');
+    perform public.baixar_estoque_atendimento(new.id, new.servico_id);
+  end if;
+  return null;
+end;
+$$;
+
+revoke execute on function public.agendamentos_estoque() from public, anon, authenticated;
+
+create trigger agendamentos_estoque
+  after insert or update of status, servico_id on public.agendamentos
+  for each row execute function public.agendamentos_estoque();
+
+-- Compra: soma a quantidade, atualiza o custo do produto e, se pedido e o
+-- total for > 0, lança a conta a pagar (produto, em aberto) "Compra — <nome>".
+-- Devolve o id do movimento.
+create function public.entrada_estoque(
+  p_produto uuid,
+  p_quantidade numeric,
+  p_custo_unitario_centavos int,
+  p_lancar_despesa boolean,
+  p_vencimento date,
+  p_fornecedor text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_quantidade numeric := round(p_quantidade, 3);
+  v_total int;
+  v_nome text;
+  v_id uuid;
+  v_conta uuid;
+begin
+  perform public.exigir_dona_financeiro();
+  if v_quantidade is null or v_quantidade <= 0 then
+    raise exception 'A quantidade deve ser maior que zero.' using errcode = 'P0001';
+  end if;
+
+  insert into public.movimentos_estoque (
+    produto_id, tipo, quantidade, custo_unitario_centavos, responsavel_id
+  ) values (
+    p_produto, 'entrada', v_quantidade, p_custo_unitario_centavos,
+    public.colaborador_atual_id()
+  )
+  returning id into v_id;
+
+  insert into public.produtos_custos (produto_id, custo_unitario_centavos)
+  values (p_produto, p_custo_unitario_centavos)
+  on conflict (produto_id) do update
+  set custo_unitario_centavos = excluded.custo_unitario_centavos;
+
+  v_total := round(v_quantidade * p_custo_unitario_centavos)::int;
+  if coalesce(p_lancar_despesa, false) and v_total > 0 then
+    select btrim(p.nome) into v_nome from public.produtos p where p.id = p_produto;
+    v_conta := public.criar_conta_pagar(
+      left('Compra — ' || v_nome, 120), 'produto', p_fornecedor, v_total, p_vencimento, null
+    );
+    update public.movimentos_estoque set conta_pagar_id = v_conta where id = v_id;
+  end if;
+
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.entrada_estoque(uuid, numeric, int, boolean, date, text)
+  from public, anon, authenticated;
+grant execute on function public.entrada_estoque(uuid, numeric, int, boolean, date, text)
+  to authenticated;
+
+-- Contagem: grava um ajuste com a diferença entre a quantidade contada e o
+-- saldo atual. Devolve o id do movimento.
+create function public.ajustar_estoque(
+  p_produto uuid,
+  p_quantidade_contada numeric,
+  p_motivo text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_contada numeric := round(p_quantidade_contada, 3);
+  v_atual numeric;
+  v_id uuid;
+begin
+  perform public.exigir_dona_financeiro();
+  if v_contada is null or v_contada < 0 then
+    raise exception 'A quantidade contada não pode ser negativa.' using errcode = 'P0001';
+  end if;
+  if nullif(btrim(p_motivo), '') is null then
+    raise exception 'Informe o motivo do ajuste.' using errcode = 'P0001';
+  end if;
+
+  select p.estoque_atual into v_atual from public.produtos p where p.id = p_produto for update;
+  if not found then
+    raise exception 'Produto não encontrado.' using errcode = 'P0001';
+  end if;
+  if v_contada = v_atual then
+    raise exception 'O estoque já está com essa quantidade.' using errcode = 'P0001';
+  end if;
+
+  insert into public.movimentos_estoque (produto_id, tipo, quantidade, motivo, responsavel_id)
+  values (p_produto, 'ajuste', v_contada - v_atual, btrim(p_motivo), public.colaborador_atual_id())
+  returning id into v_id;
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.ajustar_estoque(uuid, numeric, text)
+  from public, anon, authenticated;
+grant execute on function public.ajustar_estoque(uuid, numeric, text) to authenticated;

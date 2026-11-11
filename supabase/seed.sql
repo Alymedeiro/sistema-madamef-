@@ -28,8 +28,12 @@ from (
 ) as s (nome, categoria, descricao, duracao_min, preco_centavos, permite_online, exige_avaliacao, dias_retorno)
 join public.categorias_servico c on c.nome = s.categoria;
 
-insert into public.produtos (nome, unidade, estoque_atual, estoque_minimo)
-values ('Ácido glicólico 70%', 'ml', 500, 100);
+-- 0011: o estoque só muda por movimento; o inicial entra como ajuste.
+insert into public.produtos (nome, unidade, estoque_minimo)
+values ('Ácido glicólico 70%', 'ml', 100);
+
+insert into public.movimentos_estoque (produto_id, tipo, quantidade, motivo)
+select id, 'ajuste', 500, 'Estoque inicial' from public.produtos where nome = 'Ácido glicólico 70%';
 
 insert into public.produtos_custos (produto_id, custo_unitario_centavos)
 select id, 120 from public.produtos where nome = 'Ácido glicólico 70%';

@@ -352,19 +352,96 @@ describe("base, competência e recálculo", () => {
     });
   });
 
-  it("profissional marcando o próprio atendido gera a comissão (e não a lê)", async () => {
+  it("recepção e profissional marcando atendido geram a comissão (e não a leem)", async () => {
+    for (const uid of [recepcao, prof]) {
+      await comoUsuario(dona, async (c) => {
+        await definirPct(c, { servico: 30 });
+        await comoSuper(c);
+        const ag = await agendar(c);
+        await logarComo(c, uid);
+        await marcar(c, ag, "atendido");
+        expect(await contar(c, "comissoes")).toBe(0);
+        await logarComo(c, dona);
+        expect((await comissoesDe(c, ag))[0]).toMatchObject({
+          status: "aberta",
+          valor_centavos: 6000,
+        });
+      });
+    }
+  });
+
+  it("edição de um atendido (P4B-R3) recalcula a comissão aberta; paga não muda", async () => {
+    await comoUsuario(dona, async (c) => {
+      await definirPct(c, { servico: 30, prof: 10 });
+      await comoSuper(c);
+      const ag = await agendar(c, { status: "atendido" });
+      const id1 = (await c.query("select id from comissoes where agendamento_id = $1", [ag]))
+        .rows[0].id;
+      await logarComo(c, dona);
+
+      // Valor previsto (sem cobrança): base 10000 → 3000.
+      await c.query("update agendamentos set valor_previsto_centavos = 10000 where id = $1", [ag]);
+      expect((await comissoesDe(c, ag))[0]).toMatchObject({
+        status: "aberta",
+        base_centavos: 10000,
+        valor_centavos: 3000,
+      });
+
+      // Serviço sem % → vale a da profissional (10%).
+      await c.query("update agendamentos set servico_id = $2 where id = $1", [ag, servicoSemPct]);
+      let r = await c.query("select servico_id from comissoes where agendamento_id = $1", [ag]);
+      expect(r.rows[0].servico_id).toBe(servicoSemPct);
+      expect((await comissoesDe(c, ag))[0]).toMatchObject({ percentual: 10, valor_centavos: 1000 });
+
+      // Outra profissional (sem %) e serviço sem % → 0%.
+      await c.query("update agendamentos set profissional_id = $2 where id = $1", [ag, prof2Id]);
+      expect((await comissoesDe(c, ag))[0]).toMatchObject({
+        profissional_id: prof2Id,
+        percentual: 0,
+        valor_centavos: 0,
+      });
+
+      // Início em dezembro (SP) → competência de dezembro.
+      await c.query(
+        `update agendamentos set inicio = '2026-12-01T13:00:00Z',
+           fim = '2026-12-01T13:30:00Z' where id = $1`,
+        [ag],
+      );
+      expect((await comissoesDe(c, ag))[0]).toMatchObject({ competencia: "2026-12-01" });
+      const r2 = await c.query("select id from comissoes where agendamento_id = $1", [ag]);
+      expect(r2.rows).toEqual([{ id: id1 }]);
+
+      // Paga: editar não mexe.
+      await c.query("select pagar_comissoes($1, '2026-12-01', '2026-12-05', 'pix')", [prof2Id]);
+      await c.query("update agendamentos set profissional_id = $2, valor_previsto_centavos = 50000 where id = $1", [
+        ag,
+        profId,
+      ]);
+      expect((await comissoesDe(c, ag))[0]).toMatchObject({
+        status: "paga",
+        profissional_id: prof2Id,
+        base_centavos: 10000,
+      });
+
+      // Agendamento não atendido: edição não cria comissão.
+      await comoSuper(c);
+      const ag2 = await agendar(c);
+      await c.query("update agendamentos set valor_previsto_centavos = 1 where id = $1", [ag2]);
+      expect(await comissoesDe(c, ag2)).toEqual([]);
+      r = await c.query("select count(*)::int as n from comissoes where agendamento_id = $1", [ag2]);
+      expect(r.rows[0].n).toBe(0);
+    });
+  });
+
+  it("atendido sem comissão (anterior à 0011) continua sem ao ser editado", async () => {
     await comoUsuario(dona, async (c) => {
       await definirPct(c, { servico: 30 });
       await comoSuper(c);
-      const ag = await agendar(c);
-      await logarComo(c, prof);
-      await marcar(c, ag, "atendido");
-      expect(await contar(c, "comissoes")).toBe(0);
-      await logarComo(c, dona);
-      expect((await comissoesDe(c, ag))[0]).toMatchObject({
-        status: "aberta",
-        valor_centavos: 6000,
-      });
+      await c.query("alter table agendamentos disable trigger agendamentos_comissao");
+      const ag = await agendar(c, { status: "atendido" });
+      await c.query("alter table agendamentos enable trigger agendamentos_comissao");
+      await c.query("update agendamentos set valor_previsto_centavos = 1 where id = $1", [ag]);
+      expect(await comissoesDe(c, ag)).toEqual([]);
     });
   });
 });
