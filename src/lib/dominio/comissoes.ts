@@ -51,3 +51,31 @@ export function competenciaDe(inicioIso: string): string {
   const mes = partes.find((p) => p.type === "month")?.value;
   return `${ano}-${mes}-01`;
 }
+
+/** Filtro de situação da aba Comissões (padrão "aberta"). */
+export type FiltroSituacaoComissao = "todas" | StatusComissao;
+export const FILTROS_SITUACAO_COMISSAO: readonly FiltroSituacaoComissao[] = [
+  "todas",
+  "aberta",
+  "paga",
+  "cancelada",
+];
+export const ROTULO_FILTRO_SITUACAO_COMISSAO: Record<FiltroSituacaoComissao, string> = {
+  todas: "Todas",
+  aberta: "Em aberto",
+  paga: "Pagas",
+  cancelada: "Canceladas",
+};
+
+export function filtroSituacaoComissao(v: string | undefined): FiltroSituacaoComissao {
+  return FILTROS_SITUACAO_COMISSAO.includes(v as FiltroSituacaoComissao)
+    ? (v as FiltroSituacaoComissao)
+    : "aberta";
+}
+
+const FORMATADOR_PCT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 2 });
+
+/** 40 → "40%"; 12.5 → "12,5%". */
+export function formatarPercentual(pct: number): string {
+  return `${FORMATADOR_PCT.format(pct)}%`;
+}

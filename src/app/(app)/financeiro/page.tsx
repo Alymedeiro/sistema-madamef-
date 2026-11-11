@@ -1,3 +1,5 @@
+import { FiltrosComissoes, ListaComissoes } from "@/features/comissoes/lista";
+import { ResumoComissoes } from "@/features/comissoes/resumo";
 import { AbaCaixa } from "@/features/financeiro/aba-caixa";
 import { AcoesCabecalho } from "@/features/financeiro/acoes-cabecalho";
 import { AbasFinanceiro } from "@/features/financeiro/abas";
@@ -10,11 +12,13 @@ import { ListaPagar } from "@/features/financeiro/lista-pagar";
 import { ListaReceber } from "@/features/financeiro/lista-receber";
 import { PainelFinanceiro } from "@/features/financeiro/painel";
 import { hrefExportarPdf, hrefFinanceiro } from "@/features/financeiro/url";
+import { filtroSituacaoComissao } from "@/lib/dominio/comissoes";
 import { filtroSituacao, periodoDoFiltro } from "@/lib/dominio/financeiro";
 import { abaDoFinanceiro, abasDoFinanceiro, perfisComAcesso } from "@/lib/dominio/permissoes";
 import { dataNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
+import { profissionalDoFiltro } from "./dados-comissoes";
 import { carregarDadosDaPagina } from "./dados-pagina";
 
 export const metadata = { title: "Financeiro | Madame Fê Clinic" };
@@ -27,7 +31,16 @@ export default async function FinanceiroPage({
 }: {
   searchParams: Promise<
     Record<
-      "aba" | "periodo" | "de" | "ate" | "situacao" | "busca" | "categoria" | "conta" | "novo",
+      | "aba"
+      | "periodo"
+      | "de"
+      | "ate"
+      | "situacao"
+      | "busca"
+      | "categoria"
+      | "conta"
+      | "novo"
+      | "profissional",
       Parametro
     >
   >;
@@ -56,11 +69,24 @@ export default async function FinanceiroPage({
   const situacao = filtroSituacao(primeiro(sp.situacao));
   const busca = (primeiro(sp.busca) ?? "").slice(0, 60);
   const categoria = primeiro(sp.categoria) ?? "";
+  const situacaoComissao = filtroSituacaoComissao(primeiro(sp.situacao));
+  const profissionalId = profissionalDoFiltro(primeiro(sp.profissional));
   const supabase = await createClient();
   // Só a dona chega aqui: gerar_contas_fixas e resumo_financeiro recusam os outros perfis.
-  const { resumo, proximos, colaboradoras, pagar, receber, fluxo } = await carregarDadosDaPagina(
+  const { resumo, proximos, colaboradoras, pagar, receber, fluxo, comissoes } = await carregarDadosDaPagina(
     supabase,
-    { aba, de: periodo.de, ate: periodo.ate, situacao, busca, categoria, hoje, agora },
+    {
+      aba,
+      de: periodo.de,
+      ate: periodo.ate,
+      situacao,
+      busca,
+      categoria,
+      hoje,
+      agora,
+      situacaoComissao,
+      profissionalId,
+    },
   );
   const filtroDaLista = { periodo: periodo.filtro, de: periodo.de, ate: periodo.ate, situacao, busca };
   const amanha = dataNoFuso(new Date(agora.getTime() + 86_400_000));
@@ -74,7 +100,17 @@ export default async function FinanceiroPage({
           hoje={hoje}
           hrefNovaReceber={`${hrefReceber}&novo=1`}
           hrefExportarPdf={
-            aba === "caixa" ? undefined : hrefExportarPdf({ aba, ...periodo, periodo: periodo.filtro, situacao, busca, categoria })
+            aba === "caixa"
+              ? undefined
+              : hrefExportarPdf({
+                  aba,
+                  ...periodo,
+                  periodo: periodo.filtro,
+                  situacao: aba === "comissoes" ? situacaoComissao : situacao,
+                  busca,
+                  categoria,
+                  profissional: profissionalId ?? undefined,
+                })
           }
         />
       </CabecalhoFinanceiro>
@@ -91,6 +127,16 @@ export default async function FinanceiroPage({
           <FiltrosLista aba="pagar" tipo="pagar" categoria={categoria} {...filtroDaLista} />
         )}
         {aba === "receber" && <FiltrosLista aba="receber" tipo="receber" {...filtroDaLista} />}
+        {comissoes && (
+          <FiltrosComissoes
+            periodo={periodo.filtro}
+            de={periodo.de}
+            ate={periodo.ate}
+            situacao={situacaoComissao}
+            profissionalId={profissionalId}
+            profissionais={comissoes.profissionais}
+          />
+        )}
       </AbasFinanceiro>
       {aba === "painel" && <PainelFinanceiro proximos={proximos} hoje={hoje} amanha={amanha} />}
       {receber && (
@@ -104,6 +150,12 @@ export default async function FinanceiroPage({
       )}
       {pagar && <ListaPagar contas={pagar[0]} fixas={pagar[1]} hoje={hoje} destaque={primeiro(sp.conta)} />}
       {fluxo && <FluxoDeCaixa fluxo={fluxo} />}
+      {comissoes && (
+        <>
+          <ResumoComissoes resumo={comissoes.resumo} totais={comissoes.totais} hoje={hoje} />
+          <ListaComissoes linhas={comissoes.linhas} />
+        </>
+      )}
       {aba === "caixa" && <AbaCaixa ehDona />}
     </div>
   );

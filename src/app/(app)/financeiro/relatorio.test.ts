@@ -59,3 +59,69 @@ describe("conteudoDoRelatorio: limite de 500 linhas", () => {
     expect((await conteudoDoRelatorio(falso.cliente as never, p, agora)).filtros).toContain(AVISO);
   });
 });
+
+describe("conteudoDoRelatorio: comissões", () => {
+  const ANA = "a0000000-0000-4000-8000-0000000000a1";
+  const linhaComissao = (status: string) => ({
+    id: `k-${status}`,
+    profissional_id: ANA,
+    competencia: "2026-11-01",
+    base_centavos: 15000,
+    percentual: 12.5,
+    valor_centavos: 1875,
+    status,
+    pago_em: status === "paga" ? "2026-11-09" : null,
+    agendamentos: { inicio: "2026-11-05T13:00:00Z", clientes: { nome: "Maria" } },
+    servicos: { nome: "Limpeza de pele" },
+    colaboradores: { nome: "Ana" },
+  });
+
+  it("colunas, linhas, filtros e totais A pagar / Pago", async () => {
+    const p = parametrosDoRelatorio(
+      new URLSearchParams(`aba=comissoes&situacao=todas&profissional=${ANA}`),
+      agora,
+    );
+    expect(p.aba).toBe("comissoes");
+    const falso = criarSupabaseFalso();
+    falso.responder(
+      "rpc:resumo_comissoes",
+      ok([
+        { profissional_id: ANA, nome: "Ana", competencia: "2026-11-01", qtd: 2, base: 30000, aberto: 1875, pago: 1875 },
+        { profissional_id: "outra", nome: "Bia", competencia: "2026-11-01", qtd: 1, base: 100, aberto: 50, pago: 0 },
+      ]),
+    );
+    falso.responder("comissoes", ok([linhaComissao("aberta"), linhaComissao("paga")]));
+    const c = await conteudoDoRelatorio(falso.cliente as never, p, agora);
+    expect(c.colunas).toEqual(["Data", "Cliente", "Serviço", "Profissional", "Base", "%", "Valor", "Situação"]);
+    expect(c.linhas[0]).toEqual([
+      "05/11/2026",
+      "Maria",
+      "Limpeza de pele",
+      "Ana",
+      "R$ 150,00",
+      "12,5%",
+      "R$ 18,75",
+      "Em aberto",
+    ]);
+    expect(c.linhas[1][7]).toBe("Paga");
+    expect(c.filtros).toEqual(["Situação: Todas", "Profissional: Ana"]);
+    expect(c.totais).toEqual([
+      ["A pagar", "R$ 18,75"],
+      ["Pago", "R$ 18,75"],
+    ]);
+  });
+
+  it("padrão Em aberto; situação de contas (vencida) cai no padrão", async () => {
+    const p = parametrosDoRelatorio(new URLSearchParams("aba=comissoes&situacao=vencida"), agora);
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:resumo_comissoes", ok([]));
+    falso.responder("comissoes", ok([]));
+    const c = await conteudoDoRelatorio(falso.cliente as never, p, agora);
+    expect(falso.chamadasDe("comissoes", "eq").map((x) => x.args)).toContainEqual(["status", "aberta"]);
+    expect(c.filtros).toEqual(["Situação: Em aberto"]);
+    expect(c.totais).toEqual([
+      ["A pagar", "R$ 0,00"],
+      ["Pago", "R$ 0,00"],
+    ]);
+  });
+});

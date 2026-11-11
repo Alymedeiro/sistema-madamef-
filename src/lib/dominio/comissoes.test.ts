@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   baseComissao,
   competenciaDe,
+  FILTROS_SITUACAO_COMISSAO,
+  filtroSituacaoComissao,
+  formatarPercentual,
   percentualEfetivo,
+  ROTULO_FILTRO_SITUACAO_COMISSAO,
   ROTULO_STATUS_COMISSAO,
   valorComissao,
 } from "./comissoes";
@@ -55,5 +59,26 @@ describe("ROTULO_STATUS_COMISSAO", () => {
       paga: "Paga",
       cancelada: "Cancelada",
     });
+  });
+});
+
+describe("filtroSituacaoComissao e formatarPercentual", () => {
+  it("padrão Em aberto; vencida (das contas) não vale aqui", () => {
+    expect(filtroSituacaoComissao(undefined)).toBe("aberta");
+    expect(filtroSituacaoComissao("vencida")).toBe("aberta");
+    expect(filtroSituacaoComissao("paga")).toBe("paga");
+    expect(filtroSituacaoComissao("todas")).toBe("todas");
+    expect(FILTROS_SITUACAO_COMISSAO.map((s) => ROTULO_FILTRO_SITUACAO_COMISSAO[s])).toEqual([
+      "Todas",
+      "Em aberto",
+      "Pagas",
+      "Canceladas",
+    ]);
+  });
+
+  it("percentual em pt-BR", () => {
+    expect(formatarPercentual(40)).toBe("40%");
+    expect(formatarPercentual(12.5)).toBe("12,5%");
+    expect(formatarPercentual(0)).toBe("0%");
   });
 });

@@ -61,4 +61,20 @@ describe("carregarDadosDaPagina", () => {
     expect(ordem.indexOf("contas_pagar")).toBeGreaterThan(resumo);
     expect(ordem.indexOf("contas_receber")).toBeGreaterThan(resumo);
   });
+
+  it("comissões: carrega resumo e lista só nesta aba (padrão Em aberto)", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:gerar_contas_fixas", ok(0));
+    falso.responder("rpc:resumo_financeiro", ok([{}]));
+    falso.responder("colaboradores", ok([]));
+    falso.responder("rpc:resumo_comissoes", ok([]));
+    falso.responder("comissoes", ok([]));
+    const d = await carregarDadosDaPagina(falso.cliente as never, { ...base, aba: "comissoes" });
+    expect(d.comissoes).toMatchObject({ resumo: [], linhas: [] });
+    expect(falso.chamadasDe("comissoes", "eq").map((c) => c.args)).toContainEqual(["status", "aberta"]);
+    const outra = criarSupabaseFalso();
+    outra.definirPadrao(ok([]));
+    expect((await carregarDadosDaPagina(outra.cliente as never, { ...base, aba: "fluxo" })).comissoes).toBeNull();
+    expect(outra.chamadasRpc("resumo_comissoes")).toHaveLength(0);
+  });
 });
