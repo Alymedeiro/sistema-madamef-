@@ -90,7 +90,7 @@ describe("conteudoDoRelatorio: comissões", () => {
         { profissional_id: "outra", nome: "Bia", competencia: "2026-11-01", qtd: 1, base: 100, aberto: 50, pago: 0 },
       ]),
     );
-    falso.responder("comissoes", ok([linhaComissao("aberta"), linhaComissao("paga")]));
+    falso.responder("comissoes", ok([linhaComissao("aberta"), linhaComissao("paga")]), ok([]));
     const c = await conteudoDoRelatorio(falso.cliente as never, p, agora);
     expect(c.colunas).toEqual(["Data", "Cliente", "Serviço", "Profissional", "Base", "%", "Valor", "Situação"]);
     expect(c.linhas[0]).toEqual([

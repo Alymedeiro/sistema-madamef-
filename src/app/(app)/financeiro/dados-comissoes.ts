@@ -17,6 +17,8 @@ export type LinhaResumo = {
   baseCentavos: number;
   abertoCentavos: number;
   pagoCentavos: number;
+  /** Comissões em aberto (mesmo a 0%): com alguma, dá para pagar. */
+  abertas: number;
 };
 
 export type LinhaComissao = {
@@ -79,6 +81,9 @@ export function profissionalDoFiltro(v: string | undefined): string | null {
 /** Competências do período: do mês de `de` até `ate` (como resumo_comissoes). */
 const inicioDoMes = (d: string) => `${d.slice(0, 7)}-01`;
 
+/** Teto da contagem de abertas (só importa se há alguma por profissional/mês). */
+const LIMITE_ABERTAS = 5000;
+
 /**
  * Aba Comissões (dona): resumo por profissional e mês (resumo_comissoes) e a
  * lista detalhada com os filtros de situação (padrão Em aberto) e profissional.
@@ -92,12 +97,30 @@ export async function carregarComissoes(supabase: Supabase, f: FiltrosComissoes)
   if (f.situacao !== "todas") q = q.eq("status", f.situacao);
   if (f.profissionalId) q = q.eq("profissional_id", f.profissionalId);
 
-  const [resumoRpc, lista] = await Promise.all([
+  // Em aberto por profissional e mês, independente dos filtros da lista: com
+  // todas a 0% o "a pagar" é R$ 0,00, mas ainda há o que quitar.
+  const abertasQ = supabase
+    .from("comissoes")
+    .select("profissional_id, competencia")
+    .eq("status", "aberta")
+    .gte("competencia", inicioDoMes(f.de))
+    .lte("competencia", f.ate)
+    .limit(LIMITE_ABERTAS);
+
+  const [resumoRpc, lista, abertasRes] = await Promise.all([
     supabase.rpc("resumo_comissoes", { p_de: f.de, p_ate: f.ate }),
     q.order("competencia").order("criado_em").limit(MAX_LINHAS_LISTA),
+    abertasQ,
   ]);
   if (resumoRpc.error) throw new Error(`Falha ao carregar o resumo das comissões: ${resumoRpc.error.message}`);
   if (lista.error) throw new Error(`Falha ao carregar as comissões: ${lista.error.message}`);
+  if (abertasRes.error) throw new Error(`Falha ao carregar as comissões em aberto: ${abertasRes.error.message}`);
+
+  const abertas = new Map<string, number>();
+  for (const a of (abertasRes.data ?? []) as { profissional_id: string; competencia: string }[]) {
+    const k = `${a.profissional_id}|${a.competencia}`;
+    abertas.set(k, (abertas.get(k) ?? 0) + 1);
+  }
 
   const todos: LinhaResumo[] = (resumoRpc.data ?? []).map((r) => ({
     profissionalId: r.profissional_id,
@@ -107,6 +130,7 @@ export async function carregarComissoes(supabase: Supabase, f: FiltrosComissoes)
     baseCentavos: Number(r.base),
     abertoCentavos: Number(r.aberto),
     pagoCentavos: Number(r.pago),
+    abertas: abertas.get(`${r.profissional_id}|${r.competencia}`) ?? 0,
   }));
 
   const linhas = ((lista.data ?? []) as unknown as LinhaBanco[])

@@ -14,6 +14,7 @@ import {
   CATEGORIAS_DESPESA,
   ROTULO_CATEGORIA,
   avisoDoLimite,
+  dataBr,
   filtroSituacao,
   periodoDoFiltro,
   type CategoriaDespesa,
@@ -58,8 +59,6 @@ export function parametrosDoRelatorio(q: URLSearchParams, agora: Date): Parametr
     profissionalId: profissionalDoFiltro(v("profissional")),
   };
 }
-
-const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
 /** "Novembro de 2026 (01/11/2026 a 30/11/2026)"; o personalizado já traz as datas. */
 export function rotuloDoPeriodo(p: ParametrosRelatorio["periodo"]): string {
@@ -148,7 +147,7 @@ export async function conteudoDoRelatorio(
       filtros,
       colunas: ["Data", "Cliente", "Serviço", "Profissional", "Base", "%", "Valor", "Situação"],
       linhas: c.linhas.map((l) => [
-        dataBr(l.data || null),
+        dataBr(l.data),
         l.clienteNome,
         l.servicoNome,
         l.profissionalNome,

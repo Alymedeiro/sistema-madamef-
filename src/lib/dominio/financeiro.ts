@@ -303,3 +303,8 @@ export function inicioDaContaFixa(dia: number, hoje: string): string {
   const [a, m] = deslocarMes(ano, mes, 1);
   return iso(a, m, 1);
 }
+
+/** "2026-11-05" → "05/11/2026"; vazio/null → "—". */
+export function dataBr(s: string | null | undefined): string {
+  return s ? s.split("-").reverse().join("/") : "—";
+}

@@ -12,7 +12,7 @@ import {
   type StatusComissao,
 } from "@/lib/dominio/comissoes";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import type { FiltroPeriodo } from "@/lib/dominio/financeiro";
+import { dataBr, type FiltroPeriodo } from "@/lib/dominio/financeiro";
 import { cn } from "@/lib/utils";
 
 const SITUACAO: Record<StatusComissao, { icone: string; classe: string }> = {
@@ -20,8 +20,6 @@ const SITUACAO: Record<StatusComissao, { icone: string; classe: string }> = {
   paga: { icone: "🟢", classe: "text-emerald-800" },
   cancelada: { icone: "⚫", classe: "text-muted-foreground" },
 };
-
-const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
 export function SituacaoComissao({ status }: { status: StatusComissao }) {
   const s = SITUACAO[status];
@@ -115,7 +113,7 @@ export function ListaComissoes({ linhas }: { linhas: LinhaComissao[] }) {
           <TableBody>
             {linhas.map((l) => (
               <TableRow key={l.id} data-testid="comissao">
-                <TableCell className="tabular-nums whitespace-nowrap">{dataBr(l.data || null)}</TableCell>
+                <TableCell className="tabular-nums whitespace-nowrap">{dataBr(l.data)}</TableCell>
                 <TableCell className="font-medium">{l.clienteNome}</TableCell>
                 <TableCell>{l.servicoNome}</TableCell>
                 <TableCell>{l.profissionalNome}</TableCell>

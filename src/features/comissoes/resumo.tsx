@@ -55,7 +55,7 @@ export function ResumoComissoes({
                 </TableCell>
                 <TableCell className="text-right tabular-nums whitespace-nowrap">{formatarBRL(r.pagoCentavos)}</TableCell>
                 <TableCell className="text-right">
-                  {r.abertoCentavos > 0 && (
+                  {r.abertas > 0 && (
                     <BotaoPagarComissoes
                       hoje={hoje}
                       item={{

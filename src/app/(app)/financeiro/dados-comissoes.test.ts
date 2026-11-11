@@ -31,6 +31,18 @@ const comissao = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+/** Chamadas da consulta da lista (a 2ª consulta, que começa no 2º select, conta as abertas). */
+function daLista(falso: ReturnType<typeof criarSupabaseFalso>) {
+  const todas = falso.chamadasDe("comissoes");
+  const fim = todas.findIndex((c, i) => i > 0 && c.metodo === "select");
+  return (fim < 0 ? todas : todas.slice(0, fim)).map((c) => [c.metodo, ...c.args]);
+}
+function daContagem(falso: ReturnType<typeof criarSupabaseFalso>) {
+  const todas = falso.chamadasDe("comissoes");
+  const ini = todas.findIndex((c, i) => i > 0 && c.metodo === "select");
+  return todas.slice(ini).map((c) => [c.metodo, ...c.args]);
+}
+
 describe("carregarComissoes", () => {
   it("monta resumo e linhas; filtro padrão Em aberto e competência do período", async () => {
     const falso = criarSupabaseFalso();
@@ -41,6 +53,10 @@ describe("carregarComissoes", () => {
         comissao({ id: "k2", agendamentos: { inicio: "2026-11-20T13:00:00Z", clientes: { nome: "Joana" } } }),
         comissao(),
       ]),
+      ok([
+        { profissional_id: ANA, competencia: "2026-11-01" },
+        { profissional_id: ANA, competencia: "2026-11-01" },
+      ]),
     );
     const r = await carregarComissoes(falso.cliente as never, {
       ...PERIODO,
@@ -49,15 +65,15 @@ describe("carregarComissoes", () => {
     });
 
     expect(falso.chamadasRpc("resumo_comissoes")[0].args[0]).toEqual({ p_de: "2026-11-01", p_ate: "2026-11-30" });
-    const f = falso.chamadasDe("comissoes").map((c) => [c.metodo, ...c.args]);
+    const f = daLista(falso);
     expect(f).toContainEqual(["eq", "status", "aberta"]);
     expect(f).toContainEqual(["gte", "competencia", "2026-11-01"]);
     expect(f).toContainEqual(["lte", "competencia", "2026-11-30"]);
     expect(f.some(([m, col]) => m === "eq" && col === "profissional_id")).toBe(false);
 
     expect(r.resumo).toEqual([
-      { profissionalId: ANA, nome: "Ana", competencia: "2026-11-01", qtd: 3, baseCentavos: 30000, abertoCentavos: 8000, pagoCentavos: 4000 },
-      { profissionalId: BIA, nome: "Bia", competencia: "2026-11-01", qtd: 1, baseCentavos: 10000, abertoCentavos: 0, pagoCentavos: 3000 },
+      { profissionalId: ANA, nome: "Ana", competencia: "2026-11-01", qtd: 3, baseCentavos: 30000, abertoCentavos: 8000, pagoCentavos: 4000, abertas: 2 },
+      { profissionalId: BIA, nome: "Bia", competencia: "2026-11-01", qtd: 1, baseCentavos: 10000, abertoCentavos: 0, pagoCentavos: 3000, abertas: 0 },
     ]);
     expect(r.linhas.map((l) => l.id)).toEqual(["k1", "k2"]);
     expect(r.linhas[0]).toEqual({
@@ -84,9 +100,9 @@ describe("carregarComissoes", () => {
   it("Todas não filtra status; profissional filtra linhas, resumo e totais", async () => {
     const falso = criarSupabaseFalso();
     falso.responder("rpc:resumo_comissoes", ok(resumo));
-    falso.responder("comissoes", ok([comissao({ profissional_id: BIA, colaboradores: { nome: "Bia" } })]));
+    falso.responder("comissoes", ok([comissao({ profissional_id: BIA, colaboradores: { nome: "Bia" } })]), ok([]));
     const r = await carregarComissoes(falso.cliente as never, { ...PERIODO, situacao: "todas", profissionalId: BIA });
-    const f = falso.chamadasDe("comissoes").map((c) => [c.metodo, ...c.args]);
+    const f = daLista(falso);
     expect(f.some(([m, col]) => m === "eq" && col === "status")).toBe(false);
     expect(f).toContainEqual(["eq", "profissional_id", BIA]);
     expect(r.resumo.map((x) => x.nome)).toEqual(["Bia"]);
@@ -98,14 +114,14 @@ describe("carregarComissoes", () => {
   it("período no meio do mês pega a competência do mês inteiro", async () => {
     const falso = criarSupabaseFalso();
     falso.responder("rpc:resumo_comissoes", ok([]));
-    falso.responder("comissoes", ok([]));
+    falso.responder("comissoes", ok([]), ok([]));
     await carregarComissoes(falso.cliente as never, {
       de: "2026-11-15",
       ate: "2026-11-20",
       situacao: "paga",
       profissionalId: null,
     });
-    const f = falso.chamadasDe("comissoes").map((c) => [c.metodo, ...c.args]);
+    const f = daLista(falso);
     expect(f).toContainEqual(["gte", "competencia", "2026-11-01"]);
     expect(f).toContainEqual(["eq", "status", "paga"]);
   });
@@ -113,9 +129,33 @@ describe("carregarComissoes", () => {
   it("erro do banco vira exceção", async () => {
     const falso = criarSupabaseFalso();
     falso.responder("rpc:resumo_comissoes", { data: null, error: { message: "Acesso não autorizado" } });
-    falso.responder("comissoes", ok([]));
+    falso.responder("comissoes", ok([]), ok([]));
     await expect(
       carregarComissoes(falso.cliente as never, { ...PERIODO, situacao: "aberta", profissionalId: null }),
     ).rejects.toThrow("Acesso não autorizado");
+  });
+
+  it("todas a 0% em aberto: a pagar R$ 0,00 mas abertas > 0 (dá para pagar)", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder(
+      "rpc:resumo_comissoes",
+      ok([{ profissional_id: BIA, nome: "Bia", competencia: "2026-11-01", qtd: 2, base: 20000, aberto: 0, pago: 0 }]),
+    );
+    // A lista filtrada (Pagas) vem vazia: a contagem não depende dela.
+    falso.responder(
+      "comissoes",
+      ok([]),
+      ok([
+        { profissional_id: BIA, competencia: "2026-11-01" },
+        { profissional_id: BIA, competencia: "2026-11-01" },
+      ]),
+    );
+    const r = await carregarComissoes(falso.cliente as never, { ...PERIODO, situacao: "paga", profissionalId: null });
+    expect(r.resumo[0]).toMatchObject({ abertoCentavos: 0, abertas: 2 });
+    const c = daContagem(falso);
+    expect(c).toContainEqual(["select", "profissional_id, competencia"]);
+    expect(c).toContainEqual(["eq", "status", "aberta"]);
+    expect(c).toContainEqual(["gte", "competencia", "2026-11-01"]);
+    expect(c).toContainEqual(["lte", "competencia", "2026-11-30"]);
   });
 });

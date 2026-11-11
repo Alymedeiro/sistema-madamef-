@@ -2,7 +2,7 @@ import type { ContaFixaLinha, ContaPagarLinha } from "@/app/(app)/financeiro/dad
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ROTULO_FORMA, type FormaPagamento } from "@/lib/dominio/caixa";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { ROTULO_CATEGORIA, type situacaoConta } from "@/lib/dominio/financeiro";
+import { ROTULO_CATEGORIA, dataBr, type situacaoConta } from "@/lib/dominio/financeiro";
 import { cn } from "@/lib/utils";
 import { AvisoLimite } from "./aviso-limite";
 import { AcoesContaPagar, BotaoAnexo, BotaoPararContaFixa } from "./acoes-conta-pagar";
@@ -15,8 +15,6 @@ const SITUACAO: Record<Situacao, { icone: string; rotulo: string; classe: string
   vencida: { icone: "🔴", rotulo: "Vencida", classe: "text-destructive font-medium" },
   cancelada: { icone: "⚫", rotulo: "Cancelada", classe: "text-muted-foreground" },
 };
-
-const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
 export function SituacaoConta({ situacao, tipo = "pagar" }: { situacao: Situacao; tipo?: "pagar" | "receber" }) {
   const s = SITUACAO[situacao];
