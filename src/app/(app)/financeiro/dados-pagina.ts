@@ -1,4 +1,5 @@
 import "server-only";
+import type { FiltroSituacaoComissao } from "@/lib/dominio/comissoes";
 import type { FiltroSituacao } from "@/lib/dominio/financeiro";
 import type { AbaFinanceiro } from "@/lib/dominio/permissoes";
 import type { createClient } from "@/lib/supabase/server";
@@ -10,6 +11,7 @@ import {
   listarContasPagar,
   type Resumo,
 } from "./dados";
+import { carregarComissoes } from "./dados-comissoes";
 import { carregarFluxo } from "./dados-fluxo";
 import { listarContasReceber } from "./dados-receber";
 
@@ -24,6 +26,9 @@ export type FiltrosDaPagina = {
   categoria: string;
   hoje: string;
   agora: Date;
+  /** Aba Comissões (padrões: Em aberto, todas as profissionais). */
+  situacaoComissao?: FiltroSituacaoComissao;
+  profissionalId?: string | null;
 };
 
 /**
@@ -37,7 +42,7 @@ export async function carregarDadosDaPagina(supabase: Supabase, f: FiltrosDaPagi
   const tolerante = f.aba === "caixa";
   const resumoGerado = carregarResumo(supabase, f.de, f.ate, f.agora);
   const periodo = { de: f.de, ate: f.ate };
-  const [resumo, proximos, colaboradoras, pagar, receber, fluxo] = await Promise.all([
+  const [resumo, proximos, colaboradoras, pagar, receber, fluxo, comissoes] = await Promise.all([
     tolerante ? resumoGerado.catch((): Resumo | null => null) : resumoGerado,
     f.aba === "painel"
       ? resumoGerado.then(() => carregarProximosVencimentos(supabase, f.hoje))
@@ -61,6 +66,13 @@ export async function carregarDadosDaPagina(supabase: Supabase, f: FiltrosDaPagi
       ? listarContasReceber(supabase, { ...periodo, situacao: f.situacao, busca: f.busca }, f.hoje)
       : Promise.resolve(null),
     f.aba === "fluxo" ? carregarFluxo(supabase, f.de, f.ate) : Promise.resolve(null),
+    f.aba === "comissoes"
+      ? carregarComissoes(supabase, {
+          ...periodo,
+          situacao: f.situacaoComissao ?? "aberta",
+          profissionalId: f.profissionalId ?? null,
+        })
+      : Promise.resolve(null),
   ]);
-  return { resumo, proximos, colaboradoras, pagar, receber, fluxo };
+  return { resumo, proximos, colaboradoras, pagar, receber, fluxo, comissoes };
 }

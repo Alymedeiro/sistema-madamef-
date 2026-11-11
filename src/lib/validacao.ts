@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { temNoMaximoCasas } from "@/lib/dominio/catalogo";
+import { parseQuantidade, temNoMaximoCasas } from "@/lib/dominio/catalogo";
 import { normalizarWhatsApp } from "@/lib/dominio/telefone";
 
 /** Texto opcional: vazio/ausente vira null; senão, aparado. */
@@ -49,3 +49,27 @@ export const quantidadeNaoNegativaSchema = (mensagem: string) =>
 
 /** Identificador de registro vindo do cliente (Server Actions não confiam no argumento). */
 export const idSchema = z.uuid("Registro inválido.");
+
+export const MENSAGEM_PERCENTUAL = "A comissão deve estar entre 0 e 100%.";
+
+/** Texto pt-BR ("12,5") → percentual 0–100 com até 2 casas; null quando vazio. */
+const percentualDeTexto = z
+  .string(MENSAGEM_PERCENTUAL)
+  .trim()
+  .transform((v, ctx) => {
+    if (v === "") return null;
+    const n = parseQuantidade(v);
+    if (n === null || n < 0 || n > 100 || !temNoMaximoCasas(n, 2)) {
+      ctx.addIssue({ code: "custom", message: MENSAGEM_PERCENTUAL });
+      return z.NEVER;
+    }
+    return n;
+  });
+
+/** Comissão padrão da profissional: vazio vira 0. Ausente = não mexe (undefined). */
+export const percentualPadraoSchema = percentualDeTexto.optional().transform((v) =>
+  v === undefined ? undefined : (v ?? 0),
+);
+
+/** Comissão do serviço: vazio vira null (usa a padrão da profissional). Ausente = não mexe. */
+export const percentualOpcionalSchema = percentualDeTexto.optional();

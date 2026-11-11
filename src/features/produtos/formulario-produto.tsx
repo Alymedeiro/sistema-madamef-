@@ -1,22 +1,27 @@
 "use client";
 
 import { useId, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseQuantidade, quantidadeParaCampo } from "@/lib/dominio/catalogo";
+import {
+  formatarQuantidade,
+  parseQuantidade,
+  quantidadeParaCampo,
+} from "@/lib/dominio/catalogo";
 import { formatarBRL, parseBRL } from "@/lib/dominio/dinheiro";
 import { salvarProduto } from "@/app/(app)/produtos/actions";
-import { produtoSchema } from "@/app/(app)/produtos/schemas";
+import { produtoNovoSchema, produtoSchema } from "@/app/(app)/produtos/schemas";
 
 type Valores = {
   nome: string;
   unidade: string;
   custo: string;
   precoVenda: string;
-  estoqueAtual: string;
+  estoqueInicial: string;
   estoqueMinimo: string;
 };
 
@@ -38,7 +43,7 @@ const CAMPOS_ERRO: Record<string, keyof Valores> = {
   unidade: "unidade",
   custoCentavos: "custo",
   precoVendaCentavos: "precoVenda",
-  estoqueAtual: "estoqueAtual",
+  estoqueInicial: "estoqueInicial",
   estoqueMinimo: "estoqueMinimo",
 };
 
@@ -56,7 +61,7 @@ export function FormularioProduto({ produto }: Props) {
     custo: produto ? semSimbolo(produto.custoCentavos) : "",
     precoVenda:
       produto && produto.precoVendaCentavos !== null ? semSimbolo(produto.precoVendaCentavos) : "",
-    estoqueAtual: produto ? quantidadeParaCampo(produto.estoqueAtual) : "0",
+    estoqueInicial: "0",
     estoqueMinimo: produto ? quantidadeParaCampo(produto.estoqueMinimo) : "0",
   });
   const [erros, setErros] = useState<Partial<Record<keyof Valores, string>>>({});
@@ -74,10 +79,11 @@ export function FormularioProduto({ produto }: Props) {
       // Texto que não converte vira NaN e o schema devolve a mensagem do campo.
       custoCentavos: parseBRL(valores.custo) ?? NaN,
       precoVendaCentavos: valores.precoVenda.trim() === "" ? null : (parseBRL(valores.precoVenda) ?? NaN),
-      estoqueAtual: parseQuantidade(valores.estoqueAtual) ?? NaN,
       estoqueMinimo: parseQuantidade(valores.estoqueMinimo) ?? NaN,
+      // Só na criação: depois o estoque muda por entrada ou ajuste.
+      ...(editando ? {} : { estoqueInicial: parseQuantidade(valores.estoqueInicial) ?? NaN }),
     };
-    const check = produtoSchema.safeParse(dados);
+    const check = (editando ? produtoSchema : produtoNovoSchema).safeParse(dados);
     if (!check.success) {
       const novos: Partial<Record<keyof Valores, string>> = {};
       for (const issue of check.error.issues) {
@@ -174,18 +180,39 @@ export function FormularioProduto({ produto }: Props) {
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2">
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={campo("estoqueAtual")}>Estoque atual</Label>
-          <Input
-            id={campo("estoqueAtual")}
-            inputMode="decimal"
-            value={valores.estoqueAtual}
-            onChange={(e) => definir("estoqueAtual", e.target.value)}
-            autoComplete="off"
-            {...aria("estoqueAtual")}
-          />
-          {erroDe("estoqueAtual")}
-        </div>
+        {produto ? (
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">Estoque atual</span>
+            <p className="flex min-h-11 items-center text-base">
+              {formatarQuantidade(produto.estoqueAtual)} {produto.unidade}
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Muda só por entrada ou ajuste.{" "}
+              <Link
+                href={`/produtos?aba=estoque&produto=${produto.id}`}
+                className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
+              >
+                Ver estoque
+              </Link>
+            </p>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <Label htmlFor={campo("estoqueInicial")}>Estoque inicial</Label>
+            <Input
+              id={campo("estoqueInicial")}
+              inputMode="decimal"
+              value={valores.estoqueInicial}
+              onChange={(e) => definir("estoqueInicial", e.target.value)}
+              autoComplete="off"
+              {...aria("estoqueInicial")}
+            />
+            <p className="text-sm text-muted-foreground">
+              Quantidade que você tem hoje. Depois, use Entrada ou Ajuste.
+            </p>
+            {erroDe("estoqueInicial")}
+          </div>
+        )}
         <div className="flex flex-col gap-2">
           <Label htmlFor={campo("estoqueMinimo")}>Estoque mínimo</Label>
           <Input

@@ -9,7 +9,7 @@ import { ROTULO_ABA_FINANCEIRO } from "@/lib/dominio/permissoes";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { textoSeguroWinAnsi } from "@/lib/ficha/pdf-termo";
 
-export type AbaRelatorio = "painel" | "receber" | "pagar" | "fluxo";
+export type AbaRelatorio = "painel" | "receber" | "pagar" | "fluxo" | "comissoes";
 
 export type DadosRelatorioPdf = {
   aba: AbaRelatorio;

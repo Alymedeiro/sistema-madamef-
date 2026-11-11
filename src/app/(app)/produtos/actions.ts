@@ -6,25 +6,31 @@ import { ERRO_INESPERADO, falha, OK, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
-import { produtoSchema, type ProdutoInput } from "./schemas";
+import { produtoNovoSchema, type ProdutoNovoInput } from "./schemas";
 
 // Toda escrita começa com exigirPerfil('dona'). exigirPerfil redireciona
 // lançando; por isso fica fora dos try/catch.
 
 const ERRO_PRODUTO = "Produto inválido.";
 
-export async function salvarProduto(dados: ProdutoInput, id?: string): Promise<Resultado> {
+/**
+ * Cria ou edita o cadastro. O estoque nunca é gravado aqui (o banco recusa):
+ * na criação o produto nasce com 0 e o estoque inicial entra por
+ * `ajustar_estoque` com motivo "Estoque inicial"; na edição ele nem é enviado.
+ */
+export async function salvarProduto(dados: ProdutoNovoInput, id?: string): Promise<Resultado> {
   const sessao = await exigirPerfil("dona");
   if (id !== undefined && !idSchema.safeParse(id).success) return falha(ERRO_PRODUTO);
 
-  const parsed = produtoSchema.safeParse(dados);
+  // Na edição o estoque inicial, se vier, é ignorado.
+  const parsed = produtoNovoSchema.safeParse(dados);
   if (!parsed.success) return falha(parsed.error.issues[0].message);
   const d = parsed.data;
+  const estoqueInicial = id === undefined ? d.estoqueInicial : 0;
   const linha = {
     nome: d.nome,
     unidade: d.unidade,
     preco_venda_centavos: d.precoVendaCentavos,
-    estoque_atual: d.estoqueAtual,
     estoque_minimo: d.estoqueMinimo,
   };
 
@@ -58,6 +64,20 @@ export async function salvarProduto(dados: ProdutoInput, id?: string): Promise<R
       if (error) {
         return falha(
           `O produto foi salvo, mas não foi possível salvar o custo. ${mensagemErroBanco(error)}`,
+        );
+      }
+    }
+
+    if (id === undefined && estoqueInicial > 0) {
+      const { error } = await supabase.rpc("ajustar_estoque", {
+        p_produto: produtoId,
+        p_quantidade_contada: estoqueInicial,
+        p_motivo: "Estoque inicial",
+      });
+      if (error) {
+        revalidatePath("/produtos", "layout");
+        return falha(
+          `O produto foi salvo, mas não foi possível lançar o estoque inicial. ${mensagemErroBanco(error)}`,
         );
       }
     }

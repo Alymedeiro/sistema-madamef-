@@ -56,10 +56,22 @@ describe("servicoSchema", () => {
     expect(servicoSchema.safeParse({ ...valido, duracaoMin: 480 }).success).toBe(true);
   });
 
-  it("não tem comissão (R9): campo extra é descartado", () => {
-    const r = servicoSchema.safeParse({ ...valido, comissaoPct: 30 });
-    expect(r.success).toBe(true);
-    if (r.success) expect("comissaoPct" in r.data).toBe(false);
+  it("comissaoPct: texto pt-BR 0–100; vazio = null (usa a padrão); ausente = não mexe", () => {
+    const dado = (v: unknown) => servicoSchema.safeParse({ ...valido, comissaoPct: v });
+    const r = dado("12,5");
+    expect(r.success && r.data.comissaoPct).toBe(12.5);
+    const zero = dado("0");
+    expect(zero.success && zero.data.comissaoPct).toBe(0);
+    const vazio = dado("  ");
+    expect(vazio.success && vazio.data.comissaoPct).toBeNull();
+    const ausente = servicoSchema.safeParse(valido);
+    expect(ausente.success && ausente.data.comissaoPct).toBeUndefined();
+    expect(dado("100").success).toBe(true);
+    for (const ruim of ["101", "-1", "abc", "12,345"]) {
+      const x = dado(ruim);
+      expect(x.success).toBe(false);
+      if (!x.success) expect(x.error.issues[0].message).toBe("A comissão deve estar entre 0 e 100%.");
+    }
   });
 
   it("aceita diasRetorno nulo, ausente ou inteiro >= 1", () => {

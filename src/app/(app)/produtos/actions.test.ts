@@ -23,7 +23,6 @@ const produto = {
   unidade: "ml",
   precoVendaCentavos: null,
   custoCentavos: 12000,
-  estoqueAtual: 10,
   estoqueMinimo: 2,
 };
 
@@ -58,9 +57,10 @@ describe("salvarProduto", () => {
       nome: "Ácido hialurônico",
       unidade: "ml",
       preco_venda_centavos: null,
-      estoque_atual: 10,
       estoque_minimo: 2,
     });
+    expect("estoque_atual" in linha).toBe(false);
+    expect(falso.chamadasRpc("ajustar_estoque")).toHaveLength(0);
     expect("custo_unitario_centavos" in linha).toBe(false);
 
     const custo = falso.chamadasDe("produtos_custos", "upsert")[0];
@@ -68,10 +68,47 @@ describe("salvarProduto", () => {
     expect(custo.args[1]).toEqual({ onConflict: "produto_id" });
   });
 
-  it("edita por id e regrava o custo", async () => {
-    const r = await salvarProduto({ ...produto, custoCentavos: 9900 }, ID);
+  it("produto novo com estoque inicial: insere com 0 e lança ajuste 'Estoque inicial'", async () => {
+    falso.responder("produtos", { data: { id: ID }, error: null });
+    falso.responder("rpc:ajustar_estoque", { data: "mov-1", error: null });
+    const r = await salvarProduto({ ...produto, estoqueInicial: 4 });
+    expect(r).toEqual({ ok: true });
+
+    const linha = falso.chamadasDe("produtos", "insert")[0].args[0] as Record<string, unknown>;
+    expect("estoque_atual" in linha).toBe(false);
+    const rpc = falso.chamadasRpc("ajustar_estoque");
+    expect(rpc).toHaveLength(1);
+    expect(rpc[0].args[0]).toEqual({
+      p_produto: ID,
+      p_quantidade_contada: 4,
+      p_motivo: "Estoque inicial",
+    });
+  });
+
+  it("avisa quando o produto foi salvo mas o estoque inicial não", async () => {
+    falso.responder("produtos", { data: { id: ID }, error: null });
+    falso.responder("rpc:ajustar_estoque", {
+      data: null,
+      error: { code: "P0001", message: "Apenas a dona pode lançar contas." },
+    });
+    expect(await salvarProduto({ ...produto, estoqueInicial: 4 })).toEqual({
+      ok: false,
+      erro: "O produto foi salvo, mas não foi possível lançar o estoque inicial. Apenas a dona pode lançar contas.",
+    });
+  });
+
+  it("recusa estoque inicial negativo sem tocar no banco", async () => {
+    expect((await salvarProduto({ ...produto, estoqueInicial: -1 })).ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("edita por id e regrava o custo, sem enviar estoque nem ajustar", async () => {
+    const r = await salvarProduto({ ...produto, custoCentavos: 9900, estoqueInicial: 7 }, ID);
     expect(r).toEqual({ ok: true });
     expect(falso.chamadasDe("produtos", "update")).toHaveLength(1);
+    const linha = falso.chamadasDe("produtos", "update")[0].args[0] as Record<string, unknown>;
+    expect("estoque_atual" in linha).toBe(false);
+    expect(falso.chamadasRpc("ajustar_estoque")).toHaveLength(0);
     expect(falso.chamadasDe("produtos_custos", "upsert")[0].args[0]).toEqual({
       produto_id: ID,
       custo_unitario_centavos: 9900,

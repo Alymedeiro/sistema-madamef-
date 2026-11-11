@@ -1,6 +1,7 @@
 import type { ContaReceberLinha, OrigemReceber } from "@/app/(app)/financeiro/dados-receber";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
+import { dataBr } from "@/lib/dominio/financeiro";
 import { cn } from "@/lib/utils";
 import { AvisoLimite } from "./aviso-limite";
 import { AcoesContaReceber } from "./acoes-conta-receber";
@@ -13,8 +14,6 @@ export const ROTULO_ORIGEM_RECEBER: Record<OrigemReceber, string> = {
   venda_produto: "Venda de produto",
   manual: "Manual",
 };
-
-const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
 /** Aba Contas a receber (dona): lista filtrada, Receber, Cancelar e Nova conta a receber. */
 export function ListaReceber({

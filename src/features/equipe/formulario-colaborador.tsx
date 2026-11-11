@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { quantidadeParaCampo } from "@/lib/dominio/catalogo";
 import { ROTULO_PERFIL, type Perfil } from "@/lib/dominio/permissoes";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { cn } from "@/lib/utils";
@@ -37,6 +38,7 @@ type Valores = {
   perfil: Perfil;
   cor: string;
   telefone: string;
+  comissaoPadraoPct: string;
 };
 
 type Props =
@@ -47,6 +49,8 @@ type Props =
       email: string | null;
       ehVoceMesma: boolean;
       valores: { nome: string; funcao: string | null; perfil: Perfil; cor: string; telefone: string | null };
+      /** Comissão padrão gravada (só a dona carrega); null = sem linha (0%). */
+      comissaoPadraoPct: number | null;
     };
 
 export function FormularioColaborador(props: Props) {
@@ -64,8 +68,18 @@ export function FormularioColaborador(props: Props) {
           perfil: props.valores.perfil,
           cor: props.valores.cor,
           telefone: props.valores.telefone ? formatarTelefone(props.valores.telefone) : "",
+          comissaoPadraoPct:
+            props.comissaoPadraoPct === null ? "" : quantidadeParaCampo(props.comissaoPadraoPct),
         }
-      : { nome: "", email: "", funcao: "", perfil: "profissional", cor: PALETA[0].cor, telefone: "" },
+      : {
+          nome: "",
+          email: "",
+          funcao: "",
+          perfil: "profissional",
+          cor: PALETA[0].cor,
+          telefone: "",
+          comissaoPadraoPct: "",
+        },
   );
   const [erros, setErros] = useState<Partial<Record<keyof Valores, string>>>({});
   const [pendente, iniciar] = useTransition();
@@ -208,6 +222,24 @@ export function FormularioColaborador(props: Props) {
           {...aria("telefone")}
         />
         {erroDe("telefone")}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label htmlFor={campo("comissaoPadraoPct")}>Comissão padrão (%)</Label>
+        <Input
+          id={campo("comissaoPadraoPct")}
+          inputMode="decimal"
+          value={valores.comissaoPadraoPct}
+          onChange={(e) => definir("comissaoPadraoPct", e.target.value)}
+          placeholder="0"
+          autoComplete="off"
+          className="sm:max-w-48"
+          {...aria("comissaoPadraoPct")}
+        />
+        <p className="text-sm text-muted-foreground">
+          Vale para os atendimentos de serviços sem comissão própria. Vazio = 0%.
+        </p>
+        {erroDe("comissaoPadraoPct")}
       </div>
 
       <fieldset className="flex flex-col gap-3">

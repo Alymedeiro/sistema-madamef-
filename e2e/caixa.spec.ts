@@ -11,12 +11,14 @@
 // TENTA zerar o caixa de hoje; depois da 0010 não há delete em contas/recebimentos, então
 // a limpeza é tolerante: se o caixa continuar existindo, ele é reaproveitado (aberto) ou o
 // teste é pulado (fechado). Só fecha o caixa quando ele é o criado por este spec.
-// Cria uma cliente e um atendimento confirmado hoje às 14:00.
+// Cria uma cliente e um atendimento confirmado hoje às 14:00 (o horário é liberado antes por
+// e2e/horario-livre.ts, para rodar de novo no mesmo dia).
 
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AMBIENTE, USUARIOS, pularSemBackend } from "./suporte";
 import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
+import { liberarHorario } from "./horario-livre";
 
 const ENV = {
   ...AMBIENTE,
@@ -87,12 +89,9 @@ async function preparar(): Promise<Fixtures> {
     .single();
   if (ec) throw ec;
 
-  await admin
-    .from("agendamentos")
-    .delete()
-    .eq("profissional_id", profissional.id)
-    .gte("inicio", `${hoje}T14:00:00-03:00`)
-    .lt("inicio", `${hoje}T15:00:00-03:00`);
+  // Libera hoje 14:00–15:00 (cancela, ou arquiva no passado se a comissão já foi paga):
+  // desde a 0011 o atendido tem comissão/movimentos e não pode mais ser apagado.
+  await liberarHorario(admin, profissional.id, `${hoje}T14:00:00-03:00`, `${hoje}T15:00:00-03:00`);
   const { error: ea } = await admin.from("agendamentos").insert({
     cliente_id: cliente.id,
     profissional_id: profissional.id,

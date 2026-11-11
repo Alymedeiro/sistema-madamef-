@@ -43,4 +43,10 @@ describe("hrefExportarPdf", () => {
       hrefExportarPdf({ aba: "receber", periodo: "mes", situacao: "aberta", busca: "", categoria: "aluguel" }),
     ).toBe("/financeiro/exportar?aba=receber&situacao=aberta");
   });
+
+  it("comissões levam situação e profissional (sem busca nem categoria)", () => {
+    expect(
+      hrefExportarPdf({ aba: "comissoes", periodo: "mes", situacao: "paga", busca: "x", categoria: "aluguel", profissional: "p1" }),
+    ).toBe("/financeiro/exportar?aba=comissoes&situacao=paga&profissional=p1");
+  });
 });

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
+import { HistoricoEstoque } from "@/features/estoque/historico";
 import { FormularioProduto } from "@/features/produtos/formulario-produto";
 import { Badge } from "@/components/ui/badge";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
+import { carregarMovimentos, type MovimentoDoEstoque } from "../dados-estoque";
 
 export const metadata = { title: "Produto | Madame Fê Clinic" };
 
@@ -26,9 +28,10 @@ export default async function ProdutoPage({ params }: { params: Promise<{ id: st
 
   let produto = null;
   let custo = 0;
+  let historico: { movimentos: MovimentoDoEstoque[]; limitado: boolean } | null = null;
   if (!novo) {
     const supabase = await createClient();
-    const [p, c] = await Promise.all([
+    const [p, c, h] = await Promise.all([
       supabase
         .from("produtos")
         .select("id, nome, unidade, preco_venda_centavos, estoque_atual, estoque_minimo, ativo")
@@ -39,6 +42,8 @@ export default async function ProdutoPage({ params }: { params: Promise<{ id: st
         .select("custo_unitario_centavos")
         .eq("produto_id", id)
         .maybeSingle(),
+      // Histórico do produto (dona; RLS): os 200 movimentos mais recentes.
+      carregarMovimentos(supabase, { produtoId: id }),
     ]);
     for (const r of [p, c]) {
       if (r.error) throw new Error(`Falha ao carregar o produto: ${r.error.message}`);
@@ -46,6 +51,7 @@ export default async function ProdutoPage({ params }: { params: Promise<{ id: st
     if (!p.data) notFound();
     produto = p.data;
     custo = c.data?.custo_unitario_centavos ?? 0;
+    historico = h;
   }
 
   return (
@@ -76,6 +82,15 @@ export default async function ProdutoPage({ params }: { params: Promise<{ id: st
             : undefined
         }
       />
+      {historico ? (
+        <HistoricoEstoque
+          movimentos={historico.movimentos}
+          limitado={historico.limitado}
+          comProduto={false}
+          titulo="Histórico do estoque"
+          vazio="Nenhum movimento de estoque deste produto."
+        />
+      ) : null}
     </div>
   );
 }

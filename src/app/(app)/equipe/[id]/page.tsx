@@ -60,7 +60,8 @@ export default async function ColaboradorPage({
   const supabase = await createClient();
   const agora = new Date().toISOString();
 
-  const [colab, jornadas, bloqueios, servicos, vinculos] = await Promise.all([
+  // Página só da dona (exigirPerfil acima): o percentual só é lido por ela.
+  const [colab, jornadas, bloqueios, servicos, vinculos, comissao] = await Promise.all([
     supabase
       .from("colaboradores")
       .select("id, usuario_auth_id, nome, funcao, perfil, telefone, cor, ativo")
@@ -82,9 +83,14 @@ export default async function ColaboradorPage({
       .eq("ativo", true)
       .order("nome", { ascending: true }),
     supabase.from("colaborador_servicos").select("servico_id").eq("colaborador_id", id),
+    supabase
+      .from("colaboradores_comissao")
+      .select("percentual")
+      .eq("colaborador_id", id)
+      .maybeSingle(),
   ]);
 
-  for (const r of [colab, jornadas, bloqueios, servicos, vinculos]) {
+  for (const r of [colab, jornadas, bloqueios, servicos, vinculos, comissao]) {
     if (r.error) throw new Error(`Falha ao carregar o colaborador: ${r.error.message}`);
   }
   const c = colab.data;
@@ -157,6 +163,7 @@ export default async function ColaboradorPage({
               cor: c.cor,
               telefone: c.telefone,
             }}
+            comissaoPadraoPct={comissao.data ? Number(comissao.data.percentual) : null}
           />
         </TabsContent>
         <TabsContent value="jornada">

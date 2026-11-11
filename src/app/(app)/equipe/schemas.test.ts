@@ -16,6 +16,31 @@ const valido = {
   telefone: "(11) 98765-4321",
 };
 
+describe("comissaoPadraoPct", () => {
+  const dado = (v: unknown) => colaboradorSchema.safeParse({ ...valido, comissaoPadraoPct: v });
+
+  it('aceita "12,5", "0" e vazio (= 0); ausente não mexe', () => {
+    const r = dado("12,5");
+    expect(r.success && r.data.comissaoPadraoPct).toBe(12.5);
+    const zero = dado("0");
+    expect(zero.success && zero.data.comissaoPadraoPct).toBe(0);
+    const vazio = dado("");
+    expect(vazio.success && vazio.data.comissaoPadraoPct).toBe(0);
+    const ausente = colaboradorSchema.safeParse(valido);
+    expect(ausente.success && ausente.data.comissaoPadraoPct).toBeUndefined();
+    const edicao = colaboradorEdicaoSchema.safeParse({ ...valido, comissaoPadraoPct: "30" });
+    expect(edicao.success && edicao.data.comissaoPadraoPct).toBe(30);
+  });
+
+  it('recusa "101" e "-1" com a mensagem da comissão', () => {
+    for (const ruim of ["101", "-1"]) {
+      const r = dado(ruim);
+      expect(r.success).toBe(false);
+      if (!r.success) expect(r.error.issues[0].message).toBe("A comissão deve estar entre 0 e 100%.");
+    }
+  });
+});
+
 describe("colaboradorSchema", () => {
   it("aceita dados válidos e normaliza telefone, e-mail e função", () => {
     const r = colaboradorSchema.safeParse({
@@ -58,11 +83,6 @@ describe("colaboradorSchema", () => {
     expect(colaboradorSchema.safeParse({ ...valido, telefone: "123" }).success).toBe(false);
   });
 
-  it("não tem campo de comissão (R9)", () => {
-    const r = colaboradorSchema.safeParse({ ...valido, comissaoPadraoPct: 120 });
-    expect(r.success).toBe(true);
-    if (r.success) expect("comissaoPadraoPct" in r.data).toBe(false);
-  });
 });
 
 describe("colaboradorEdicaoSchema", () => {

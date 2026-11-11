@@ -78,9 +78,11 @@ export async function salvarServico(dados: ServicoInput, id?: string): Promise<R
 
   try {
     const supabase = await createClient();
+    let servicoId: string;
     if (id === undefined) {
-      const { error } = await supabase.from("servicos").insert(linha);
-      if (error) return falha(mensagemDoServico(error));
+      const { data, error } = await supabase.from("servicos").insert(linha).select("id").single();
+      if (error || !data) return falha(error ? mensagemDoServico(error) : ERRO_INESPERADO);
+      servicoId = data.id;
     } else {
       const { data, error } = await supabase
         .from("servicos")
@@ -89,6 +91,27 @@ export async function salvarServico(dados: ServicoInput, id?: string): Promise<R
         .select("id");
       if (error) return falha(mensagemDoServico(error));
       if (!data?.length) return falha("Serviço não encontrado.");
+      servicoId = id;
+    }
+
+    // Comissão do serviço (só a dona lê e grava): vazio remove a linha e o
+    // atendimento passa a usar a comissão padrão da profissional.
+    if (d.comissaoPct !== undefined) {
+      const { error } =
+        d.comissaoPct === null
+          ? await supabase.from("servicos_comissao").delete().eq("servico_id", servicoId)
+          : await supabase
+              .from("servicos_comissao")
+              .upsert(
+                { servico_id: servicoId, percentual: d.comissaoPct },
+                { onConflict: "servico_id" },
+              );
+      if (error) {
+        revalidatePath("/servicos", "layout");
+        return falha(
+          `O serviço foi salvo, mas não foi possível salvar a comissão. ${mensagemErroBanco(error)}`,
+        );
+      }
     }
   } catch {
     return falha(ERRO_INESPERADO);

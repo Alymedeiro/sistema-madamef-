@@ -28,6 +28,7 @@ export function hrefExportarPdf(p: {
   situacao?: string;
   busca?: string;
   categoria?: string;
+  profissional?: string;
 }): string {
   const q = new URLSearchParams({ aba: p.aba });
   if (p.periodo !== "mes") q.set("periodo", p.periodo);
@@ -39,6 +40,10 @@ export function hrefExportarPdf(p: {
     if (p.situacao) q.set("situacao", p.situacao);
     if (p.busca) q.set("busca", p.busca);
     if (p.aba === "pagar" && p.categoria) q.set("categoria", p.categoria);
+  }
+  if (p.aba === "comissoes") {
+    if (p.situacao) q.set("situacao", p.situacao);
+    if (p.profissional) q.set("profissional", p.profissional);
   }
   return `/financeiro/exportar?${q.toString()}`;
 }

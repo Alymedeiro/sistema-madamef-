@@ -12,6 +12,7 @@ import {
   pularSemBackend,
   type PerfilE2E,
 } from "./suporte";
+import { liberarHorario } from "./horario-livre";
 
 type Usuario = { email: string; senha: string; nome: string };
 
@@ -89,6 +90,8 @@ setup("cria usuários de teste e salva a sessão de cada perfil", async ({ brows
   const inicio = new Date(Date.now() + 3 * 24 * 3600 * 1000);
   inicio.setUTCHours(15, 0, 0, 0);
   const fim = new Date(inicio.getTime() + 3600 * 1000);
+  // Mesmo horário a cada execução do dia: libera o que sobrou da anterior.
+  await liberarHorario(admin, prof2Id, inicio.toISOString(), fim.toISOString());
   const { error: ea } = await admin.from("agendamentos").insert({
     cliente_id: cliente.id,
     profissional_id: prof2Id,

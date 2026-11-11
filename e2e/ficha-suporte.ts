@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { liberarHorario } from "./horario-livre";
 import { AMBIENTE, USUARIOS } from "./suporte";
 
 export function clienteAdmin(): SupabaseClient {
@@ -31,11 +32,14 @@ export type FixtureFicha = {
   agendamentoId: string;
 };
 
-export async function profissionalDeTeste(admin: SupabaseClient) {
+export async function profissionalDeTeste(
+  admin: SupabaseClient,
+  usuario: { email: string } = USUARIOS.profissional,
+) {
   const { data: lista, error } = await admin.auth.admin.listUsers({ perPage: 1000 });
   if (error) throw error;
-  const u = lista.users.find((x) => x.email?.toLowerCase() === USUARIOS.profissional.email.toLowerCase());
-  if (!u) throw new Error(`Usuário ${USUARIOS.profissional.email} não existe no projeto de teste.`);
+  const u = lista.users.find((x) => x.email?.toLowerCase() === usuario.email.toLowerCase());
+  if (!u) throw new Error(`Usuário ${usuario.email} não existe no projeto de teste.`);
   const { data, error: ep } = await admin
     .from("colaboradores")
     .select("id, nome")
@@ -47,11 +51,16 @@ export async function profissionalDeTeste(admin: SupabaseClient) {
 
 /**
  * Cria uma cliente nova, um serviço com termo próprio (preço R$ 100,00) e um atendimento
- * confirmado da profissional de teste em `dataEm(5)`, na hora indicada (um horário por
- * viewport, para os projetos paralelos não se atropelarem).
+ * confirmado da profissional de teste (ou de `usuario`) em `dataEm(5)`, na hora indicada (um
+ * horário por viewport, para os projetos paralelos não se atropelarem). O horário é liberado
+ * antes com `liberarHorario` (cancela ou arquiva o que sobrou de execuções anteriores).
  */
-export async function prepararFicha(admin: SupabaseClient, hora: string): Promise<FixtureFicha> {
-  const profissional = await profissionalDeTeste(admin);
+export async function prepararFicha(
+  admin: SupabaseClient,
+  hora: string,
+  usuario: { email: string } = USUARIOS.profissional,
+): Promise<FixtureFicha> {
+  const profissional = await profissionalDeTeste(admin, usuario);
   const sufixo = `${Date.now()}-${hora}`;
 
   const { data: base, error: eb } = await admin
@@ -91,12 +100,7 @@ export async function prepararFicha(admin: SupabaseClient, hora: string): Promis
 
   const data = dataEm(5);
   const h = hora.padStart(2, "0");
-  await admin
-    .from("agendamentos")
-    .delete()
-    .eq("profissional_id", profissional.id)
-    .gte("inicio", `${data}T${h}:00:00-03:00`)
-    .lt("inicio", `${data}T${h}:59:00-03:00`);
+  await liberarHorario(admin, profissional.id, `${data}T${h}:00:00-03:00`, `${data}T${h}:59:00-03:00`);
   const { data: ag, error: ea } = await admin
     .from("agendamentos")
     .insert({

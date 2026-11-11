@@ -49,6 +49,7 @@ beforeEach(() => {
 const escritas: [string, () => Promise<unknown>][] = [
   ["salvarCategoria", () => salvarCategoria({ nome: "Facial" })],
   ["salvarServico", () => salvarServico(servico)],
+  ["salvarServico com comissão", () => salvarServico({ ...servico, comissaoPct: "30" })],
   ["definirServicoAtivo", () => definirServicoAtivo(ID, false)],
   ["salvarProdutosDoServico", () => salvarProdutosDoServico(ID, [])],
 ];
@@ -106,7 +107,7 @@ describe("salvarCategoria", () => {
 });
 
 describe("salvarServico", () => {
-  it("mapeia os campos para as colunas e não envia comissão", async () => {
+  it("mapeia os campos para as colunas (a comissão não vai em servicos)", async () => {
     const r = await salvarServico(servico);
     expect(r).toEqual({ ok: true });
     const linha = falso.chamadasDe("servicos", "insert")[0].args[0] as Record<string, unknown>;
@@ -120,6 +121,47 @@ describe("salvarServico", () => {
       exige_avaliacao: true,
       dias_retorno: null,
       modelo_termo_id: null,
+    });
+  });
+
+  it("serviço novo com comissão grava o percentual pelo id criado", async () => {
+    falso.responder("servicos", { data: { id: ID }, error: null });
+    const r = await salvarServico({ ...servico, comissaoPct: "12,5" });
+    expect(r).toEqual({ ok: true });
+    const linha = falso.chamadasDe("servicos", "insert")[0].args[0] as Record<string, unknown>;
+    expect("comissaoPct" in linha).toBe(false);
+    expect("percentual" in linha).toBe(false);
+    const up = falso.chamadasDe("servicos_comissao", "upsert");
+    expect(up[0].args[0]).toEqual({ servico_id: ID, percentual: 12.5 });
+    expect(up[0].args[1]).toEqual({ onConflict: "servico_id" });
+  });
+
+  it('comissão "" remove a linha de % (volta a usar a padrão da profissional)', async () => {
+    expect(await salvarServico({ ...servico, comissaoPct: "" }, ID)).toEqual({ ok: true });
+    expect(falso.chamadasDe("servicos_comissao", "upsert")).toHaveLength(0);
+    expect(falso.chamadasDe("servicos_comissao", "delete")).toHaveLength(1);
+    expect(falso.chamadasDe("servicos_comissao", "eq")[0].args).toEqual(["servico_id", ID]);
+  });
+
+  it("sem o campo de comissão não mexe em servicos_comissao", async () => {
+    expect(await salvarServico(servico, ID)).toEqual({ ok: true });
+    expect(falso.chamadasDe("servicos_comissao")).toHaveLength(0);
+  });
+
+  it("recusa comissão fora de 0–100 sem tocar no banco", async () => {
+    expect(await salvarServico({ ...servico, comissaoPct: "101" })).toEqual({
+      ok: false,
+      erro: "A comissão deve estar entre 0 e 100%.",
+    });
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("avisa quando o serviço foi salvo mas a comissão não", async () => {
+    falso.responder("servicos_comissao", { data: null, error: { code: "42501", message: "x" } });
+    const r = await salvarServico({ ...servico, comissaoPct: "10" }, ID);
+    expect(r).toEqual({
+      ok: false,
+      erro: "O serviço foi salvo, mas não foi possível salvar a comissão. Você não tem permissão para esta ação.",
     });
   });
 

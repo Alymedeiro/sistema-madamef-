@@ -3,6 +3,7 @@ import {
   agrupamento,
   avisosPendentes,
   consultaDaSituacao,
+  dataBr,
   inicioDaContaFixa,
   periodoDoFiltro,
   saldos,
@@ -206,5 +207,13 @@ describe("inicioDaContaFixa", () => {
   it("dia que já passou começa no próximo mês, com virada de ano", () => {
     expect(inicioDaContaFixa(9, "2026-11-10")).toBe("2026-12-01");
     expect(inicioDaContaFixa(5, "2026-12-20")).toBe("2027-01-01");
+  });
+});
+
+describe("dataBr", () => {
+  it("AAAA-MM-DD → DD/MM/AAAA; vazio vira travessão", () => {
+    expect(dataBr("2026-11-05")).toBe("05/11/2026");
+    expect(dataBr(null)).toBe("—");
+    expect(dataBr("")).toBe("—");
   });
 });

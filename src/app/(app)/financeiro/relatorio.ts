@@ -2,11 +2,19 @@ import "server-only";
 import { ROTULO_ORIGEM_RECEBER } from "@/features/financeiro/lista-receber";
 import { rotuloPeriodo } from "@/features/financeiro/grafico-fluxo";
 import { ROTULO_FORMA } from "@/lib/dominio/caixa";
+import {
+  ROTULO_FILTRO_SITUACAO_COMISSAO,
+  ROTULO_STATUS_COMISSAO,
+  filtroSituacaoComissao,
+  formatarPercentual,
+  type FiltroSituacaoComissao,
+} from "@/lib/dominio/comissoes";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import {
   CATEGORIAS_DESPESA,
   ROTULO_CATEGORIA,
   avisoDoLimite,
+  dataBr,
   filtroSituacao,
   periodoDoFiltro,
   type CategoriaDespesa,
@@ -17,12 +25,13 @@ import { dataNoFuso } from "@/lib/dominio/tempo";
 import type { AbaRelatorio, DadosRelatorioPdf } from "@/lib/financeiro/pdf-relatorio";
 import type { createClient } from "@/lib/supabase/server";
 import { carregarProximosVencimentos, carregarResumo, listarContasPagar } from "./dados";
+import { carregarComissoes, profissionalDoFiltro } from "./dados-comissoes";
 import { carregarFluxo } from "./dados-fluxo";
 import { listarContasReceber } from "./dados-receber";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-const ABAS: readonly AbaRelatorio[] = ["painel", "receber", "pagar", "fluxo"];
+const ABAS: readonly AbaRelatorio[] = ["painel", "receber", "pagar", "fluxo", "comissoes"];
 
 export type ParametrosRelatorio = {
   aba: AbaRelatorio;
@@ -30,6 +39,9 @@ export type ParametrosRelatorio = {
   situacao: FiltroSituacao;
   busca: string;
   categoria: CategoriaDespesa | null;
+  /** Aba Comissões: situação (padrão Em aberto) e profissional. */
+  situacaoComissao: FiltroSituacaoComissao;
+  profissionalId: string | null;
 };
 
 /** Lê os parâmetros como a página do Financeiro; o que for inválido vira o padrão. */
@@ -43,10 +55,10 @@ export function parametrosDoRelatorio(q: URLSearchParams, agora: Date): Parametr
     situacao: filtroSituacao(v("situacao")),
     busca: (v("busca") ?? "").slice(0, 60),
     categoria,
+    situacaoComissao: filtroSituacaoComissao(v("situacao")),
+    profissionalId: profissionalDoFiltro(v("profissional")),
   };
 }
-
-const dataBr = (s: string | null) => (s ? s.split("-").reverse().join("/") : "—");
 
 /** "Novembro de 2026 (01/11/2026 a 30/11/2026)"; o personalizado já traz as datas. */
 export function rotuloDoPeriodo(p: ParametrosRelatorio["periodo"]): string {
@@ -115,6 +127,38 @@ export async function conteudoDoRelatorio(
           `Despesas por categoria — ${ROTULO_CATEGORIA[c.categoria]}`,
           brl(c.total),
         ]),
+      ],
+    };
+  }
+
+  if (p.aba === "comissoes") {
+    const c = await carregarComissoes(supabase, {
+      de,
+      ate,
+      situacao: p.situacaoComissao,
+      profissionalId: p.profissionalId,
+    });
+    const filtros = [`Situação: ${ROTULO_FILTRO_SITUACAO_COMISSAO[p.situacaoComissao]}`];
+    const profissional = c.profissionais.find((x) => x.id === p.profissionalId);
+    if (profissional) filtros.push(`Profissional: ${profissional.nome}`);
+    const limite = avisoDoLimite(c.linhas.length);
+    if (limite) filtros.push(limite);
+    return {
+      filtros,
+      colunas: ["Data", "Cliente", "Serviço", "Profissional", "Base", "%", "Valor", "Situação"],
+      linhas: c.linhas.map((l) => [
+        dataBr(l.data),
+        l.clienteNome,
+        l.servicoNome,
+        l.profissionalNome,
+        brl(l.baseCentavos),
+        formatarPercentual(l.percentual),
+        brl(l.valorCentavos),
+        ROTULO_STATUS_COMISSAO[l.status],
+      ]),
+      totais: [
+        ["A pagar", brl(c.totais.abertoCentavos)],
+        ["Pago", brl(c.totais.pagoCentavos)],
       ],
     };
   }
