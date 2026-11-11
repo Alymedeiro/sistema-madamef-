@@ -11,6 +11,12 @@
 --      gatilho em pedidos_online (pedido aprovado/recusado), envio avulso,
 --      cancelar e reenviar (dona e recepção) e enfileirar_aniversarios (job
 --      diário).
+--   3. Envio da fila (proxima_mensagem, concluir/falhar/descartar_envio) e
+--      respostas (mensagens_recebidas, registrar_recebida,
+--      marcar_recebida_lida).
+--   4. Relógio (whatsapp_relogio, disparar_relogio_whatsapp, jobs pg_cron
+--      whatsapp_relogio e whatsapp_aniversarios) e status da conexão
+--      (whatsapp_status, gravar_status_whatsapp).
 --
 -- A fila nunca faz falhar o comando de agenda ou de pedido: qualquer erro ao
 -- enfileirar vira um WARNING e o comando segue.
@@ -214,7 +220,8 @@ revoke execute on function public.enfileirar_mensagem_agenda(
 --   * pendente (e o início ainda não chegou) → confirmação em inicio − 24h ou
 --     agora;
 --   * pendente ou confirmado com inicio − 2h no futuro → lembrete;
---   * entrando em 'atendido' → pós-atendimento às 10:00 SP do dia seguinte.
+--   * entrando em 'atendido' → pós-atendimento às 10:00 SP do dia seguinte
+--     (não cria se esse horário ficou mais de 1 dia no passado).
 -- Só cria se a cliente tem WhatsApp. Erro na fila → WARNING, nunca falha.
 create function public.agendamentos_whatsapp()
 returns trigger
@@ -224,6 +231,7 @@ set search_path = ''
 as $$
 declare
   v_telefone text;
+  v_pos timestamptz;
 begin
   begin
     if tg_op = 'UPDATE'
@@ -256,12 +264,15 @@ begin
       );
     end if;
 
+    -- Pós-atendimento atrasado há mais de 1 dia (atendido marcado tarde ou
+    -- lançamento retroativo) não é enfileirado (Ruling P3B-R3).
+    v_pos := (((new.inicio at time zone 'America/Sao_Paulo')::date + 1) + time '10:00')
+               at time zone 'America/Sao_Paulo';
     if new.status = 'atendido'
-       and (tg_op = 'INSERT' or old.status is distinct from 'atendido') then
+       and (tg_op = 'INSERT' or old.status is distinct from 'atendido')
+       and v_pos >= now() - interval '1 day' then
       perform public.enfileirar_mensagem_agenda(
-        'pos_atendimento', new.id, new.cliente_id, v_telefone,
-        (((new.inicio at time zone 'America/Sao_Paulo')::date + 1) + time '10:00')
-          at time zone 'America/Sao_Paulo'
+        'pos_atendimento', new.id, new.cliente_id, v_telefone, v_pos
       );
     end if;
   exception when others then
@@ -521,3 +532,471 @@ $$;
 
 revoke execute on function public.enfileirar_aniversarios()
   from public, anon, authenticated, service_role;
+
+-- =============================================================================
+-- 3. Envio da fila e respostas
+--
+-- O relógio (pg_cron → /api/whatsapp/processar, uma vez por minuto) chama
+-- proxima_mensagem, renderiza e envia em TS e fecha com concluir_envio,
+-- falhar_envio ou descartar_envio. As condições de envio que dependem do
+-- agendamento (confirmação só se pendente, lembrete só se confirmado, pós só
+-- se atendido, horário ainda no futuro) ficam no TS (podeEnviar): por isso a
+-- linha devolve o status e o início atuais do agendamento.
+--
+-- Ritmo: nada se whatsapp_ativo = false ou fora da janela [início, fim) em
+-- São Paulo; no máximo 1 envio por minuto (nenhuma em envio e nenhuma enviada
+-- nos últimos 45 s — folga para o tempo do próprio envio, que grava
+-- enviada_em alguns segundos depois do disparo do relógio) e enviadas na
+-- última hora < whatsapp_limite_por_hora. Duas execuções simultâneas do
+-- relógio são serializadas por uma trava de transação: a segunda vê a
+-- mensagem em envio da primeira e não pega nada.
+-- =============================================================================
+
+-- Classificação da resposta (mesma tabela do TS): após trim e minúsculas,
+-- '1', '1.', 'sim', 'confirmo', 'confirmar' → confirmou; '2', '2.' →
+-- quer_remarcar; o resto → para_ler.
+create function public.classificar_resposta(p_texto text)
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when v in ('1', '1.', 'sim', 'confirmo', 'confirmar') then 'confirmou'
+    when v in ('2', '2.') then 'quer_remarcar'
+    else 'para_ler'
+  end
+  from (select lower(regexp_replace(coalesce(p_texto, ''), '^\s+|\s+$', '', 'g')) as v) t
+$$;
+
+revoke execute on function public.classificar_resposta(text)
+  from public, anon, authenticated, service_role;
+
+-- Próxima mensagem a enviar (0 ou 1 linha), já marcada como 'enviando'.
+-- Antes de escolher: mensagens em envio há mais de 10 minutos (rota caiu
+-- sem concluir) viram 'falhou' — não são reenviadas sozinhas, para não
+-- duplicar; a equipe pode reenviar — e as vencidas de um modelo desativado
+-- viram 'cancelada' ('Modelo desativado').
+create function public.proxima_mensagem()
+returns table (
+  id uuid,
+  tipo public.tipo_mensagem,
+  telefone text,
+  texto text,
+  variacoes text[],
+  nome text,
+  servico text,
+  profissional text,
+  inicio timestamptz,
+  status_agendamento public.status_agendamento,
+  clinica text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_cfg public.configuracoes_clinica;
+  v_hora time;
+  v_id uuid;
+begin
+  -- Serializa as execuções do relógio (a outra espera e depois vê o envio).
+  perform pg_advisory_xact_lock(hashtext('whatsapp_proxima_mensagem'));
+
+  select * into v_cfg from public.configuracoes_clinica limit 1;
+  if not found or not v_cfg.whatsapp_ativo then
+    return;
+  end if;
+
+  v_hora := (now() at time zone 'America/Sao_Paulo')::time;
+  if v_hora < v_cfg.whatsapp_janela_inicio or v_hora >= v_cfg.whatsapp_janela_fim then
+    return;
+  end if;
+
+  update public.fila_mensagens f
+  set status = 'falhou', tentativas = f.tentativas + 1,
+      erro = 'Envio interrompido sem confirmação.'
+  where f.status = 'enviando' and f.atualizado_em < now() - interval '10 minutes';
+
+  if exists (
+    select 1 from public.fila_mensagens f
+    where f.status = 'enviando'
+       or (f.status = 'enviada' and f.enviada_em > now() - interval '45 seconds')
+  ) then
+    return;
+  end if;
+
+  if (
+    select count(*) from public.fila_mensagens f
+    where f.status = 'enviada' and f.enviada_em > now() - interval '1 hour'
+  ) >= v_cfg.whatsapp_limite_por_hora then
+    return;
+  end if;
+
+  update public.fila_mensagens f
+  set status = 'cancelada', cancelada_motivo = 'Modelo desativado'
+  from public.modelos_mensagem m
+  where m.tipo = f.tipo
+    and not m.ativo
+    and f.status = 'pendente'
+    and f.agendado_para <= now();
+
+  select f.id into v_id
+  from public.fila_mensagens f
+  where f.status = 'pendente'
+    and f.agendado_para <= now()
+    and (f.proxima_tentativa_em is null or f.proxima_tentativa_em <= now())
+  order by f.agendado_para, f.criado_em, f.id
+  limit 1
+  for update skip locked;
+
+  if v_id is null then
+    return;
+  end if;
+
+  update public.fila_mensagens f set status = 'enviando' where f.id = v_id;
+
+  return query
+  select f.id, f.tipo, f.telefone, f.texto, m.variacoes,
+         coalesce(c.nome, p.nome), s.nome, col.nome,
+         coalesce(a.inicio, p.inicio), a.status, v_cfg.nome
+  from public.fila_mensagens f
+  left join public.modelos_mensagem m on m.tipo = f.tipo
+  left join public.agendamentos a on a.id = f.agendamento_id
+  left join public.pedidos_online p on p.id = f.pedido_online_id
+  left join public.clientes c on c.id = f.cliente_id
+  left join public.servicos s on s.id = coalesce(a.servico_id, p.servico_id)
+  left join public.colaboradores col on col.id = coalesce(a.profissional_id, p.profissional_id)
+  where f.id = v_id;
+end;
+$$;
+
+revoke execute on function public.proxima_mensagem() from public, anon, authenticated;
+grant execute on function public.proxima_mensagem() to service_role;
+
+-- Enviada: grava o texto final (avulsa: nulo mantém o texto pronto), o id
+-- externo da Z-API e enviada_em.
+create function public.concluir_envio(p_id uuid, p_texto text, p_id_externo text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.fila_mensagens f
+  set status = 'enviada',
+      texto = coalesce(nullif(p_texto, ''), f.texto),
+      id_externo = nullif(btrim(p_id_externo), ''),
+      enviada_em = now(),
+      proxima_tentativa_em = null,
+      erro = null
+  where f.id = p_id and f.status = 'enviando';
+  if not found then
+    raise exception 'Esta mensagem não está em envio.' using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+revoke execute on function public.concluir_envio(uuid, text, text) from public, anon, authenticated;
+grant execute on function public.concluir_envio(uuid, text, text) to service_role;
+
+-- Falha no envio: 1ª → nova tentativa em 5 min; 2ª → em 15 min; 3ª →
+-- 'falhou'. O erro é guardado.
+create function public.falhar_envio(p_id uuid, p_erro text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.fila_mensagens f
+  set tentativas = f.tentativas + 1,
+      erro = left(coalesce(nullif(btrim(p_erro), ''), 'Erro desconhecido'), 1000),
+      status = case when f.tentativas + 1 >= 3 then 'falhou' else 'pendente' end::public.status_mensagem,
+      proxima_tentativa_em = case f.tentativas + 1
+        when 1 then now() + interval '5 minutes'
+        when 2 then now() + interval '15 minutes'
+      end
+  where f.id = p_id and f.status = 'enviando';
+  if not found then
+    raise exception 'Esta mensagem não está em envio.' using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+revoke execute on function public.falhar_envio(uuid, text) from public, anon, authenticated;
+grant execute on function public.falhar_envio(uuid, text) to service_role;
+
+-- Condição de envio não atendida (podeEnviar): vira 'cancelada' com o motivo.
+create function public.descartar_envio(p_id uuid, p_motivo text)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  update public.fila_mensagens f
+  set status = 'cancelada',
+      cancelada_motivo = left(coalesce(nullif(btrim(p_motivo), ''), 'Descartada no envio'), 200)
+  where f.id = p_id and f.status = 'enviando';
+  if not found then
+    raise exception 'Esta mensagem não está em envio.' using errcode = 'P0001';
+  end if;
+end;
+$$;
+
+revoke execute on function public.descartar_envio(uuid, text) from public, anon, authenticated;
+grant execute on function public.descartar_envio(uuid, text) to service_role;
+
+-- Respostas recebidas pelo webhook da Z-API. cliente_id (além da spec) guarda
+-- a cliente do telefone, para a tela mostrar o nome mesmo sem agendamento.
+create table public.mensagens_recebidas (
+  id uuid primary key default gen_random_uuid(),
+  telefone text not null check (char_length(telefone) between 1 and 40),
+  texto text not null check (char_length(texto) <= 4096),
+  id_externo text not null unique check (char_length(id_externo) between 1 and 200),
+  recebida_em timestamptz not null default now(),
+  cliente_id uuid references public.clientes (id),
+  agendamento_id uuid references public.agendamentos (id),
+  classificacao text not null
+    check (classificacao in ('confirmou', 'quer_remarcar', 'para_ler')),
+  lida_em timestamptz,
+  lida_por uuid references public.colaboradores (id),
+  constraint mensagens_recebidas_lida_check check (lida_por is null or lida_em is not null)
+);
+
+create index mensagens_recebidas_recebida_idx on public.mensagens_recebidas (recebida_em desc);
+create index mensagens_recebidas_nao_lidas_idx
+  on public.mensagens_recebidas (classificacao, recebida_em desc) where lida_em is null;
+create index mensagens_recebidas_cliente_idx on public.mensagens_recebidas (cliente_id);
+create index mensagens_recebidas_agendamento_idx on public.mensagens_recebidas (agendamento_id);
+create index mensagens_recebidas_lida_por_idx on public.mensagens_recebidas (lida_por);
+
+-- RLS: dona e recepção leem; escrita só pelas funções. O service_role também
+-- só lê a fila e as respostas (escreve por proxima_mensagem, concluir_envio,
+-- falhar_envio, descartar_envio e registrar_recebida).
+alter table public.mensagens_recebidas enable row level security;
+
+revoke all on public.mensagens_recebidas from anon, authenticated;
+revoke insert, update, delete, truncate on public.mensagens_recebidas from service_role;
+revoke update on public.fila_mensagens from service_role;
+grant select on public.mensagens_recebidas to authenticated;
+
+create policy mensagens_recebidas_select on public.mensagens_recebidas
+  for select to authenticated
+  using ((select public.perfil_atual()) in ('dona', 'recepcao'));
+
+-- Grava uma resposta (idempotente por id_externo: repetida devolve o id da
+-- primeira e não faz mais nada). Associa ao próximo agendamento não cancelado
+-- (início ≥ agora − 2h, menor início) de uma cliente com esse WhatsApp;
+-- 'confirmou' com esse agendamento pendente → confirmado.
+create function public.registrar_recebida(p_telefone text, p_texto text, p_id_externo text)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_telefone text := regexp_replace(coalesce(p_telefone, ''), '\D', '', 'g');
+  v_texto text := left(coalesce(p_texto, ''), 4096);
+  v_classificacao text := public.classificar_resposta(p_texto);
+  v_agendamento uuid;
+  v_status public.status_agendamento;
+  v_cliente uuid;
+  v_id uuid;
+begin
+  select r.id into v_id from public.mensagens_recebidas r where r.id_externo = p_id_externo;
+  if found then
+    return v_id;
+  end if;
+
+  if v_telefone = '' then
+    v_telefone := left(coalesce(nullif(btrim(p_telefone), ''), '?'), 40);
+  end if;
+
+  select a.id, a.status, a.cliente_id into v_agendamento, v_status, v_cliente
+  from public.agendamentos a
+  join public.clientes c on c.id = a.cliente_id
+  where c.whatsapp = v_telefone
+    and a.status <> 'cancelado'
+    and a.inicio >= now() - interval '2 hours'
+  order by a.inicio, a.id
+  limit 1
+  for update of a;
+
+  if v_cliente is null then
+    select c.id into v_cliente
+    from public.clientes c
+    where c.whatsapp = v_telefone
+    order by c.ativo desc, c.criado_em desc
+    limit 1;
+  end if;
+
+  insert into public.mensagens_recebidas (
+    telefone, texto, id_externo, cliente_id, agendamento_id, classificacao
+  ) values (
+    v_telefone, v_texto, p_id_externo, v_cliente, v_agendamento, v_classificacao
+  )
+  on conflict (id_externo) do nothing
+  returning id into v_id;
+
+  if v_id is null then
+    -- Corrida com a mesma resposta: a outra gravou primeiro.
+    select r.id into v_id from public.mensagens_recebidas r where r.id_externo = p_id_externo;
+    return v_id;
+  end if;
+
+  if v_classificacao = 'confirmou' and v_status = 'pendente' then
+    update public.agendamentos a set status = 'confirmado'
+    where a.id = v_agendamento and a.status = 'pendente';
+  end if;
+
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.registrar_recebida(text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.registrar_recebida(text, text, text) to service_role;
+
+-- Marca uma resposta como lida (dona e recepção). Já lida → nada muda.
+create function public.marcar_recebida_lida(p_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  perform public.exigir_equipe_whatsapp();
+
+  if not exists (select 1 from public.mensagens_recebidas r where r.id = p_id) then
+    raise exception 'Mensagem não encontrada.' using errcode = 'P0001';
+  end if;
+
+  update public.mensagens_recebidas r
+  set lida_em = now(), lida_por = public.colaborador_atual_id()
+  where r.id = p_id and r.lida_em is null;
+end;
+$$;
+
+revoke execute on function public.marcar_recebida_lida(uuid) from public, anon, authenticated;
+grant execute on function public.marcar_recebida_lida(uuid) to authenticated;
+
+-- =============================================================================
+-- 4. Relógio (pg_cron + pg_net) e status da conexão
+-- =============================================================================
+
+-- Linha única com o token que o relógio manda em x-cron-token (gerado aqui;
+-- ninguém digita segredo) e a URL do site (nula = o relógio não faz nada; o
+-- controlador grava a URL de cada projeto ao implantar). Só o service_role lê.
+create table public.whatsapp_relogio (
+  linha_unica boolean primary key default true check (linha_unica),
+  token text not null default encode(extensions.gen_random_bytes(32), 'hex'),
+  url text check (url ~ '^https?://\S+$')
+);
+
+insert into public.whatsapp_relogio default values;
+
+alter table public.whatsapp_relogio enable row level security;
+revoke all on public.whatsapp_relogio from anon, authenticated, service_role;
+grant select on public.whatsapp_relogio to service_role;
+
+-- Estado da conexão com a Z-API (linha única), gravado pela rota do relógio.
+create table public.whatsapp_status (
+  linha_unica boolean primary key default true check (linha_unica),
+  estado text not null default 'sem_chaves'
+    check (estado in ('conectado', 'desconectado', 'sem_chaves')),
+  verificado_em timestamptz
+);
+
+insert into public.whatsapp_status default values;
+
+alter table public.whatsapp_status enable row level security;
+revoke all on public.whatsapp_status from anon, authenticated, service_role;
+grant select on public.whatsapp_status to authenticated, service_role;
+
+create policy whatsapp_status_select on public.whatsapp_status
+  for select to authenticated
+  using ((select public.perfil_atual()) in ('dona', 'recepcao'));
+
+create function public.gravar_status_whatsapp(p_estado text)
+returns void
+language sql
+security definer
+set search_path = ''
+as $$
+  update public.whatsapp_status set estado = p_estado, verificado_em = now();
+$$;
+
+revoke execute on function public.gravar_status_whatsapp(text) from public, anon, authenticated;
+grant execute on function public.gravar_status_whatsapp(text) to service_role;
+
+-- Chamado pelo pg_cron a cada minuto: POST em <url>/api/whatsapp/processar
+-- com o token. URL nula ou pg_net ausente → nada. Nunca falha (vira WARNING).
+create function public.disparar_relogio_whatsapp()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_url text;
+  v_token text;
+begin
+  select r.url, r.token into v_url, v_token from public.whatsapp_relogio r;
+  if v_url is null or to_regprocedure('net.http_post(text, jsonb, jsonb, jsonb, integer)') is null then
+    return;
+  end if;
+
+  begin
+    execute $sql$
+      select net.http_post(
+        url := $1,
+        body := '{}'::jsonb,
+        headers := jsonb_build_object('x-cron-token', $2, 'content-type', 'application/json'),
+        timeout_milliseconds := 25000
+      )
+    $sql$ using rtrim(v_url, '/') || '/api/whatsapp/processar', v_token;
+  exception when others then
+    raise warning 'WhatsApp: não foi possível disparar o relógio: %', sqlerrm;
+  end;
+end;
+$$;
+
+revoke execute on function public.disparar_relogio_whatsapp()
+  from public, anon, authenticated, service_role;
+
+-- Jobs (só onde pg_cron existe — Supabase; no Postgres local dos testes é um
+-- no-op, como em 0009). cron.schedule com o mesmo nome atualiza o job. pg_net
+-- é criada se disponível; sem ela o relógio não faz nada.
+--   whatsapp_relogio      * * * * *   disparar_relogio_whatsapp()
+--   whatsapp_aniversarios 0 12 * * *  enfileirar_aniversarios() (09:00 SP)
+do $$
+begin
+  if exists (select 1 from pg_available_extensions where name = 'pg_net') then
+    begin
+      create extension if not exists pg_net;
+    exception when others then
+      raise notice 'pg_net indisponível; o relógio do WhatsApp não fará nada: %', sqlerrm;
+    end;
+  end if;
+
+  if exists (select 1 from pg_available_extensions where name = 'pg_cron') then
+    begin
+      create extension if not exists pg_cron with schema pg_catalog;
+      perform cron.schedule(
+        'whatsapp_relogio',
+        '* * * * *',
+        $cron$select public.disparar_relogio_whatsapp();$cron$
+      );
+      perform cron.schedule(
+        'whatsapp_aniversarios',
+        '0 12 * * *',
+        $cron$select public.enfileirar_aniversarios();$cron$
+      );
+    exception when others then
+      raise notice 'pg_cron indisponível; agende whatsapp_relogio e whatsapp_aniversarios à mão: %', sqlerrm;
+    end;
+  end if;
+end
+$$;
