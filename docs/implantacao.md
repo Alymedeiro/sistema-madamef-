@@ -111,7 +111,7 @@ Como funciona: o pedido reserva o horário por 24 horas; a recepção vê o card
 
 A Fase 4 adiciona o menu **Financeiro** (painel, contas a receber, contas a pagar, fluxo de caixa e caixa do dia, com exportação em PDF e o sininho de avisos de vencimento) e a migration `0010_financeiro.sql` (tabelas `contas_pagar`, `contas_fixas`, `recebimentos`, `avisos_lidos`, `relatorios_gerados`, bucket privado `financeiro` e as funções de lançar, pagar, cancelar, receber parcela, resumo e fluxo).
 
-**Estado atual:** 0010 ainda não aplicada (nem no projeto de testes nem na produção).
+**Estado atual:** 0010 aplicada no projeto de testes `myfpjwtmfonuvsrsvato` em 2026-11-11 (1 política de leitura em cada uma das 5 tabelas novas, bucket `financeiro` privado com 5242880 bytes e 2 políticas, `fechar_caixa` somando recebimentos, avisos do Supabase só os esperados). Produção: ainda não aplicada — aplicar antes do merge.
 
 0. **Aplique a 0010 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 4 depende dela; publicado antes, `/financeiro`, `/caixa` e o sininho quebram. Aplique primeiro no projeto de testes, confira, e só então na produção.
 1. Aplique `0010_financeiro.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`). Nunca aplique `shim.sql`.
