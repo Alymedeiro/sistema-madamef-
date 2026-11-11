@@ -1063,7 +1063,7 @@ do $$
 begin
   if exists (select 1 from pg_available_extensions where name = 'pg_net') then
     begin
-      create extension if not exists pg_net;
+      create extension if not exists pg_net with schema extensions;
     exception when others then
       raise notice 'pg_net indisponível; o relógio do WhatsApp não fará nada: %', sqlerrm;
     end;
