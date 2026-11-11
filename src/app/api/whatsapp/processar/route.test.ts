@@ -121,18 +121,42 @@ describe("POST /api/whatsapp/processar — status da conexão", () => {
     expect(falso.chamadasRpc("gravar_status_whatsapp")).toHaveLength(0);
   });
 
-  it("após 5 min (ou nunca verificado) consulta e grava o estado", async () => {
+  it("após 5 min (ou nunca verificado) consulta e grava o estado; desconectado não pega mensagem", async () => {
     for (const verificado_em of [minutosAtras(5), null]) {
       falso = criarSupabaseFalso();
       zapi.statusConexao.mockReset().mockResolvedValue("desconectado");
       prepararBase({ estado: "conectado", verificado_em });
-      falso.responder("rpc:proxima_mensagem", ok([]));
-      await POST(requisicao(TOKEN));
+      const r = await POST(requisicao(TOKEN));
+      expect(await r.json()).toEqual({ enviado: false, motivo: "desconectado" });
       expect(zapi.statusConexao).toHaveBeenCalledTimes(1);
       expect(falso.chamadasRpc("gravar_status_whatsapp").map((c) => c.args[0])).toEqual([
         { p_estado: "desconectado" },
       ]);
+      expect(falso.chamadasRpc("proxima_mensagem")).toHaveLength(0);
     }
+  });
+
+  it("desconectado gravado há < 5 min: não consulta, não chama proxima_mensagem (fila acumula)", async () => {
+    prepararBase({ estado: "desconectado", verificado_em: minutosAtras(2) });
+    const r = await POST(requisicao(TOKEN));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ enviado: false, motivo: "desconectado" });
+    expect(zapi.statusConexao).not.toHaveBeenCalled();
+    expect(falso.chamadasRpc("proxima_mensagem")).toHaveLength(0);
+    expect(zapi.enviarTexto).not.toHaveBeenCalled();
+  });
+
+  it("desconectado há 5 min e a Z-API voltou: grava conectado e envia", async () => {
+    prepararBase({ estado: "desconectado", verificado_em: minutosAtras(5) });
+    zapi.statusConexao.mockResolvedValue("conectado");
+    falso.responder("rpc:proxima_mensagem", ok([linhaConfirmacao]));
+    const r = await POST(requisicao(TOKEN));
+    expect(await r.json()).toEqual({ enviado: true });
+    expect(falso.chamadasRpc("gravar_status_whatsapp").map((c) => c.args[0])).toEqual([
+      { p_estado: "conectado" },
+    ]);
+    expect(falso.chamadasRpc("proxima_mensagem")).toHaveLength(1);
+    expect(falso.chamadasRpc("concluir_envio")).toHaveLength(1);
   });
 
   it("chaves recém-coladas (estado sem_chaves) consulta na hora", async () => {
@@ -264,6 +288,13 @@ describe("POST /api/whatsapp/processar — envio", () => {
     expect(falso.chamadasRpc("gravar_status_whatsapp").map((c) => c.args[0])).toEqual([
       { p_estado: "desconectado" },
     ]);
+
+    // A execução seguinte (status recém-gravado) pausa sem pegar mensagem.
+    falso = criarSupabaseFalso();
+    prepararBase({ estado: "desconectado", verificado_em: minutosAtras(1) });
+    const r = await POST(requisicao(TOKEN));
+    expect(await r.json()).toEqual({ enviado: false, motivo: "desconectado" });
+    expect(falso.chamadasRpc("proxima_mensagem")).toHaveLength(0);
   });
 
   it("erro do banco em proxima_mensagem → 200 com motivo erro, sem enviar", async () => {

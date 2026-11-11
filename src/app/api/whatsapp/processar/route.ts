@@ -21,11 +21,12 @@ async function gravarStatus(admin: Admin, estado: Estado) {
 }
 
 /**
- * Atualiza whatsapp_status. Sem chaves: grava `sem_chaves` (só se mudou ou
- * venceu). Com chaves: consulta a Z-API se o último registro tem 5 min ou
- * mais, nunca existiu, ou ainda diz `sem_chaves` (chaves recém-coladas).
+ * Atualiza whatsapp_status e devolve o estado vigente. Sem chaves: grava
+ * `sem_chaves` (só se mudou ou venceu). Com chaves: consulta a Z-API se o
+ * último registro tem 5 min ou mais, nunca existiu, ou ainda diz `sem_chaves`
+ * (chaves recém-coladas); senão vale o estado gravado.
  */
-async function atualizarStatus(admin: Admin, temChaves: boolean, agora: Date) {
+async function atualizarStatus(admin: Admin, temChaves: boolean, agora: Date): Promise<Estado> {
   const { data, error } = await admin
     .from("whatsapp_status")
     .select("estado, verificado_em")
@@ -37,14 +38,20 @@ async function atualizarStatus(admin: Admin, temChaves: boolean, agora: Date) {
 
   if (!temChaves) {
     if (vencido || !eraSemChaves) await gravarStatus(admin, "sem_chaves");
-    return;
+    return "sem_chaves";
   }
-  if (vencido || eraSemChaves) await gravarStatus(admin, await statusConexao());
+  if (vencido || eraSemChaves || !data) {
+    const estado = await statusConexao();
+    await gravarStatus(admin, estado);
+    return estado;
+  }
+  return data.estado;
 }
 
 /**
  * Relógio do WhatsApp: chamado pelo pg_cron (pg_net) a cada minuto com o
  * token de whatsapp_relogio em `x-cron-token`. Envia no máximo 1 mensagem.
+ * Desconectado (estado gravado há < 5 min ou recém-consultado) → não envia.
  * Autenticado, responde sempre 200 (o relógio não trata a resposta).
  */
 export async function POST(req: Request) {
@@ -56,9 +63,9 @@ export async function POST(req: Request) {
   }
 
   const agora = new Date();
-  const temChaves = credenciaisZapi() !== null;
-  await atualizarStatus(admin, temChaves, agora);
-  if (!temChaves) return json({ enviado: false, motivo: "sem_chaves" });
+  const estado = await atualizarStatus(admin, credenciaisZapi() !== null, agora);
+  // Sem chaves ou desconectado: não pega mensagem; a fila acumula até voltar.
+  if (estado !== "conectado") return json({ enviado: false, motivo: estado });
 
   const proxima = await admin.rpc("proxima_mensagem");
   if (proxima.error) {
