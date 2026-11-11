@@ -734,10 +734,65 @@ describe("registrar_recebida", () => {
     });
   });
 
-  it("telefone desconhecido → gravada sem agendamento nem cliente", async () => {
+  it("telefone desconhecido → gravada sem agendamento nem cliente, para ler", async () => {
     await emTeste(async (c) => {
       const r = await receber(c, "5511900000000", "1", "MSG-7");
-      expect(r).toMatchObject({ agendamento_id: null, cliente_id: null, classificacao: "confirmou" });
+      expect(r).toMatchObject({ agendamento_id: null, cliente_id: null, classificacao: "para_ler" });
+    });
+  });
+
+  it("WhatsApp com 12 dígitos (sem o 9) acha a cliente de 13 e confirma", async () => {
+    await emTeste(async (c) => {
+      const ag = await agendar(c, { daqui: "2 days" });
+      // ZAP = 55 11 9 87654321 → o WhatsApp manda 55 11 87654321.
+      const r = await receber(c, "551187654321", "1", "MSG-12D");
+      expect(r).toMatchObject({
+        telefone: "551187654321",
+        agendamento_id: ag,
+        cliente_id: cli,
+        classificacao: "confirmou",
+      });
+      expect(await statusAg(c, ag)).toBe("confirmado");
+    });
+  });
+
+  it("WhatsApp com 13 dígitos acha a cliente gravada com 12 (sem o 9)", async () => {
+    await emTeste(async (c) => {
+      const antiga = (
+        await c.query<{ id: string }>(
+          `insert into clientes (nome, whatsapp, aceite_lgpd_em)
+           values ('Rita Antiga', '552187654321', now()) returning id`,
+        )
+      ).rows[0].id;
+      const ag = await agendar(c, { daqui: "2 days", cliente: antiga });
+      const r = await receber(c, "+55 (21) 98765-4321", "2", "MSG-13D");
+      expect(r).toMatchObject({
+        telefone: "5521987654321",
+        agendamento_id: ag,
+        cliente_id: antiga,
+        classificacao: "quer_remarcar",
+      });
+    });
+  });
+
+  it("'1' ou '2' de cliente sem agendamento → para_ler (alguém precisa ver)", async () => {
+    await emTeste(async (c) => {
+      const um = await receber(c, ZAP, "1", "MSG-SEM-AG-1");
+      expect(um).toMatchObject({ agendamento_id: null, cliente_id: cli, classificacao: "para_ler" });
+      const dois = await receber(c, "551187654321", "2", "MSG-SEM-AG-2");
+      expect(dois).toMatchObject({ agendamento_id: null, cliente_id: cli, classificacao: "para_ler" });
+    });
+  });
+
+  it("sem identificador externo (nulo ou em branco) → P0001", async () => {
+    await emTeste(async (c) => {
+      for (const id of [null, "", "   "]) {
+        await comoServico(c);
+        const erro = await falha(c, "select registrar_recebida($1, '1', $2)", [ZAP, id]);
+        expect(erro.message).toBe("Mensagem sem identificador.");
+        await comoSuper(c);
+      }
+      expect(await contar(c, "mensagens_recebidas")).toBe(0);
     });
   });
 
@@ -844,7 +899,24 @@ describe("relógio e status da conexão", () => {
     await emTeste(async (c) => {
       await c.query("select disparar_relogio_whatsapp()");
       await c.query("update whatsapp_relogio set url = 'https://exemplo.vercel.app/'");
-      await c.query("select disparar_relogio_whatsapp()");
+      const avisos: string[] = [];
+      const ouvir = (n: { message?: string }) => {
+        avisos.push(n.message ?? "");
+      };
+      c.on("notice", ouvir);
+      try {
+        await c.query("select disparar_relogio_whatsapp()");
+      } finally {
+        c.off("notice", ouvir);
+      }
+      const temPgNet = (
+        await c.query(
+          "select to_regprocedure('net.http_post(text, jsonb, jsonb, jsonb, integer)') is not null as ok",
+        )
+      ).rows[0].ok;
+      if (!temPgNet) {
+        expect(avisos).toContain("WhatsApp: pg_net não está instalada; o relógio não fará nada.");
+      }
     });
   });
 

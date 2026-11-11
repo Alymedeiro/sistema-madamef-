@@ -12,10 +12,17 @@ type Recebida = { telefone: string; texto: string; idExterno: string };
 
 const textoNaoVazio = (v: unknown): v is string => typeof v === "string" && v.trim() !== "";
 
+/** messageId maior que isso não é da Z-API → ignorada. */
+const MAX_ID_EXTERNO = 200;
+/** Telefone fora do padrão é guardado como veio, cortado neste tamanho. */
+const MAX_TELEFONE = 40;
+
 /**
  * Extrai uma mensagem de texto recebida do callback "on-message-received" da
  * Z-API (ReceivedCallback). Mensagens nossas (fromMe), de grupo, de canal,
- * sem texto, sem messageId ou sem telefone → null (ignoradas).
+ * sem texto, sem messageId (ou com mais de 200 caracteres) ou sem telefone →
+ * null (ignoradas). WhatsApp com 12 dígitos (sem o 9) vai como veio: o banco
+ * procura a cliente com e sem o 9.
  */
 function extrairRecebida(corpo: unknown): Recebida | null {
   if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) return null;
@@ -23,11 +30,13 @@ function extrairRecebida(corpo: unknown): Recebida | null {
   if (c.fromMe === true || c.isGroup === true || c.isNewsletter === true) return null;
   const texto = (c.text as Record<string, unknown> | null | undefined)?.message;
   if (!textoNaoVazio(texto) || !textoNaoVazio(c.messageId) || !textoNaoVazio(c.phone)) return null;
+  const idExterno = c.messageId.trim();
+  if (idExterno.length > MAX_ID_EXTERNO) return null;
   return {
     // Número fora do padrão (ex.: estrangeiro) vai como veio; o banco guarda.
-    telefone: normalizarWhatsApp(c.phone) ?? c.phone.trim(),
+    telefone: normalizarWhatsApp(c.phone) ?? c.phone.trim().slice(0, MAX_TELEFONE),
     texto,
-    idExterno: c.messageId.trim(),
+    idExterno,
   };
 }
 

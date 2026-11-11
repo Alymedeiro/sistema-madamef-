@@ -28,6 +28,45 @@ describe("enviarTexto", () => {
     const f = vi.fn().mockResolvedValue(resposta({ zaapId: "z1" }));
     expect(await enviarTexto("5511999999999", "Oi", f)).toEqual({ ok: true, idExterno: "z1" });
   });
+  it("2xx sem id (nem messageId, zaapId ou id) vira erro", async () => {
+    for (const corpo of [{}, { messageId: "" }, { messageId: 1, zaapId: null }]) {
+      const f = vi.fn().mockResolvedValue(resposta(corpo));
+      expect(await enviarTexto("5511999999999", "Oi", f)).toEqual({
+        ok: false,
+        erro: "Z-API não devolveu id da mensagem",
+        desconectado: false,
+      });
+    }
+    const vazio = vi.fn().mockResolvedValue(new Response("", { status: 200 }));
+    expect(await enviarTexto("5511999999999", "Oi", vazio)).toMatchObject({
+      ok: false,
+      erro: "Z-API não devolveu id da mensagem",
+    });
+  });
+  it("erro com corpo não-JSON usa o texto bruto (até 200 caracteres)", async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValue(new Response("<html>Bad Gateway</html>", { status: 502 }));
+    expect(await enviarTexto("5511999999999", "Oi", f)).toEqual({
+      ok: false,
+      erro: "Z-API 502: <html>Bad Gateway</html>",
+      desconectado: false,
+    });
+    const longo = vi.fn().mockResolvedValue(new Response("x".repeat(500), { status: 500 }));
+    const r = await enviarTexto("5511999999999", "Oi", longo);
+    expect(r.ok === false && r.erro).toBe(`Z-API 500: ${"x".repeat(200)}`);
+    const semCorpo = vi.fn().mockResolvedValue(new Response("", { status: 503 }));
+    expect(await enviarTexto("5511999999999", "Oi", semCorpo)).toMatchObject({
+      ok: false,
+      erro: "Z-API 503",
+    });
+    const desconectado = vi
+      .fn()
+      .mockResolvedValue(new Response("instance not connected", { status: 400 }));
+    expect(await enviarTexto("5511999999999", "Oi", desconectado)).toMatchObject({
+      desconectado: true,
+    });
+  });
   it("400 vira erro sem desconectado", async () => {
     const f = vi.fn().mockResolvedValue(resposta({ error: "invalid phone" }, 400));
     const r = await enviarTexto("5511999999999", "Oi", f);

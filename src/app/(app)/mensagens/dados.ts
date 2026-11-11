@@ -202,6 +202,41 @@ export function contarFalhasSemReenvio(linhas: LinhaChave[]): number {
   ).length;
 }
 
+/** Falhas lidas para o cartão do Início (as mais recentes primeiro). */
+export const LIMITE_FALHAS = 200;
+
+/**
+ * Mensagens vivas (pendente, enviando, enviada) que podem ser o reenvio de
+ * alguma das falhas: mesmo tipo, mesma cliente ou pedido, criadas depois da
+ * falha mais antiga. contarFalhasSemReenvio confere a chave completa.
+ */
+async function carregarReenvios(supabase: Supabase, falhas: LinhaChave[]): Promise<LinhaChave[]> {
+  if (falhas.length === 0) return [];
+  const unicos = (v: (string | null)[]) => [...new Set(v.filter((x): x is string => !!x))];
+  const clientes = unicos(falhas.map((f) => f.cliente_id));
+  const pedidos = unicos(falhas.map((f) => f.pedido_online_id));
+  const filtros = [
+    clientes.length > 0 ? `cliente_id.in.(${clientes.join(",")})` : null,
+    pedidos.length > 0 ? `pedido_online_id.in.(${pedidos.join(",")})` : null,
+  ].filter((f): f is string => f !== null);
+  if (filtros.length === 0) return [];
+  const maisAntiga = falhas.reduce(
+    (min, f) => (new Date(f.criado_em).getTime() < new Date(min).getTime() ? f.criado_em : min),
+    falhas[0].criado_em,
+  );
+
+  const { data, error } = await supabase
+    .from("fila_mensagens")
+    .select(SELECT_CHAVE)
+    .in("status", ["pendente", "enviando", "enviada"])
+    .in("tipo", unicos(falhas.map((f) => f.tipo)) as LinhaChave["tipo"][])
+    .gt("criado_em", maisAntiga)
+    .or(filtros.join(","))
+    .limit(1000);
+  falhou("as mensagens com falha", error);
+  return (data ?? []) as unknown as LinhaChave[];
+}
+
 /**
  * Alertas do Início: conexão caída com o envio ligado, falhas dos últimos 7
  * dias e respostas não lidas que pedem atenção (quer remarcar e para ler).
@@ -217,9 +252,10 @@ export async function carregarAlertasWhatsapp(
     supabase
       .from("fila_mensagens")
       .select(SELECT_CHAVE)
-      .in("status", ["falhou", "pendente", "enviando", "enviada"])
+      .eq("status", "falhou")
       .gte("atualizado_em", desde)
-      .limit(1000),
+      .order("atualizado_em", { ascending: false })
+      .limit(LIMITE_FALHAS),
     supabase
       .from("mensagens_recebidas")
       .select(SELECT_RESPOSTA)
@@ -233,12 +269,13 @@ export async function carregarAlertasWhatsapp(
   falhou("as mensagens com falha", falhas.error);
   const linhasFalhas = (falhas.data ?? []) as unknown as LinhaChave[];
   falhou("as respostas do WhatsApp", respostas.error);
+  const reenvios = await carregarReenvios(supabase, linhasFalhas);
 
   const ativo = config.data?.whatsapp_ativo ?? false;
   return {
     desconectado: ativo && status.data?.estado !== "conectado",
     semChaves: ativo && status.data?.estado === "sem_chaves",
-    falhas: contarFalhasSemReenvio(linhasFalhas),
+    falhas: contarFalhasSemReenvio([...linhasFalhas, ...reenvios]),
     respostas: ((respostas.data ?? []) as unknown as LinhaResposta[]).map(paraResposta),
   };
 }

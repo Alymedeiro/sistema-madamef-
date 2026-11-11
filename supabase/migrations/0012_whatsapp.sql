@@ -9,14 +9,15 @@
 --   2. Agendamento automático: gatilho em agendamentos (confirmação,
 --      lembrete, pós-atendimento; cancelar/remarcar cancela as pendentes),
 --      gatilho em pedidos_online (pedido aprovado/recusado), envio avulso,
---      cancelar e reenviar (dona e recepção) e enfileirar_aniversarios (job
---      diário).
+--      cancelar e reenviar (dona e recepção), enfileirar_aniversarios (job
+--      diário) e a limpeza LGPD de 0009 (apagar_dados_pedidos_antigos)
+--      estendida à fila.
 --   3. Envio da fila (proxima_mensagem, concluir/falhar/descartar_envio) e
 --      respostas (mensagens_recebidas, registrar_recebida,
 --      marcar_recebida_lida).
 --   4. Relógio (whatsapp_relogio, disparar_relogio_whatsapp, jobs pg_cron
---      whatsapp_relogio e whatsapp_aniversarios) e status da conexão
---      (whatsapp_status, gravar_status_whatsapp).
+--      whatsapp_relogio, whatsapp_aniversarios e limpar_historico_cron) e
+--      status da conexão (whatsapp_status, gravar_status_whatsapp).
 --
 -- A fila nunca faz falhar o comando de agenda ou de pedido: qualquer erro ao
 -- enfileirar vira um WARNING e o comando segue.
@@ -422,7 +423,9 @@ begin
   select f.status into v_status from public.fila_mensagens f where f.id = p_id for update;
   if not found then
     raise exception 'Mensagem não encontrada.' using errcode = 'P0001';
-  elsif v_status in ('enviada', 'enviando') then
+  elsif v_status = 'enviando' then
+    raise exception 'Esta mensagem está sendo enviada.' using errcode = 'P0001';
+  elsif v_status = 'enviada' then
     raise exception 'Esta mensagem já foi enviada.' using errcode = 'P0001';
   elsif v_status <> 'pendente' then
     raise exception 'Só é possível cancelar mensagens pendentes.' using errcode = 'P0001';
@@ -453,7 +456,9 @@ begin
   perform public.exigir_equipe_whatsapp();
 
   select * into v_msg from public.fila_mensagens f where f.id = p_id for update;
-  if not found or v_msg.status not in ('falhou', 'cancelada') then
+  if not found then
+    raise exception 'Mensagem não encontrada.' using errcode = 'P0001';
+  elsif v_msg.status not in ('falhou', 'cancelada') then
     raise exception 'Só é possível reenviar mensagens com falha ou canceladas.'
       using errcode = 'P0001';
   end if;
@@ -539,6 +544,48 @@ $$;
 
 revoke execute on function public.enfileirar_aniversarios()
   from public, anon, authenticated, service_role;
+
+-- LGPD: a limpeza de 90 dias de 0009 (pedidos não aprovados) também apaga o
+-- telefone e o texto das respostas de pedido sem cliente cadastrada (o
+-- pedido recusado). Corpo de 0009 inalterado; mesmos grants.
+create or replace function public.apagar_dados_pedidos_antigos()
+returns int
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_n int;
+begin
+  update public.pedidos_online
+  set nome = null, whatsapp = null, dados_apagados_em = now()
+  where status <> 'aprovado'
+    and criado_em < now() - interval '90 days'
+    and dados_apagados_em is null;
+  get diagnostics v_n = row_count;
+
+  update public.pedidos_online
+  set ip_hash = null
+  where criado_em < now() - interval '1 day'
+    and ip_hash is not null;
+
+  update public.fila_mensagens f
+  set telefone = '550000000000',
+      texto = case when f.texto is not null then '[dados apagados]' end
+  where f.pedido_online_id in (
+      select p.id from public.pedidos_online p
+      where p.status <> 'aprovado'
+        and p.criado_em < now() - interval '90 days'
+    )
+    and f.cliente_id is null
+    and (f.telefone <> '550000000000' or f.texto <> '[dados apagados]');
+
+  return v_n;
+end;
+$$;
+
+revoke execute on function public.apagar_dados_pedidos_antigos() from public, anon, authenticated;
+grant execute on function public.apagar_dados_pedidos_antigos() to service_role;
 
 -- =============================================================================
 -- 3. Envio da fila e respostas
@@ -804,9 +851,12 @@ create policy mensagens_recebidas_select on public.mensagens_recebidas
   using ((select public.perfil_atual()) in ('dona', 'recepcao'));
 
 -- Grava uma resposta (idempotente por id_externo: repetida devolve o id da
--- primeira e não faz mais nada). Associa ao próximo agendamento não cancelado
--- (início ≥ agora − 2h, menor início) de uma cliente com esse WhatsApp;
--- 'confirmou' com esse agendamento pendente → confirmado.
+-- primeira e não faz mais nada; sem id → P0001). Associa ao próximo
+-- agendamento não cancelado (início ≥ agora − 2h, menor início) de uma
+-- cliente com esse WhatsApp — com ou sem o 9 depois do DDD (o WhatsApp
+-- costuma mandar 55DD + 8 dígitos; clientes.whatsapp guarda 13);
+-- 'confirmou' com esse agendamento pendente → confirmado. 'confirmou' ou
+-- 'quer_remarcar' sem agendamento → 'para_ler' (alguém precisa ver).
 create function public.registrar_recebida(p_telefone text, p_texto text, p_id_externo text)
 returns uuid
 language plpgsql
@@ -815,6 +865,7 @@ set search_path = ''
 as $$
 declare
   v_telefone text := regexp_replace(coalesce(p_telefone, ''), '\D', '', 'g');
+  v_alternativo text;
   v_texto text := left(coalesce(p_texto, ''), 4096);
   v_classificacao text := public.classificar_resposta(p_texto);
   v_agendamento uuid;
@@ -822,6 +873,10 @@ declare
   v_cliente uuid;
   v_id uuid;
 begin
+  if p_id_externo is null or btrim(p_id_externo) = '' then
+    raise exception 'Mensagem sem identificador.' using errcode = 'P0001';
+  end if;
+
   select r.id into v_id from public.mensagens_recebidas r where r.id_externo = p_id_externo;
   if found then
     return v_id;
@@ -829,12 +884,18 @@ begin
 
   if v_telefone = '' then
     v_telefone := left(coalesce(nullif(btrim(p_telefone), ''), '?'), 40);
+  elsif v_telefone ~ '^55\d{10}$' then
+    -- 55DD + 8 dígitos → também com o 9 depois do DDD.
+    v_alternativo := left(v_telefone, 4) || '9' || substr(v_telefone, 5);
+  elsif v_telefone ~ '^55\d{2}9\d{8}$' then
+    -- 55DD + 9 + 8 dígitos → também sem o 9.
+    v_alternativo := left(v_telefone, 4) || substr(v_telefone, 6);
   end if;
 
   select a.id, a.status, a.cliente_id into v_agendamento, v_status, v_cliente
   from public.agendamentos a
   join public.clientes c on c.id = a.cliente_id
-  where c.whatsapp = v_telefone
+  where c.whatsapp in (v_telefone, v_alternativo)
     and a.status <> 'cancelado'
     and a.inicio >= now() - interval '2 hours'
   order by a.inicio, a.id
@@ -844,9 +905,13 @@ begin
   if v_cliente is null then
     select c.id into v_cliente
     from public.clientes c
-    where c.whatsapp = v_telefone
-    order by c.ativo desc, c.criado_em desc
+    where c.whatsapp in (v_telefone, v_alternativo)
+    order by c.ativo desc, (c.whatsapp = v_telefone) desc, c.criado_em desc
     limit 1;
+  end if;
+
+  if v_agendamento is null and v_classificacao in ('confirmou', 'quer_remarcar') then
+    v_classificacao := 'para_ler';
   end if;
 
   insert into public.mensagens_recebidas (
@@ -961,7 +1026,11 @@ declare
   v_token text;
 begin
   select r.url, r.token into v_url, v_token from public.whatsapp_relogio r;
-  if v_url is null or to_regprocedure('net.http_post(text, jsonb, jsonb, jsonb, integer)') is null then
+  if v_url is null then
+    return;
+  end if;
+  if to_regprocedure('net.http_post(text, jsonb, jsonb, jsonb, integer)') is null then
+    raise notice 'WhatsApp: pg_net não está instalada; o relógio não fará nada.';
     return;
   end if;
 
@@ -988,6 +1057,8 @@ revoke execute on function public.disparar_relogio_whatsapp()
 -- é criada se disponível; sem ela o relógio não faz nada.
 --   whatsapp_relogio      * * * * *   disparar_relogio_whatsapp()
 --   whatsapp_aniversarios 0 12 * * *  enfileirar_aniversarios() (09:00 SP)
+--   limpar_historico_cron 17 6 * * *  apaga cron.job_run_details com mais de
+--                                     7 dias (o relógio grava ~1440 linhas/dia)
 do $$
 begin
   if exists (select 1 from pg_available_extensions where name = 'pg_net') then
@@ -1011,8 +1082,13 @@ begin
         '0 12 * * *',
         $cron$select public.enfileirar_aniversarios();$cron$
       );
+      perform cron.schedule(
+        'limpar_historico_cron',
+        '17 6 * * *',
+        $cron$delete from cron.job_run_details where end_time < now() - interval '7 days';$cron$
+      );
     exception when others then
-      raise notice 'pg_cron indisponível; agende whatsapp_relogio e whatsapp_aniversarios à mão: %', sqlerrm;
+      raise notice 'pg_cron indisponível; agende whatsapp_relogio, whatsapp_aniversarios e limpar_historico_cron à mão: %', sqlerrm;
     end;
   end if;
 end

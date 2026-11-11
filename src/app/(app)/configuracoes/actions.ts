@@ -65,7 +65,7 @@ export async function salvarConfigWhatsapp(dados: WhatsappConfigInput): Promise<
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("configuracoes_clinica")
       .update({
         whatsapp_ativo: ativo,
@@ -73,8 +73,10 @@ export async function salvarConfigWhatsapp(dados: WhatsappConfigInput): Promise<
         whatsapp_janela_fim: janelaFim,
         whatsapp_limite_por_hora: limitePorHora,
       })
-      .eq("linha_unica", true);
+      .eq("linha_unica", true)
+      .select("linha_unica");
     if (error) return falha(mensagemErroBanco(error));
+    if (!data || data.length === 0) return falha("Configuração não encontrada.");
   } catch {
     return falha(ERRO_INESPERADO);
   }
@@ -92,11 +94,13 @@ export async function salvarModelo(dados: ModeloInput): Promise<Resultado> {
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from("modelos_mensagem")
       .update({ variacoes, ativo, atualizado_em: new Date().toISOString() })
-      .eq("tipo", tipo);
+      .eq("tipo", tipo)
+      .select("tipo");
     if (error) return falha(mensagemErroBanco(error));
+    if (!data || data.length === 0) return falha("Modelo não encontrado.");
   } catch {
     return falha(ERRO_INESPERADO);
   }

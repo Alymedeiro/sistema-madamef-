@@ -19,6 +19,8 @@ const MSG_SEM_WHATS = "Esta cliente não tem WhatsApp cadastrado.";
 const MSG_VAZIA = "Escreva a mensagem.";
 const MSG_REENVIAR = "Só é possível reenviar mensagens com falha ou canceladas.";
 const MSG_ENVIADA = "Esta mensagem já foi enviada.";
+const MSG_ENVIANDO = "Esta mensagem está sendo enviada.";
+const MSG_NAO_ENCONTRADA = "Mensagem não encontrada.";
 
 let dona: string;
 let recepcao: string;
@@ -485,6 +487,28 @@ describe("envio avulso, cancelar e reenviar", () => {
     });
   });
 
+  it("cancelar enviando → 'está sendo enviada'; reenviar/cancelar inexistente → não encontrada", async () => {
+    await emTeste(async (c) => {
+      await logarComo(c, recepcao);
+      const id = (
+        await c.query<{ id: string }>("select enviar_avulsa($1, 'Oi') as id", [cli])
+      ).rows[0].id;
+      await comoSuper(c);
+      await c.query("update fila_mensagens set status = 'enviando' where id = $1", [id]);
+      await logarComo(c, recepcao);
+      expect((await falha(c, "select cancelar_mensagem($1, 'x')", [id])).message).toBe(
+        MSG_ENVIANDO,
+      );
+      const inexistente = "00000000-0000-0000-0000-000000000000";
+      expect((await falha(c, "select reenviar_mensagem($1)", [inexistente])).message).toBe(
+        MSG_NAO_ENCONTRADA,
+      );
+      expect((await falha(c, "select cancelar_mensagem($1, 'x')", [inexistente])).message).toBe(
+        MSG_NAO_ENCONTRADA,
+      );
+    });
+  });
+
   it("reenviar confirmação que falhou → nova pendente sem texto", async () => {
     await emTeste(async (c) => {
       const ag = await agendar(c, { daqui: "48 hours" });
@@ -645,6 +669,93 @@ describe("pedido online", () => {
         estrangeiro,
       ]);
       expect(st.rows[0].status).toBe("recusado");
+    });
+  });
+
+  it("LGPD: apagar_dados_pedidos_antigos anonimiza a fila dos pedidos não aprovados de 90+ dias sem cliente", async () => {
+    await emTeste(async (c) => {
+      const pedidoAntigo = async (status: string, idade: string) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into pedidos_online (servico_id, profissional_id, inicio, fim, status, nome,
+               whatsapp, aceite_privacidade_em, criado_em)
+             values ($1, $2, now() - $3::interval, now() - $3::interval + interval '30 minutes',
+               $4, 'Joana', '5521999998888', now(), now() - $3::interval)
+             returning id`,
+            [servico, profId, idade, status],
+          )
+        ).rows[0].id;
+      const recusado = await pedidoAntigo("recusado", "91 days");
+      const expirado = await pedidoAntigo("expirado", "92 days");
+      const recente = await pedidoAntigo("recusado", "89 days");
+      const aprovado = await pedidoAntigo("aprovado", "93 days");
+
+      // Uma linha por status (texto só onde a restrição permite/exige).
+      const linha = async (
+        pedido: string,
+        status: string,
+        texto: string | null,
+        cliente: string | null = null,
+      ) =>
+        (
+          await c.query<{ id: string }>(
+            `insert into fila_mensagens (tipo, cliente_id, pedido_online_id, telefone, texto,
+               agendado_para, status, enviada_em, cancelada_motivo, tentativas, erro)
+             values ('pedido_recusado', $1, $2, '5521999998888', $3, now() - interval '91 days',
+               $4::status_mensagem,
+               case when $4 = 'enviada' then now() - interval '91 days' end,
+               case when $4 = 'cancelada' then 'x' end,
+               case when $4 = 'falhou' then 3 else 0 end,
+               case when $4 = 'falhou' then 'erro' end)
+             returning id`,
+            [cliente, pedido, texto, status],
+          )
+        ).rows[0].id;
+      const apagar = [
+        await linha(recusado, "enviada", "Oi, Joana! Infelizmente..."),
+        await linha(recusado, "pendente", null),
+        await linha(recusado, "enviando", null),
+        await linha(recusado, "falhou", "Oi, Joana!"),
+        await linha(expirado, "cancelada", null),
+      ];
+      const manter = [
+        await linha(recente, "enviada", "Oi, Joana!"),
+        await linha(aprovado, "enviada", "Oi, Joana!"),
+        await linha(recusado, "enviada", "Oi, Joana!", cli),
+      ];
+
+      await c.query("set local role service_role");
+      expect((await c.query("select apagar_dados_pedidos_antigos() as n")).rows[0].n).toBe(2);
+      await comoSuper(c);
+
+      const ler = async (ids: string[]) =>
+        (
+          await c.query<{ id: string; telefone: string; texto: string | null }>(
+            "select id, telefone, texto from fila_mensagens where id = any($1::uuid[])",
+            [ids],
+          )
+        ).rows;
+      const apagadas = await ler(apagar);
+      expect(apagadas).toHaveLength(5);
+      for (const l of apagadas) {
+        expect(l.telefone).toBe("550000000000");
+      }
+      expect(Object.fromEntries(apagadas.map((l) => [l.id, l.texto]))).toEqual({
+        [apagar[0]]: "[dados apagados]",
+        [apagar[1]]: null,
+        [apagar[2]]: null,
+        [apagar[3]]: "[dados apagados]",
+        [apagar[4]]: null,
+      });
+      for (const l of await ler(manter)) {
+        expect([l.telefone, l.texto]).toEqual(["5521999998888", "Oi, Joana!"]);
+      }
+
+      // Idempotente: segunda execução não falha nem muda nada.
+      await c.query("set local role service_role");
+      expect((await c.query("select apagar_dados_pedidos_antigos() as n")).rows[0].n).toBe(0);
+      await comoSuper(c);
+      expect((await ler(apagar)).every((l) => l.telefone === "550000000000")).toBe(true);
     });
   });
 

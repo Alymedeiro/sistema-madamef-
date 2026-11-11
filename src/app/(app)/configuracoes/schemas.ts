@@ -5,6 +5,7 @@ import {
   NOME_DIA,
 } from "@/lib/dominio/intervalos";
 import { telefoneOpcional, textoOpcional } from "@/lib/validacao";
+import { ROTULO_TIPO_MENSAGEM, type TipoMensagem } from "@/lib/dominio/whatsapp";
 
 const hora = z.string().regex(HORA_REGEX, "Use horas no formato HH:mm.");
 const intervalo = z.object({ inicio: hora, fim: hora });
@@ -80,15 +81,12 @@ export const whatsappConfigSchema = z
 
 export type WhatsappConfigInput = z.input<typeof whatsappConfigSchema>;
 
-export const TIPOS_MODELO = [
-  "confirmacao",
-  "lembrete",
-  "pos_atendimento",
-  "aniversario",
-  "pedido_aprovado",
-  "pedido_recusado",
-  "avulsa",
-] as const;
+export type TipoModelo = Exclude<TipoMensagem, "avulsa">;
+
+/** Tipos com modelo editável: todos menos avulsa (o texto já vem pronto). */
+export const TIPOS_MODELO = Object.keys(ROTULO_TIPO_MENSAGEM).filter(
+  (t): t is TipoModelo => t !== "avulsa",
+) as [TipoModelo, ...TipoModelo[]];
 
 export const modeloSchema = z.object({
   tipo: z.enum(TIPOS_MODELO),

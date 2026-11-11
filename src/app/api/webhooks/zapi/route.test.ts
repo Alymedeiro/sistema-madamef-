@@ -60,6 +60,35 @@ describe("POST /api/webhooks/zapi", () => {
     expect(falso.chamadasRpc("registrar_recebida")).toHaveLength(0);
   });
 
+  it("401 com ZAPI_WEBHOOK_TOKEN ausente (não definida), com qualquer token", async () => {
+    vi.stubEnv("ZAPI_WEBHOOK_TOKEN", undefined);
+    expect(process.env.ZAPI_WEBHOOK_TOKEN).toBeUndefined();
+    for (const token of [null, "", SEGREDO, "undefined"]) {
+      expect((await POST(requisicao(PAYLOAD_REAL, token))).status).toBe(401);
+    }
+    expect(falso.chamadasRpc("registrar_recebida")).toHaveLength(0);
+  });
+
+  it("WhatsApp com 12 dígitos (sem o 9) vai como veio; o banco procura com e sem o 9", async () => {
+    await POST(requisicao({ ...PAYLOAD_REAL, phone: "551188887777" }));
+    expect(falso.chamadasRpc("registrar_recebida")[0].args[0]).toMatchObject({
+      p_telefone: "551188887777",
+    });
+  });
+
+  it("messageId com mais de 200 caracteres → ignorada; telefone fora do padrão cortado em 40", async () => {
+    const r = await POST(requisicao({ ...PAYLOAD_REAL, messageId: "x".repeat(201) }));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ignorada: true });
+    expect(falso.chamadasRpc("registrar_recebida")).toHaveLength(0);
+
+    await POST(requisicao({ ...PAYLOAD_REAL, messageId: "x".repeat(200) }));
+    await POST(requisicao({ ...PAYLOAD_REAL, messageId: "ID-2", phone: "a".repeat(100) }));
+    const args = falso.chamadasRpc("registrar_recebida").map((c) => c.args[0]);
+    expect(args[0]).toMatchObject({ p_id_externo: "x".repeat(200) });
+    expect(args[1]).toMatchObject({ p_telefone: "a".repeat(40) });
+  });
+
   it("payload real de exemplo → registrar_recebida com telefone, texto e messageId", async () => {
     const r = await POST(requisicao(PAYLOAD_REAL));
     expect(r.status).toBe(200);

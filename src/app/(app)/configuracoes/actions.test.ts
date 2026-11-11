@@ -44,6 +44,7 @@ describe("salvarConfigWhatsapp", () => {
   });
 
   it("salva os campos", async () => {
+    falso.responder("configuracoes_clinica", { data: [{ linha_unica: true }], error: null });
     expect(await salvarConfigWhatsapp(config)).toEqual({ ok: true });
     expect(falso.chamadasDe("configuracoes_clinica", "update")[0].args[0]).toEqual({
       whatsapp_ativo: true,
@@ -51,6 +52,17 @@ describe("salvarConfigWhatsapp", () => {
       whatsapp_janela_fim: "19:00",
       whatsapp_limite_por_hora: 20,
     });
+    expect(falso.chamadasDe("configuracoes_clinica", "select")).toHaveLength(1);
+  });
+
+  it("nenhuma linha atualizada → 'Configuração não encontrada.'", async () => {
+    for (const data of [[], null]) {
+      falso.responder("configuracoes_clinica", { data, error: null });
+      expect(await salvarConfigWhatsapp(config)).toEqual({
+        ok: false,
+        erro: "Configuração não encontrada.",
+      });
+    }
   });
 });
 
@@ -72,10 +84,22 @@ describe("salvarModelo", () => {
   });
 
   it("salva variações aparadas", async () => {
+    falso.responder("modelos_mensagem", { data: [{ tipo: "lembrete" }], error: null });
     expect(await salvarModelo({ ...modelo, variacoes: ["  A  ", "B"], ativo: false })).toEqual({ ok: true });
     const u = falso.chamadasDe("modelos_mensagem", "update")[0].args[0] as Record<string, unknown>;
     expect(u.variacoes).toEqual(["A", "B"]);
     expect(u.ativo).toBe(false);
     expect(falso.chamadasDe("modelos_mensagem", "eq")[0].args).toEqual(["tipo", "lembrete"]);
+  });
+
+  it("nenhuma linha atualizada → 'Modelo não encontrado.'", async () => {
+    falso.responder("modelos_mensagem", { data: [], error: null });
+    expect(await salvarModelo(modelo)).toEqual({ ok: false, erro: "Modelo não encontrado." });
+  });
+
+  it("avulsa não tem modelo: recusada sem tocar no banco", async () => {
+    const r = await salvarModelo({ ...modelo, tipo: "avulsa" as never });
+    expect(r.ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
   });
 });

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { TipoModelo } from "./schemas";
 import { SecaoWhatsapp } from "@/features/whatsapp/secao-whatsapp";
 import { FormularioConfiguracoes } from "@/features/configuracoes/formulario-configuracoes";
 import { horarioDoBanco } from "@/lib/dominio/intervalos";
@@ -27,9 +28,9 @@ export default async function ConfiguracoesPage() {
   ]);
   if (erroModelos) throw new Error(`Falha ao carregar os modelos: ${erroModelos.message}`);
   const ordem = Object.keys(ROTULO_TIPO_MENSAGEM);
-  const modelosOrdenados = (modelos ?? []).sort(
-    (a, b) => ordem.indexOf(a.tipo) - ordem.indexOf(b.tipo),
-  );
+  const modelosOrdenados = (modelos ?? [])
+    .filter((m): m is typeof m & { tipo: TipoModelo } => m.tipo !== "avulsa")
+    .sort((a, b) => ordem.indexOf(a.tipo) - ordem.indexOf(b.tipo));
 
   return (
     <div className="flex flex-col gap-6">

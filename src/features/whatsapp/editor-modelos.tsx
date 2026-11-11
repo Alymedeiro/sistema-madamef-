@@ -3,18 +3,14 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { salvarModelo } from "@/app/(app)/configuracoes/actions";
-import { modeloSchema } from "@/app/(app)/configuracoes/schemas";
+import { modeloSchema, type TipoModelo } from "@/app/(app)/configuracoes/schemas";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
-import {
-  ROTULO_TIPO_MENSAGEM,
-  type TipoMensagem,
-  VARIAVEIS_MENSAGEM,
-} from "@/lib/dominio/whatsapp";
+import { ROTULO_TIPO_MENSAGEM, VARIAVEIS_MENSAGEM } from "@/lib/dominio/whatsapp";
 import { previaMensagem } from "./previa";
 
-export type ModeloEditavel = { tipo: TipoMensagem; variacoes: string[]; ativo: boolean };
+export type ModeloEditavel = { tipo: TipoModelo; variacoes: string[]; ativo: boolean };
 
 const CLASSE_TEXTAREA =
   "min-h-11 w-full rounded-md border border-input bg-card px-3 py-2 text-base shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring md:text-sm";

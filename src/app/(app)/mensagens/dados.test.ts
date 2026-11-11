@@ -115,19 +115,67 @@ describe("carregarAlertasWhatsapp", () => {
     falso.responder("whatsapp_status", ok({ estado: "conectado" }));
     const r = await carregarAlertasWhatsapp(falso.cliente as never, new Date("2026-11-11T12:00:00Z"));
     expect(r.desconectado).toBe(false);
-    expect(falso.chamadasDe("fila_mensagens", "in")[0].args).toEqual([
-      "status",
-      ["falhou", "pendente", "enviando", "enviada"],
-    ]);
+    expect(falso.chamadasDe("fila_mensagens", "eq")[0].args).toEqual(["status", "falhou"]);
     expect(falso.chamadasDe("fila_mensagens", "gte")[0].args).toEqual([
       "atualizado_em",
       "2026-11-04T12:00:00.000Z",
     ]);
+    expect(falso.chamadasDe("fila_mensagens", "order")[0].args).toEqual([
+      "atualizado_em",
+      { ascending: false },
+    ]);
+    // Sem falhas: não procura reenvios.
+    expect(falso.chamadasDe("fila_mensagens", "select")).toHaveLength(1);
     expect(falso.chamadasDe("mensagens_recebidas", "is")[0].args).toEqual(["lida_em", null]);
     expect(falso.chamadasDe("mensagens_recebidas", "in")[0].args).toEqual([
       "classificacao",
       ["quer_remarcar", "para_ler"],
     ]);
+  });
+
+  it("falhas lidas à parte; reenvios procurados só para as chaves das falhas", async () => {
+    falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: true }));
+    falso.responder("whatsapp_status", ok({ estado: "conectado" }));
+    falso.responder(
+      "fila_mensagens",
+      ok([
+        falha({ criado_em: "2026-11-10T10:00:00Z" }),
+        falha({ cliente_id: "c2", agendamento_id: "a2", criado_em: "2026-11-09T10:00:00Z" }),
+        falha({
+          tipo: "pedido_recusado",
+          cliente_id: null,
+          agendamento_id: null,
+          pedido_online_id: "p1",
+          criado_em: "2026-11-10T08:00:00Z",
+        }),
+      ]),
+      // Reenvio vivo só da primeira (c1/a1).
+      ok([falha({ status: "pendente", criado_em: "2026-11-10T11:00:00Z" })]),
+    );
+    falso.responder("mensagens_recebidas", ok([]));
+    const r = await carregarAlertasWhatsapp(falso.cliente as never, new Date("2026-11-11T12:00:00Z"));
+    expect(r.falhas).toBe(2);
+    expect(falso.chamadasDe("fila_mensagens", "in").map((c) => c.args)).toEqual([
+      ["status", ["pendente", "enviando", "enviada"]],
+      ["tipo", ["confirmacao", "pedido_recusado"]],
+    ]);
+    expect(falso.chamadasDe("fila_mensagens", "gt")[0].args).toEqual([
+      "criado_em",
+      "2026-11-09T10:00:00Z",
+    ]);
+    expect(falso.chamadasDe("fila_mensagens", "or")[0].args).toEqual([
+      "cliente_id.in.(c1,c2),pedido_online_id.in.(p1)",
+    ]);
+  });
+
+  it("erro ao procurar reenvios é lançado", async () => {
+    falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: true }));
+    falso.responder("whatsapp_status", ok({ estado: "conectado" }));
+    falso.responder("fila_mensagens", ok([falha()]), { data: null, error: { message: "x" } });
+    falso.responder("mensagens_recebidas", ok([]));
+    await expect(carregarAlertasWhatsapp(falso.cliente as never)).rejects.toThrow(
+      "Falha ao carregar as mensagens com falha",
+    );
   });
 
   it("erro do banco é lançado (o cartão mostra a falha)", async () => {
