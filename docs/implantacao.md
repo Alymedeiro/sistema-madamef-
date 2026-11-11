@@ -132,6 +132,29 @@ A Fase 4 adiciona o menu **Financeiro** (painel, contas a receber, contas a paga
 
 **Teste de tela da Fase 4:** `e2e/financeiro.spec.ts` (conta fixa, marcar paga e cartão Pago, filtro Mês passado, Exportar PDF, sininho, `/caixa` redirecionando e a recepção recebendo uma parcela, nos 3 tamanhos) exige o projeto de testes **com a 0010 aplicada** e `E2E_PERMITIR_PROJETO`. Contas, recebimentos e a conta fixa não podem ser apagados (nem pela chave de serviço): a limpeza cancela o que ficou em aberto e desativa a conta fixa; contas pagas, o recebimento, a cliente "Cliente E2E Financeiro ..." e os avisos lidos ficam no projeto de testes. Se hoje não houver caixa, o spec abre um (e ele fica). Os três tamanhos se revezam por um lock em arquivo. Os três specs que usam o caixa de hoje (`caixa`, `cobranca` e `financeiro`) compartilham uma trava em arquivo (`e2e/trava-caixa.ts`) e nunca rodam ao mesmo tempo; `caixa` e `cobranca` tentam zerar o caixa, mas toleram dados que não podem ser apagados (reaproveitam o caixa aberto e pulam, com mensagem, se ele já estiver fechado).
 
+## Fase 4B — Comissões e estoque
+
+A Fase 4B gera a comissão da profissional e dá baixa nos produtos do serviço quando o atendimento é marcado como **atendido**, e adiciona a aba **Comissões** no Financeiro, a aba **Estoque** em Produtos e a migration `0011_comissoes_estoque.sql` (tabelas `colaboradores_comissao`, `servicos_comissao`, `comissoes` e `movimentos_estoque`, gatilhos de atendimento e de estoque e as funções de pagar comissões, entrada e ajuste).
+
+**Estado atual:** 0011 ainda não aplicada (nem no projeto de testes nem na produção).
+
+0. **Aplique a 0011 no projeto de testes e na produção ANTES do merge em main (o merge publica na Vercel).** O código da Fase 4B depende dela; publicado antes, a aba Comissões, a aba Estoque e marcar "atendido" quebram. Aplique primeiro no projeto de testes, confira, e só então na produção.
+1. Aplique `0011_comissoes_estoque.sql` (SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`). Nunca aplique `shim.sql`.
+2. Conferências (rode nos dois projetos):
+   - Políticas de segurança: `select tablename, count(*) from pg_policies where tablename in ('comissoes','movimentos_estoque','colaboradores_comissao','servicos_comissao') group by tablename;` deve listar as **4** tabelas, todas só para a dona; RLS ligado nas quatro, sem acesso do `anon`.
+   - Estoque consistente: para todo produto, a soma de `movimentos_estoque.quantidade` é igual a `produtos.estoque_atual`. Por SQL: `select p.id, p.nome from public.produtos p where p.estoque_atual <> coalesce((select sum(m.quantidade) from public.movimentos_estoque m where m.produto_id = p.id), 0);` deve voltar **zero linhas** (os saldos que já existiam viram um movimento "Saldo anterior" na migração).
+3. **Depois de publicar**, a dona: (a) preenche **Comissão padrão (%)** de cada profissional em *Equipe*; (b) preenche **Comissão (%)** dos serviços que têm percentual próprio (vazio = usa a padrão da profissional); (c) confere, em *Serviços*, os **produtos consumidos** por serviço, porque é eles que dão baixa no estoque a cada atendimento.
+
+**Como a dona usa**
+
+- **Comissão:** ao marcar o atendimento como atendido, a comissão (percentual do serviço, ou o padrão da profissional, sobre o valor cobrado já com desconto) entra **Em aberto** em *Financeiro > Comissões*. Desmarcar o atendimento cancela/recalcula a comissão; uma comissão **paga** não pode mais mudar.
+- **Pagar comissões:** no resumo por profissional e mês, **Pagar comissões** pede a data e a forma e lança uma despesa de salário já paga (`Comissão — <profissional> — MM/AAAA`) em *Contas a pagar*; as comissões do mês ficam **Pagas**.
+- **Estoque:** em *Produtos > Estoque* aparecem os produtos **Abaixo do mínimo**, a tabela com **Entrada** (compra, com opção de lançar em Contas a pagar) e **Ajuste** (contagem, com motivo) e o histórico de movimentos. O estoque só muda por entrada, ajuste ou atendimento; **Ver estoque**, no cadastro do produto, abre a aba já destacando o produto.
+- **Recepção e profissional** não veem as abas Comissões nem Estoque; marcar atendido continua funcionando para eles.
+- Nada é apagado: comissões canceladas e movimentos continuam no histórico.
+
+**Teste de tela da Fase 4B:** `e2e/comissoes-estoque.spec.ts` (dona configura 20% no serviço, entrada e ajuste de estoque, recepção marca atendido e não vê as abas, dona vê a comissão em aberto e o estoque baixado, `?produto=<id>` destacando e filtrando, `Pagar comissões` com despesa em Contas a pagar, nos 3 tamanhos) exige o projeto de testes **com a 0011 aplicada** e `E2E_PERMITIR_PROJETO`. Comissões, movimentos e despesas não podem ser apagados: a limpeza só desativa o produto e o serviço criados ("E2E Comissões ..."); a comissão paga, a despesa de salário e os movimentos ficam no projeto de testes. Como "Pagar comissões" paga todas as comissões em aberto da profissional de teste no mês, os três tamanhos se revezam pela trava em arquivo de `e2e/trava-caixa.ts`.
+
 ## 3. Configurar o login (Authentication)
 
 Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no painel.
