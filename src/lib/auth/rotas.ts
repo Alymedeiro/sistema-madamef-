@@ -9,9 +9,14 @@ const PUBLICAS: readonly string[] = [
   ...(process.env.NEXT_PUBLIC_E2E_HARNESS === "1" ? ["/e2e-harness"] : []),
 ];
 
+// Rotas de API chamadas por máquinas (Fase 3B): autenticam pelo próprio token
+// (relógio: x-cron-token; webhook da Z-API: ?token=), não por sessão.
+const API_PUBLICAS: readonly string[] = ["/api/whatsapp/processar", "/api/webhooks/zapi"];
+
 export function ehRotaPublica(pathname: string): boolean {
   return (
     PUBLICAS.some((r) => pathname === r || pathname.startsWith(`${r}/`)) ||
+    API_PUBLICAS.some((r) => pathname === r || pathname === `${r}/`) ||
     ehRotaDeConfirmacao(pathname)
   );
 }

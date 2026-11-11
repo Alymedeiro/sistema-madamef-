@@ -8,11 +8,12 @@
 //
 // Preparação (service role, só no projeto de teste): a profissional recebe
 // jornada 09–12 e 13–18 no dia escolhido (almoço 12–13), passa a realizar um
-// serviço ativo de 60 min, e os agendamentos dela nesse dia são apagados.
+// serviço ativo de 60 min, e os agendamentos dela nesse dia são cancelados (liberarHorario; nada é apagado).
 
 import { expect, test, type Page } from "@playwright/test";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { AMBIENTE, USUARIOS, pularSemBackend } from "./suporte";
+import { liberarHorario } from "./horario-livre";
 
 const ENV = {
   ...AMBIENTE,
@@ -81,12 +82,8 @@ async function preparar(indiceProjeto: number): Promise<Fixtures> {
     { colaborador_id: profissional.id, dia_semana: 2, hora_inicio: "09:00", hora_fim: "12:00" },
     { colaborador_id: profissional.id, dia_semana: 2, hora_inicio: "13:00", hora_fim: "18:00" },
   ]);
-  await admin
-    .from("agendamentos")
-    .delete()
-    .eq("profissional_id", profissional.id)
-    .gte("inicio", `${data}T00:00:00-03:00`)
-    .lt("inicio", `${data}T23:59:59-03:00`);
+  // Nada é apagado (comissões e fila de WhatsApp referenciam o agendamento): libera o dia.
+  await liberarHorario(admin, profissional.id, `${data}T00:00:00-03:00`, `${data}T23:59:59-03:00`);
 
   const nome = `Cliente E2E Agenda ${Date.now()}`;
   const { data: cliente, error: ec } = await admin

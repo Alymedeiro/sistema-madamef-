@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { configuracoesSchema, horarioFuncionamentoSchema } from "./schemas";
+import { configuracoesSchema, horarioFuncionamentoSchema, modeloSchema, TIPOS_MODELO } from "./schemas";
 
 const fechado = { "0": [], "1": [], "2": [], "3": [], "4": [], "5": [], "6": [] };
 const util = [{ inicio: "09:00", fim: "19:00" }];
@@ -118,5 +118,16 @@ describe("configuracoesSchema", () => {
     expect(r("a".repeat(20)).success).toBe(true);
     expect(r("a".repeat(1000)).success).toBe(true);
     expect(r("a".repeat(1001)).success).toBe(false);
+  });
+});
+
+describe("TIPOS_MODELO e modeloSchema", () => {
+  it("são os tipos de mensagem menos avulsa", () => {
+    expect([...TIPOS_MODELO].sort()).toEqual(
+      ["aniversario", "confirmacao", "lembrete", "pedido_aprovado", "pedido_recusado", "pos_atendimento"],
+    );
+    const ok = { variacoes: ["Oi"], ativo: true };
+    expect(modeloSchema.safeParse({ ...ok, tipo: "lembrete" }).success).toBe(true);
+    expect(modeloSchema.safeParse({ ...ok, tipo: "avulsa" }).success).toBe(false);
   });
 });

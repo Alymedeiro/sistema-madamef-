@@ -1,13 +1,15 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { COR_STATUS } from "@/lib/dominio/status";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
 import type { ContaVencendo } from "@/features/avisos/dados";
 import { textoAviso } from "@/features/avisos/texto";
+import { BotaoEnviarWhatsapp } from "@/features/mensagens/dialogo-enviar";
+import { ItemResposta } from "@/features/mensagens/lista-respostas";
 import { tempoRestante } from "@/features/pedidos/prazo";
+import type { Resposta } from "@/app/(app)/mensagens/dados";
 import type { Aniversariante, ItemAgenda, ItemSemTermo, PedidoAguardando } from "./dados";
 import type { ProdutoEstoque } from "./painel";
 
@@ -87,9 +89,11 @@ export function ListaAniversariantes({ itens }: { itens: Aniversariante[] }) {
             {c.dataNascimento ? c.dataNascimento.slice(8, 10) + "/" + c.dataNascimento.slice(5, 7) : ""}
           </span>
           <span className="min-w-0 flex-1">{c.nome}</span>
-          <Button type="button" size="sm" variant="outline" disabled title="Disponível na Fase 3">
-            Enviar WhatsApp
-          </Button>
+          {c.whatsapp ? (
+            <BotaoEnviarWhatsapp clienteId={c.id} clienteNome={c.nome} tamanho="sm" />
+          ) : (
+            <span className="text-xs text-muted-foreground">Sem WhatsApp</span>
+          )}
         </li>
       ))}
     </ul>
@@ -179,6 +183,79 @@ export function ListaContasVencendo({ itens }: { itens: ContaVencendo[] }) {
         className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
       >
         Ver Financeiro
+      </Link>
+    </div>
+  );
+}
+
+/** Alerta do topo do Início: envio ligado e a Z-API fora do ar (ou sem chaves). */
+export function AlertaWhatsappDesconectado({
+  ehDona,
+  semChaves = false,
+}: {
+  ehDona: boolean;
+  semChaves?: boolean;
+}) {
+  return (
+    <div
+      role="alert"
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm"
+    >
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="font-semibold text-destructive">
+          {semChaves ? "Chaves da Z-API não configuradas" : "WhatsApp desconectado"}
+        </p>
+        <p>
+          {semChaves
+            ? "As mensagens automáticas estão paradas na fila. Cadastre as chaves da Z-API no servidor (Vercel)."
+            : "As mensagens automáticas estão paradas na fila. Reconecte o número da clínica no painel da Z-API."}
+        </p>
+      </div>
+      {ehDona && (
+        <Link
+          href="/configuracoes#whatsapp"
+          className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
+        >
+          Ver configurações
+        </Link>
+      )}
+    </div>
+  );
+}
+
+export function ListaRespostasWhatsapp({ itens }: { itens: Resposta[] }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <ul className="flex flex-col divide-y">
+        {itens.map((r) => (
+          <li key={r.id} className="py-2 first:pt-0">
+            <ItemResposta r={r} />
+          </li>
+        ))}
+      </ul>
+      <Link
+        href="/mensagens?aba=respostas"
+        className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      >
+        Ver respostas
+      </Link>
+    </div>
+  );
+}
+
+export function ResumoFalhasWhatsapp({ falhas }: { falhas: number }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <p className="text-sm text-destructive">
+        {falhas === 1
+          ? "1 mensagem falhou nos últimos 7 dias."
+          : `${falhas} mensagens falharam nos últimos 7 dias.`}
+      </p>
+      <Link
+        href="/mensagens?aba=fila&status=falhou"
+        className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      >
+        Ver na fila
       </Link>
     </div>
   );

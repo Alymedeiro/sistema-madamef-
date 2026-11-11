@@ -1,6 +1,9 @@
 import Link from "next/link";
+import type { TipoModelo } from "./schemas";
+import { SecaoWhatsapp } from "@/features/whatsapp/secao-whatsapp";
 import { FormularioConfiguracoes } from "@/features/configuracoes/formulario-configuracoes";
 import { horarioDoBanco } from "@/lib/dominio/intervalos";
+import { ROTULO_TIPO_MENSAGEM } from "@/lib/dominio/whatsapp";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
@@ -14,10 +17,20 @@ export default async function ConfiguracoesPage() {
   const { data, error } = await supabase
     .from("configuracoes_clinica")
     .select(
-      "nome, telefone, endereco, horario_funcionamento, online_ativo, online_antecedencia_min_horas, online_antecedencia_max_dias, online_aviso_privacidade",
+      "nome, telefone, endereco, horario_funcionamento, online_ativo, online_antecedencia_min_horas, online_antecedencia_max_dias, online_aviso_privacidade, whatsapp_ativo, whatsapp_janela_inicio, whatsapp_janela_fim, whatsapp_limite_por_hora",
     )
     .maybeSingle();
   if (error) throw new Error(`Falha ao carregar as configurações: ${error.message}`);
+
+  const [{ data: modelos, error: erroModelos }, { data: status }] = await Promise.all([
+    supabase.from("modelos_mensagem").select("tipo, variacoes, ativo"),
+    supabase.from("whatsapp_status").select("estado").maybeSingle(),
+  ]);
+  if (erroModelos) throw new Error(`Falha ao carregar os modelos: ${erroModelos.message}`);
+  const ordem = Object.keys(ROTULO_TIPO_MENSAGEM);
+  const modelosOrdenados = (modelos ?? [])
+    .filter((m): m is typeof m & { tipo: TipoModelo } => m.tipo !== "avulsa")
+    .sort((a, b) => ordem.indexOf(a.tipo) - ordem.indexOf(b.tipo));
 
   return (
     <div className="flex flex-col gap-6">
@@ -56,6 +69,17 @@ export default async function ConfiguracoesPage() {
           onlineAvisoPrivacidade: data?.online_aviso_privacidade ?? "",
         }}
         siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
+      />
+      <SecaoWhatsapp
+        inicial={{
+          ativo: data?.whatsapp_ativo ?? false,
+          janelaInicio: (data?.whatsapp_janela_inicio ?? "09:00").slice(0, 5),
+          janelaFim: (data?.whatsapp_janela_fim ?? "19:00").slice(0, 5),
+          limitePorHora: data?.whatsapp_limite_por_hora ?? 20,
+        }}
+        estado={status?.estado ?? "sem_chaves"}
+        clinica={data?.nome ?? "Madame Fê Clinic"}
+        modelos={modelosOrdenados}
       />
     </div>
   );

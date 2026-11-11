@@ -1,7 +1,8 @@
 // Trava em arquivo compartilhada pelos specs que mexem no caixa de hoje (caixa, cobranca,
 // financeiro): só existe um caixa por dia no projeto de testes, então os três nunca podem
-// rodar ao mesmo tempo (nem em viewports ou workers diferentes). Quem pega a trava deve
-// devolvê-la no afterAll com o `liberar` retornado.
+// rodar ao mesmo tempo (nem em viewports ou workers diferentes). Também serializa quem
+// depende de configuracoes_clinica.whatsapp_ativo (whatsapp liga/desliga; agendar precisa
+// dele desligado). Quem pega a trava deve devolvê-la no afterAll com o `liberar` retornado.
 import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

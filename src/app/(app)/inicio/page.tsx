@@ -1,11 +1,15 @@
+import { carregarAlertasWhatsapp, type AlertasWhatsapp } from "@/app/(app)/mensagens/dados";
 import {
+  AlertaWhatsappDesconectado,
   CartaoPainel,
   ListaAniversariantes,
   ListaContasVencendo,
   ListaAtendimentos,
   ListaEstoqueBaixo,
   ListaPedidosOnline,
+  ListaRespostasWhatsapp,
   ListaSemTermo,
+  ResumoFalhasWhatsapp,
 } from "@/features/inicio/cartoes";
 import {
   aguardandoConfirmacao,
@@ -40,8 +44,18 @@ export default async function InicioPage() {
   const supabase = await createClient();
 
   // Cada cartão carrega por conta própria: uma falha não apaga o painel.
-  const [atendimentos, pendentes, semPagamento, aniversarios, estoque, semTermo, online, vencendo] =
-    await Promise.all([
+  const sem: AlertasWhatsapp = { desconectado: false, semChaves: false, falhas: 0, respostas: [] };
+  const [
+    atendimentos,
+    pendentes,
+    semPagamento,
+    aniversarios,
+    estoque,
+    semTermo,
+    online,
+    vencendo,
+    whatsapp,
+  ] = await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
     carregarCartao(gerencia ? atendidosSemPagamento(supabase, seteDiasAtras, hoje) : Promise.resolve([])),
@@ -51,6 +65,7 @@ export default async function InicioPage() {
     carregarCartao(ehDona ? atendidosSemTermo(supabase, somarDias(hoje, -29), hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? pedidosAguardando(supabase) : Promise.resolve([])),
     carregarCartao(ehDona ? contasVencendo(supabase, hoje) : Promise.resolve([])),
+    carregarCartao(gerencia ? carregarAlertasWhatsapp(supabase, agora) : Promise.resolve(sem)),
   ]);
   const estado = <T,>(c: Cartao<T[]>) => ({
     falhou: !c.ok,
@@ -65,12 +80,18 @@ export default async function InicioPage() {
   const cSemTermo = estado(semTermo);
   const cOnline = estado(online);
   const cVencendo = estado(vencendo);
+  const cRespostas = estado(whatsapp.ok ? { ok: true, dados: whatsapp.dados.respostas } : { ok: false });
+  const falhasWhatsapp = whatsapp.ok ? whatsapp.dados.falhas : 0;
 
   return (
     <div className="flex flex-col gap-6">
       <h1 className="font-script text-4xl text-ouro-escuro">
         {saudacaoPorHora(agora)}, {primeiroNome(colaborador.nome)}
       </h1>
+
+      {gerencia && whatsapp.ok && whatsapp.dados.desconectado && (
+        <AlertaWhatsappDesconectado ehDona={ehDona} semChaves={whatsapp.dados.semChaves} />
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <CartaoPainel
@@ -97,6 +118,26 @@ export default async function InicioPage() {
               vazioTexto="Nenhum pedido online aguardando resposta"
             >
               <ListaPedidosOnline itens={cOnline.itens} agora={agora} />
+            </CartaoPainel>
+
+            <CartaoPainel
+              id="respostas-whatsapp-t"
+              titulo="Respostas do WhatsApp"
+              vazio={cRespostas.vazio}
+              falhou={cRespostas.falhou}
+              vazioTexto="Nenhuma resposta do WhatsApp para ler"
+            >
+              <ListaRespostasWhatsapp itens={cRespostas.itens} />
+            </CartaoPainel>
+
+            <CartaoPainel
+              id="falhas-whatsapp-t"
+              titulo="Mensagens com falha"
+              vazio={whatsapp.ok && falhasWhatsapp === 0}
+              falhou={!whatsapp.ok}
+              vazioTexto="Nenhuma mensagem com falha nos últimos 7 dias"
+            >
+              <ResumoFalhasWhatsapp falhas={falhasWhatsapp} />
             </CartaoPainel>
 
             <CartaoPainel

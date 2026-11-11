@@ -7,6 +7,7 @@ import {
 } from "@/features/clientes/aba-historico";
 import { BotaoAtivoCliente } from "@/features/clientes/botao-ativo-cliente";
 import { FormularioCliente } from "@/features/clientes/formulario-cliente";
+import { BotaoEnviarWhatsapp } from "@/features/mensagens/dialogo-enviar";
 import { Badge } from "@/components/ui/badge";
 import { AbasFicha } from "@/features/ficha/abas-ficha";
 import { AbaAnamnese } from "@/features/ficha/anamnese/aba-anamnese";
@@ -18,6 +19,7 @@ import { formatarCPF } from "@/lib/dominio/cpf";
 import {
   abasDaFicha,
   perfisComAcesso,
+  podeAcessar,
   podeNaFicha,
   type AbaFicha,
 } from "@/lib/dominio/permissoes";
@@ -173,6 +175,9 @@ export default async function ClientePage({
         {!c.ativo ? <Badge variant="destructive">Inativa</Badge> : null}
         {podeEditar || podeNaFicha(colaborador.perfil, "ver_acessos") ? (
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            {podeAcessar(colaborador.perfil, "mensagens") ? (
+              <BotaoEnviarWhatsapp clienteId={c.id} clienteNome={c.nome} />
+            ) : null}
             {podeNaFicha(colaborador.perfil, "ver_acessos") ? (
               <Link
                 href={`/configuracoes/acessos?cliente=${c.id}`}

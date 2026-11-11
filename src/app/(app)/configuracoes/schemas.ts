@@ -5,6 +5,7 @@ import {
   NOME_DIA,
 } from "@/lib/dominio/intervalos";
 import { telefoneOpcional, textoOpcional } from "@/lib/validacao";
+import { ROTULO_TIPO_MENSAGEM, type TipoMensagem } from "@/lib/dominio/whatsapp";
 
 const hora = z.string().regex(HORA_REGEX, "Use horas no formato HH:mm.");
 const intervalo = z.object({ inicio: hora, fim: hora });
@@ -61,3 +62,45 @@ export const configuracoesSchema = z.object({
 });
 
 export type ConfiguracoesInput = z.input<typeof configuracoesSchema>;
+
+export const whatsappConfigSchema = z
+  .object({
+    ativo: z.boolean(),
+    janelaInicio: z.string().regex(HORA_REGEX, "Use horas no formato HH:mm."),
+    janelaFim: z.string().regex(HORA_REGEX, "Use horas no formato HH:mm."),
+    limitePorHora: z
+      .number("Informe o limite por hora.")
+      .int("O limite por hora deve ser um número inteiro.")
+      .min(1, "O limite por hora deve ser de pelo menos 1.")
+      .max(200, "O limite por hora pode ser de no máximo 200."),
+  })
+  .refine((v) => v.janelaFim > v.janelaInicio, {
+    path: ["janelaFim"],
+    message: "O fim da janela deve ser depois do início.",
+  });
+
+export type WhatsappConfigInput = z.input<typeof whatsappConfigSchema>;
+
+export type TipoModelo = Exclude<TipoMensagem, "avulsa">;
+
+/** Tipos com modelo editável: todos menos avulsa (o texto já vem pronto). */
+export const TIPOS_MODELO = Object.keys(ROTULO_TIPO_MENSAGEM).filter(
+  (t): t is TipoModelo => t !== "avulsa",
+) as [TipoModelo, ...TipoModelo[]];
+
+export const modeloSchema = z.object({
+  tipo: z.enum(TIPOS_MODELO),
+  variacoes: z
+    .array(
+      z
+        .string()
+        .trim()
+        .min(1, "Nenhuma variação pode ficar vazia.")
+        .max(1000, "Cada variação pode ter no máximo 1000 caracteres."),
+    )
+    .min(1, "Mantenha pelo menos 1 variação.")
+    .max(5, "Use no máximo 5 variações."),
+  ativo: z.boolean(),
+});
+
+export type ModeloInput = z.input<typeof modeloSchema>;

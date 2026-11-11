@@ -112,7 +112,11 @@ export function ListaPedidos({ status, pedidos, profissionais, agora, pedidoAber
         </ul>
       )}
 
-      <DialogoAprovar pedido={aprovando} profissionais={profissionais} onFechar={() => setAprovando(null)} />
+      <DialogoAprovar
+        pedido={aprovando}
+        profissionais={profissionais}
+        onFechar={() => setAprovando(null)}
+      />
       <DialogoRecusar pedido={recusando} onFechar={() => setRecusando(null)} />
     </div>
   );

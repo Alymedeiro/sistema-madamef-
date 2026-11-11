@@ -18,7 +18,7 @@ import { aprovarPedido, sugerirClientes } from "@/app/(app)/agenda/pedidos/actio
 import { DialogoEncaixe } from "@/features/agenda/dialogo-agendamento";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { dataNoFuso, formatarNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
-import { BotaoWhatsApp } from "./botao-whatsapp";
+import { BotaoWhatsApp, descricaoAviso } from "./botao-whatsapp";
 import type { PedidoLista, ProfissionalPedido } from "./dados";
 
 type Props = {
@@ -68,7 +68,7 @@ function FormularioAprovar({
   const [hora, setHora] = useState(horaNoFuso(pedido.inicio));
   const [erro, setErro] = useState<string | null>(null);
   const [encaixe, setEncaixe] = useState(false);
-  const [resultado, setResultado] = useState<{ mensagem: string; link: string } | null>(null);
+  const [resultado, setResultado] = useState<{ mensagem: string; link: string; naFila: boolean } | null>(null);
   const [pendente, iniciar] = useTransition();
 
   // Sugestão pelo WhatsApp normalizado: a primeira cadastrada já vem escolhida.
@@ -105,7 +105,7 @@ function FormularioAprovar({
       if (r.ok) {
         setEncaixe(false);
         toast.success("Pedido aprovado. O horário está na agenda.");
-        setResultado({ mensagem: r.mensagem, link: r.link });
+        setResultado({ mensagem: r.mensagem, link: r.link, naFila: r.naFila });
       } else if ("aviso" in r) {
         setEncaixe(true);
       } else {
@@ -128,9 +128,9 @@ function FormularioAprovar({
       <>
         <DialogHeader>
           <DialogTitle>Pedido aprovado</DialogTitle>
-          <DialogDescription>Avise a cliente pelo WhatsApp.</DialogDescription>
+          <DialogDescription>{descricaoAviso(resultado.naFila)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} naFila={resultado.naFila} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar

@@ -33,6 +33,18 @@ describe("podeAcessar", () => {
     for (const p of perfis) expect(podeAcessar(p, "inicio")).toBe(true);
   });
 
+  it("mensagens (WhatsApp): dona e recepção; profissional não vê o menu", () => {
+    expect(perfisComAcesso("mensagens")).toEqual(["dona", "recepcao"]);
+    expect(podeAcessar("profissional", "mensagens")).toBe(false);
+    const item = ITENS_MENU.find((i) => i.recurso === "mensagens");
+    expect(item).toEqual({
+      recurso: "mensagens",
+      rotulo: "Mensagens",
+      href: "/mensagens",
+      icone: "MessageCircle",
+    });
+  });
+
   it("profissional não acessa equipe nem configurações", () => {
     expect(podeAcessar("profissional", "equipe")).toBe(false);
     expect(podeAcessar("profissional", "configuracoes")).toBe(false);
@@ -45,6 +57,7 @@ describe("ITENS_MENU", () => {
       "inicio",
       "agenda",
       "clientes",
+      "mensagens",
       "servicos",
       "produtos",
       "financeiro",
@@ -56,6 +69,7 @@ describe("ITENS_MENU", () => {
       "Início",
       "Agenda",
       "Clientes",
+      "Mensagens",
       "Serviços",
       "Produtos",
       "Financeiro",
@@ -102,13 +116,13 @@ describe("dividirMenuInferior (barra do celular)", () => {
   it("dona (8 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
     const r = dividirMenuInferior(menuDe("dona"));
     expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
-    expect(recursos(r.mais)).toEqual(["servicos", "produtos", "equipe", "configuracoes"]);
+    expect(recursos(r.mais)).toEqual(["mensagens", "servicos", "produtos", "equipe", "configuracoes"]);
   });
 
   it("recepção (6 itens): mesmos 4 + Mais com Serviços e Produtos", () => {
     const r = dividirMenuInferior(menuDe("recepcao"));
     expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
-    expect(recursos(r.mais)).toEqual(["servicos", "produtos"]);
+    expect(recursos(r.mais)).toEqual(["mensagens", "servicos", "produtos"]);
   });
 
   it("profissional (5 itens): cabe tudo, sem Mais", () => {

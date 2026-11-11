@@ -17,8 +17,9 @@ import {
 } from "@/components/ui/dialog";
 import { alterarStatus } from "@/app/(app)/agenda/actions";
 import { SecaoEvolucaoAtendimento } from "@/features/ficha/evolucoes/secao-evolucao-atendimento";
+import { BotaoEnviarWhatsapp } from "@/features/mensagens/dialogo-enviar";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import type { Perfil } from "@/lib/dominio/permissoes";
+import { podeAcessar, type Perfil } from "@/lib/dominio/permissoes";
 import { COR_STATUS, transicaoPermitida, type StatusAgendamento } from "@/lib/dominio/status";
 import { formatarNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import { cn } from "@/lib/utils";
@@ -305,6 +306,13 @@ export function DetalhesAgendamento({
                   <CalendarClock aria-hidden />
                   Remarcar
                 </Button>
+              )}
+              {podeAcessar(perfil, "mensagens") && (
+                <BotaoEnviarWhatsapp
+                  clienteId={a.clienteId}
+                  clienteNome={a.clienteNome}
+                  agendamentoId={a.id}
+                />
               )}
               <Button asChild variant="link">
                 <Link href={`/clientes/${a.clienteId}`}>

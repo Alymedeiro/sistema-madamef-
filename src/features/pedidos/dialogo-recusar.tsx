@@ -14,11 +14,17 @@ import {
 import { Label } from "@/components/ui/label";
 import { recusarPedido } from "@/app/(app)/agenda/pedidos/actions";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
-import { BotaoWhatsApp } from "./botao-whatsapp";
+import { BotaoWhatsApp, descricaoAviso } from "./botao-whatsapp";
 import type { PedidoLista } from "./dados";
 
 /** Recusa com motivo opcional (até 200 caracteres), depois o aviso no WhatsApp. */
-export function DialogoRecusar({ pedido, onFechar }: { pedido: PedidoLista | null; onFechar: () => void }) {
+export function DialogoRecusar({
+  pedido,
+  onFechar,
+}: {
+  pedido: PedidoLista | null;
+  onFechar: () => void;
+}) {
   return (
     <Dialog open={!!pedido} onOpenChange={(v) => !v && onFechar()}>
       <DialogContent>
@@ -28,11 +34,17 @@ export function DialogoRecusar({ pedido, onFechar }: { pedido: PedidoLista | nul
   );
 }
 
-function FormularioRecusar({ pedido, onFechar }: { pedido: PedidoLista; onFechar: () => void }) {
+function FormularioRecusar({
+  pedido,
+  onFechar,
+}: {
+  pedido: PedidoLista;
+  onFechar: () => void;
+}) {
   const id = useId();
   const [motivo, setMotivo] = useState("");
   const [erro, setErro] = useState<string | null>(null);
-  const [resultado, setResultado] = useState<{ mensagem: string; link: string } | null>(null);
+  const [resultado, setResultado] = useState<{ mensagem: string; link: string; naFila: boolean } | null>(null);
   const [pendente, iniciar] = useTransition();
 
   function enviar() {
@@ -41,7 +53,7 @@ function FormularioRecusar({ pedido, onFechar }: { pedido: PedidoLista; onFechar
       const r = await recusarPedido({ pedidoId: pedido.id, motivo });
       if (r.ok) {
         toast.success("Pedido recusado. O horário foi liberado.");
-        setResultado({ mensagem: r.mensagem, link: r.link });
+        setResultado({ mensagem: r.mensagem, link: r.link, naFila: r.naFila });
       } else {
         setErro(r.erro);
       }
@@ -53,9 +65,9 @@ function FormularioRecusar({ pedido, onFechar }: { pedido: PedidoLista; onFechar
       <>
         <DialogHeader>
           <DialogTitle>Pedido recusado</DialogTitle>
-          <DialogDescription>Avise a cliente pelo WhatsApp.</DialogDescription>
+          <DialogDescription>{descricaoAviso(resultado.naFila)}</DialogDescription>
         </DialogHeader>
-        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} />
+        <BotaoWhatsApp link={resultado.link} mensagem={resultado.mensagem} naFila={resultado.naFila} />
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onFechar}>
             Fechar

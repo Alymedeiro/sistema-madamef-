@@ -4,9 +4,17 @@
 // ATENÇÃO: a preparação liga/desliga configuracoes_clinica.online_ativo (que fica desligado no
 // fim), cria/atualiza o serviço "E2E Agendamento Online" (60 min, só da profissional de teste),
 // refaz a jornada da profissional de teste num dia da semana próprio de cada viewport (quinta,
-// sexta, sábado; 14 a 20 dias à frente), apaga seus agendamentos nesse dia e os pedidos, clientes
-// e agendamentos do telefone/nome de teste. Como a configuração é global, os 3 viewports se
-// revezam por um lock em arquivo (nunca rodam este spec ao mesmo tempo).
+// sexta, sábado; 14 a 20 dias à frente) e libera o dia dela. Desde a 0012 as mensagens de
+// WhatsApp (fila_mensagens) têm FK para agendamentos, pedidos e clientes e ninguém as apaga
+// (nem o service_role): nada daqui é apagado. A limpeza cancela os agendamentos do dia (via
+// liberarHorario), expira os pedidos aguardando da profissional nesse dia e deixa as clientes;
+// telefone e nome são únicos por execução, e as verificações se limitam ao que esta execução
+// criou. Como a configuração é global, os 3 viewports se revezam por um lock em arquivo
+// (nunca rodam este spec ao mesmo tempo).
+// Os diálogos "Pedido aprovado/recusado" só mostram "Avisar no WhatsApp" com o envio
+// automático DESLIGADO, e whatsapp.spec liga e desliga configuracoes_clinica.whatsapp_ativo:
+// por isso este spec também pega a trava compartilhada de e2e/trava-caixa.ts (a mesma do
+// whatsapp.spec; sempre ANTES do lock próprio) e grava whatsapp_ativo = false enquanto a tem.
 import { mkdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -14,6 +22,8 @@ import { expect, test, type Page } from "@playwright/test";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { USUARIOS, pularSemBackend } from "./suporte";
 import { clienteAdmin, dataEm, entrar, profissionalDeTeste } from "./ficha-suporte";
+import { liberarHorario } from "./horario-livre";
+import { TIMEOUT_PREPARACAO_MS, adquirirTravaCaixa } from "./trava-caixa";
 
 test.describe.configure({ mode: "serial" });
 
@@ -23,6 +33,7 @@ const VIEWPORTS = ["computador", "tablet", "celular"];
 
 let admin: SupabaseClient;
 let lockAdquirido = false;
+let liberarTrava: (() => Promise<void>) | null = null;
 let indice = 0;
 let dia = "";
 let profissional: { id: string; nome: string };
@@ -64,42 +75,45 @@ function diaComSemana(diaSemana: number): string {
   throw new Error("dia da semana não encontrado");
 }
 
+/** Libera o dia da profissional sem apagar nada (a fila de WhatsApp referencia essas linhas). */
 async function limparTeste() {
-  const { data: clientes } = await admin.from("clientes").select("id").eq("nome", nomeCliente);
-  const ids = (clientes ?? []).map((c) => c.id as string);
-  await falhar(admin.from("pedidos_online").delete().eq("profissional_id", profissional.id).eq("whatsapp", whatsappBanco));
   await falhar(
     admin
-      .from("agendamentos")
-      .delete()
+      .from("pedidos_online")
+      .update({ status: "expirado" })
       .eq("profissional_id", profissional.id)
+      .eq("status", "aguardando")
       .gte("inicio", `${dia}T00:00:00-03:00`)
       .lt("inicio", `${dia}T23:59:59-03:00`),
   );
-  if (ids.length) await falhar(admin.from("clientes").delete().in("id", ids));
+  await liberarHorario(admin, profissional.id, `${dia}T00:00:00-03:00`, `${dia}T23:59:59-03:00`);
 }
 
 test.beforeAll(async ({}, testInfo) => {
-  test.setTimeout(10 * 60_000);
+  test.setTimeout(TIMEOUT_PREPARACAO_MS);
   await pularSemBackend("E2E do agendamento online");
   admin = clienteAdmin();
   indice = Math.max(0, VIEWPORTS.indexOf(testInfo.project.name));
+  liberarTrava = await adquirirTravaCaixa();
   await adquirirLock();
 
   dia = diaComSemana(4 + indice);
-  nomeCliente = `Cliente Online E2E ${VIEWPORTS[indice]}`;
-  whatsappDigitado = `(11) 98000-000${indice}`;
-  whatsappBanco = `5511980000${String(indice).padStart(3, "0")}`;
+  // Únicos por execução: pedidos e clientes de execuções anteriores continuam no banco.
+  const unico = String(Date.now() % 10_000_000).padStart(7, "0");
+  nomeCliente = `Cliente Online E2E ${VIEWPORTS[indice]} ${unico}`;
+  whatsappDigitado = `(11) 98${indice}${unico.slice(0, 2)}-${unico.slice(2, 6)}`;
+  whatsappBanco = `55119 8${indice}${unico.slice(0, 2)}${unico.slice(2, 6)}`.replace(/\s/g, "");
   profissional = await profissionalDeTeste(admin);
 
   const { data: cfg, error: ec } = await admin.from("configuracoes_clinica").select("id, telefone").limit(1).single();
   if (ec) throw ec;
   configId = cfg.id;
   telefoneOriginal = cfg.telefone;
+  // Envio automático desligado: os diálogos mostram "Avisar no WhatsApp" (o caminho manual).
   await falhar(
     admin
       .from("configuracoes_clinica")
-      .update({ online_ativo: true, telefone: cfg.telefone ?? "(11) 3333-0000" })
+      .update({ online_ativo: true, whatsapp_ativo: false, telefone: cfg.telefone ?? "(11) 3333-0000" })
       .eq("id", configId),
   );
 
@@ -146,7 +160,12 @@ test.afterAll(async () => {
         .eq("id", configId);
     }
   } finally {
-    if (lockAdquirido) await rm(LOCK, { recursive: true, force: true });
+    try {
+      if (lockAdquirido) await rm(LOCK, { recursive: true, force: true });
+    } finally {
+      await liberarTrava?.();
+      liberarTrava = null;
+    }
   }
 });
 
@@ -217,6 +236,7 @@ test("recepção vê o card no Início, aprova com cliente nova e o agendamento 
     .select("status")
     .eq("profissional_id", profissional.id)
     .eq("inicio", `${dia}T10:00:00-03:00`)
+    .neq("status", "cancelado")
     .single();
   expect(ag?.status).toBe("confirmado");
 
