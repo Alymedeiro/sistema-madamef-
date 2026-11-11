@@ -21,7 +21,7 @@ A `service_role key` é secreta: dá acesso total ao banco. Nunca a envie por e-
 
 ## 2. Criar as tabelas (migrations)
 
-As tabelas e as regras de segurança estão em `supabase/migrations/`, em onze arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`, `0010_financeiro.sql`, `0011_comissoes_estoque.sql`. (Se o projeto já está em uso, veja as seções "Fase 2", "Fase 3A", "Fase 4" e "Fase 4B" abaixo antes de aplicar 0006 a 0011.)
+As tabelas e as regras de segurança estão em `supabase/migrations/`, em doze arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`, `0010_financeiro.sql`, `0011_comissoes_estoque.sql`, `0012_whatsapp.sql`. (Se o projeto já está em uso, veja as seções "Fase 2", "Fase 3A", "Fase 4", "Fase 4B" e "Fase 3B" abaixo antes de aplicar 0006 a 0012.)
 
 Escolha uma das formas, para cada projeto:
 
@@ -161,6 +161,31 @@ A Fase 4B gera a comissão da profissional e dá baixa nos produtos do serviço 
 
 **Rodar de novo no mesmo dia:** desde a 0011, um atendimento marcado como atendido tem comissão (e talvez movimentos de estoque) ligada a ele e **não pode mais ser apagado** (nem pela chave de serviço). Por isso os specs que reutilizam um horário fixo (`caixa`, `cobranca`, os que usam `prepararFicha` e a preparação `auth.setup.ts`) liberam o horário com `e2e/horario-livre.ts`: cancelam o agendamento que sobrou da execução anterior (a comissão em aberto é cancelada e o estoque estornado) ou, se a comissão dele já foi paga, movem o agendamento para um minuto "arquivado" entre 2000 e 2009. Esses agendamentos antigos ficam no projeto de testes.
 
+## Fase 3B — WhatsApp (Z-API)
+
+A Fase 3B manda WhatsApp automático pela Z-API: confirmação, lembrete, pós-atendimento, aniversário e resposta de pedido online, além do envio avulso e da leitura das respostas. Traz a tela **Mensagens** (`/mensagens`, abas Fila e Respostas), a seção **WhatsApp** em Configurações, os cartões **Respostas do WhatsApp** e **Mensagens com falha** no Início e a migration `0012_whatsapp.sql` (tabelas `modelos_mensagem`, `fila_mensagens`, `mensagens_recebidas`, `whatsapp_status` e `whatsapp_relogio`, gatilhos de agenda, funções da fila e os jobs `whatsapp_relogio` e `whatsapp_aniversarios`, que usam `pg_cron` e `pg_net`). O envio **nasce desligado**.
+
+**Estado atual:** 0012 ainda não aplicada (nem em testes nem na produção).
+
+0. **No projeto de testes, antes de tudo:** aplique a 0012 lá, faça as conferências do passo 3 e rode o E2E da Fase 3B (abaixo).
+1. **Aplique `0012_whatsapp.sql` em testes e na produção ANTES do merge em main** (o merge publica na Vercel; o código depende das tabelas). SQL Editor, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`. Nunca aplique `shim.sql`. Com o envio desligado, nada sai.
+2. **Grave a URL do relógio** (o job chama `/api/whatsapp/processar` nessa URL, a cada minuto, com um token que só existe no banco). Na **produção**:
+   ```sql
+   update public.whatsapp_relogio set url = 'https://sistema-madamef.vercel.app';
+   ```
+   No projeto de **testes** deixe `url` nula (o relógio não chama ninguém), a menos que você use uma URL de preview.
+3. Conferências (rode nos dois projetos, logo depois de aplicar):
+   - Políticas: `select tablename, count(*) from pg_policies where tablename in ('modelos_mensagem','fila_mensagens','mensagens_recebidas','whatsapp_status') group by tablename;` deve listar as **4** tabelas; RLS ligado nelas e em `whatsapp_relogio` (esta sem nenhuma política: `authenticated` não lê).
+   - Jobs: `select jobname from cron.job;` deve mostrar `whatsapp_relogio` e `whatsapp_aniversarios`.
+   - Extensão: `select extname from pg_extension where extname = 'pg_net';` deve voltar uma linha.
+4. **Passos de quem usa (nunca cole as chaves no chat):**
+   - Crie a conta na Z-API, crie a instância e conecte o número do WhatsApp da clínica (QR code).
+   - Na Vercel (Settings > Environment Variables), cadastre as 4 variáveis do servidor: `ZAPI_INSTANCE_ID`, `ZAPI_TOKEN`, `ZAPI_CLIENT_TOKEN` e `ZAPI_WEBHOOK_TOKEN` (este último é um texto aleatório criado por você). Nenhuma é `NEXT_PUBLIC_`. Sem elas o estado é "Chaves da Z-API não configuradas" e nada é enviado, sem erro na tela. Faça um novo deploy depois de cadastrar.
+   - No painel da Z-API, configure o webhook **"Ao receber"** para `https://sistema-madamef.vercel.app/api/webhooks/zapi?token=<ZAPI_WEBHOOK_TOKEN>`.
+   - A dona revisa os modelos em *Configurações > WhatsApp* e só então marca **Envio automático ativo**. Ao ligar, confirmações de horários que já passaram são descartadas, não enviadas.
+
+**Teste de tela da Fase 3B:** `e2e/whatsapp.spec.ts` (dona edita um modelo e vê a prévia, liga e desliga o envio, recepção envia avulsa e vê `Pendente` na Fila, cancela e tenta de novo, resposta inserida por `registrar_recebida` aparece em `Respostas do WhatsApp` no Início e some ao marcar como lida, profissional não vê `Mensagens`, nos 3 tamanhos) exige o projeto de testes **com a 0012 aplicada** e `E2E_PERMITIR_PROJETO`. O spec **termina sempre com o envio desligado** e devolve o texto original do modelo de aniversário. Mensagens e respostas não podem ser apagadas: a avulsa fica como Cancelada e a resposta como lida no projeto de testes. Desde a 0012 a fila tem FK para agendamentos, pedidos e clientes, então os specs `agendar` e `agenda` **não apagam mais** agendamentos, pedidos nem clientes: cancelam o dia (`liberarHorario`), expiram os pedidos aguardando e usam nome e telefone únicos por execução.
+
 ## 3. Configurar o login (Authentication)
 
 Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no painel.
@@ -253,7 +278,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar`, `financeiro` e `comissoes-estoque` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` apaga os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar`, `financeiro`, `comissoes-estoque` e `whatsapp` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` cancela os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -269,12 +294,13 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0011 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0012 aplicadas, na ordem, e `shim.sql` **não** aplicado.
 - [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
 - [ ] 0009 aplicada na produção ANTES do merge; job `pedidos_online_limpeza` presente em `cron.job`.
 - [ ] `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` definidas juntas na Vercel; `/agendar` abre e um pedido de teste chega ao Início.
 - [ ] 0010 aplicada na produção ANTES do merge; 5 tabelas do Financeiro com política (`pg_policies`) e bucket `financeiro` privado de 5 MB.
 - [ ] 0011 aplicada na produção ANTES do merge (imediatamente antes); 4 tabelas com política (`comissoes`, `movimentos_estoque`, `colaboradores_comissao`, `servicos_comissao`); soma dos movimentos = `estoque_atual` em todos os produtos; percentuais de comissão preenchidos pela dona antes de a equipe marcar atendimentos.
+- [ ] 0012 aplicada na produção ANTES do merge; 4 tabelas com política (`modelos_mensagem`, `fila_mensagens`, `mensagens_recebidas`, `whatsapp_status`); `cron.job` com `whatsapp_relogio` e `whatsapp_aniversarios`; `pg_net` instalada; `whatsapp_relogio.url` gravada; 4 variáveis `ZAPI_*` na Vercel; webhook "Ao receber" configurado na Z-API; dona revisou os modelos antes de ligar `Envio automático ativo`.
 - [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).
