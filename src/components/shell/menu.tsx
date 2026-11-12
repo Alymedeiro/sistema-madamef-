@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Ellipsis,
+  HeartHandshake,
   House,
   MessageCircle,
   Package,
@@ -25,6 +26,7 @@ const ICONES: Record<string, LucideIcon> = {
   CalendarDays,
   Users,
   MessageCircle,
+  HeartHandshake,
   Sparkles,
   Package,
   Wallet,

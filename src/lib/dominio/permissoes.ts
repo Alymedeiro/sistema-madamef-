@@ -8,6 +8,7 @@ export type Recurso =
   | "agenda"
   | "clientes"
   | "mensagens"
+  | "crm"
   | "servicos"
   | "produtos"
   | "financeiro"
@@ -27,6 +28,8 @@ const ACESSO: Record<Recurso, readonly Perfil[]> = {
   clientes: ["dona", "recepcao", "profissional"],
   // WhatsApp (Fase 3B): fila e respostas só para quem atende a cliente.
   mensagens: ["dona", "recepcao"],
+  // CRM (Fase 5): retorno, clientes sumidas, leads e aniversariantes.
+  crm: ["dona", "recepcao"],
   // Serviços e produtos: dona edita; recepção e profissional consultam.
   servicos: ["dona", "recepcao", "profissional"],
   produtos: ["dona", "recepcao", "profissional"],
@@ -58,6 +61,7 @@ export const ITENS_MENU: ItemMenu[] = [
   { recurso: "agenda", rotulo: "Agenda", href: "/agenda", icone: "CalendarDays" },
   { recurso: "clientes", rotulo: "Clientes", href: "/clientes", icone: "Users" },
   { recurso: "mensagens", rotulo: "Mensagens", href: "/mensagens", icone: "MessageCircle" },
+  { recurso: "crm", rotulo: "CRM", href: "/crm", icone: "HeartHandshake" },
   { recurso: "servicos", rotulo: "Serviços", href: "/servicos", icone: "Sparkles" },
   { recurso: "produtos", rotulo: "Produtos", href: "/produtos", icone: "Package" },
   { recurso: "financeiro", rotulo: "Financeiro", href: "/financeiro", icone: "Wallet" },
