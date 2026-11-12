@@ -20,13 +20,27 @@ export default async function MensagensPage({ searchParams }: Props) {
   ]);
   // Links antigos (?aba=fila / ?aba=respostas) abrem a mesma tela: `aba` é ignorada.
   const filtro = lerFiltro(busca);
-  const conversa = Array.isArray(busca.conversa) ? busca.conversa[0] : busca.conversa;
+  const conversa = Array.isArray(busca.conversa)
+    ? busca.conversa[0]
+    : busca.conversa;
 
   // Falha ao ler a configuração não derruba a tela: só esconde o aviso.
-  const [ativo, conversas] = await Promise.all([
+  const [ativo, primeira] = await Promise.all([
     envioWhatsappAtivo(supabase).catch(() => true),
     carregarConversas(supabase, filtro),
   ]);
+  let filtroTela = filtro;
+  let conversas = primeira;
+  // ?conversa= de uma conversa arquivada: abre no filtro "Arquivadas".
+  if (conversa && !conversas.some((c) => c.chave === conversa)) {
+    const arquivadas = await carregarConversas(supabase, {
+      leitura: "arquivadas",
+    }).catch(() => []);
+    if (arquivadas.some((c) => c.chave === conversa)) {
+      filtroTela = { leitura: "arquivadas" };
+      conversas = arquivadas;
+    }
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -36,17 +50,17 @@ export default async function MensagensPage({ searchParams }: Props) {
 
       {!ativo && (
         <p className="rounded-md border bg-blush p-3 text-sm">
-          O envio automático está desligado: as mensagens ficam na fila até ele ser ligado em
-          Configurações.
+          O envio automático está desligado: as mensagens ficam na fila até ele
+          ser ligado em Configurações.
         </p>
       )}
 
       <div className="flex flex-col gap-4">
-        <FiltrosConversas filtro={filtro} />
+        <FiltrosConversas filtro={filtroTela} />
         <TelaConversas
-          key={JSON.stringify(filtro)}
+          key={JSON.stringify(filtroTela)}
           iniciais={conversas}
-          filtro={filtro}
+          filtro={filtroTela}
           envioAtivo={ativo}
           chaveInicial={conversa ?? null}
         />

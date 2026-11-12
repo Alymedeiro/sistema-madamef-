@@ -2,7 +2,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
-import { ROTULO_STATUS_MENSAGEM, ROTULO_TIPO_MENSAGEM } from "@/lib/dominio/whatsapp";
+import {
+  ROTULO_STATUS_MENSAGEM,
+  ROTULO_TIPO_MENSAGEM,
+} from "@/lib/dominio/whatsapp";
 import { ROTULO_LEITURA, type FiltroConversas } from "./filtro-conversas";
 
 /** Filtros da tela: formulário GET (funciona sem JavaScript e fica no link). */
@@ -15,7 +18,11 @@ export function FiltrosConversas({ filtro }: { filtro: FiltroConversas }) {
     >
       <div className="flex flex-col gap-2">
         <Label htmlFor="msg-status">Status</Label>
-        <Select id="msg-status" name="status" defaultValue={filtro.status ?? ""}>
+        <Select
+          id="msg-status"
+          name="status"
+          defaultValue={filtro.status ?? ""}
+        >
           <option value="">Todos</option>
           {Object.entries(ROTULO_STATUS_MENSAGEM).map(([v, r]) => (
             <option key={v} value={v}>
@@ -37,7 +44,11 @@ export function FiltrosConversas({ filtro }: { filtro: FiltroConversas }) {
       </div>
       <div className="flex flex-col gap-2">
         <Label htmlFor="msg-leitura">Leitura</Label>
-        <Select id="msg-leitura" name="leitura" defaultValue={filtro.leitura ?? ""}>
+        <Select
+          id="msg-leitura"
+          name="leitura"
+          defaultValue={filtro.leitura ?? ""}
+        >
           <option value="">Todas</option>
           {Object.entries(ROTULO_LEITURA).map(([v, r]) => (
             <option key={v} value={v}>
@@ -56,7 +67,11 @@ export function FiltrosConversas({ filtro }: { filtro: FiltroConversas }) {
           placeholder="Nome ou WhatsApp"
         />
       </div>
-      <Button type="submit" variant="secondary" className="sm:col-span-2 lg:col-span-1">
+      <Button
+        type="submit"
+        variant="secondary"
+        className="sm:col-span-2 lg:col-span-1"
+      >
         Filtrar
       </Button>
     </form>

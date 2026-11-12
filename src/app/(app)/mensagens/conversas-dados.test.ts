@@ -8,6 +8,7 @@ import {
   carregarConversas,
   chaveTelefone,
   formasTelefone,
+  marcarArquivadas,
   type LinhaConversaEnviada,
   type LinhaConversaRecebida,
 } from "./dados";
@@ -382,5 +383,82 @@ describe("número com e sem o 9 (sem cadastro)", () => {
       telefone: "552188887777",
       ultima: { texto: "Menu", direcao: "enviada" },
     });
+  });
+});
+
+describe("marcarArquivadas (arquivada até chegar nova recebida)", () => {
+  const base = () =>
+    agruparConversas(
+      [rec({ id: "r1", recebida_em: "2026-11-10T12:00:00Z" })],
+      [env({ id: "e1", enviada_em: "2026-11-10T13:00:00Z" })],
+    );
+  const marca = (arquivada_em: string) => [{ chave: "c1", arquivada_em }];
+
+  it("sem marca: não arquivada", () => {
+    expect(marcarArquivadas(base(), [])[0].arquivada).toBe(false);
+  });
+
+  it("recebida antes de arquivar: oculta", () => {
+    expect(marcarArquivadas(base(), marca("2026-11-10T14:00:00Z"))[0].arquivada).toBe(true);
+  });
+
+  it("recebida depois de arquivar: volta", () => {
+    const conversas = agruparConversas(
+      [
+        rec({ id: "r1", recebida_em: "2026-11-10T12:00:00Z" }),
+        rec({ id: "r2", recebida_em: "2026-11-10T15:00:00Z" }),
+      ],
+      [],
+    );
+    expect(marcarArquivadas(conversas, marca("2026-11-10T14:00:00Z"))[0].arquivada).toBe(false);
+  });
+
+  it("enviada depois de arquivar: continua oculta", () => {
+    const conversas = agruparConversas(
+      [rec({ id: "r1", recebida_em: "2026-11-10T12:00:00Z" })],
+      [env({ id: "e2", enviada_em: "2026-11-10T16:00:00Z" })],
+    );
+    expect(marcarArquivadas(conversas, marca("2026-11-10T14:00:00Z"))[0].arquivada).toBe(true);
+  });
+
+  it("sem recebidas (só enviadas) e com marca: oculta", () => {
+    const conversas = agruparConversas([], [env({ id: "e1" })]);
+    expect(marcarArquivadas(conversas, marca("2026-11-01T00:00:00Z"))[0].arquivada).toBe(true);
+  });
+
+  it("a chave sem cadastro junta com e sem o 9", () => {
+    const conversas = agruparConversas(
+      [rec({ id: "r1", cliente_id: null, clientes: null, telefone: "551187654321" })],
+      [],
+    );
+    expect(conversas[0].chave).toBe("5511987654321");
+    expect(
+      marcarArquivadas(conversas, [
+        { chave: "5511987654321", arquivada_em: "2026-12-01T00:00:00Z" },
+      ])[0].arquivada,
+    ).toBe(true);
+  });
+});
+
+describe("carregarConversas com arquivadas", () => {
+  it("esconde arquivadas e as mostra no filtro Arquivadas", async () => {
+    const montar = () => {
+      const falso = criarSupabaseFalso();
+      falso.definirPadrao({ data: null, error: null });
+      falso.responder("mensagens_recebidas", {
+        data: [rec({ id: "r1" }), rec({ id: "r2", cliente_id: "c2" })],
+        error: null,
+      });
+      falso.responder("fila_mensagens", { data: [], error: null });
+      falso.responder("conversas_arquivadas", {
+        data: [{ chave: "c2", arquivada_em: "2026-11-11T00:00:00Z" }],
+        error: null,
+      });
+      return falso;
+    };
+    const normal = await carregarConversas(montar().cliente as never);
+    expect(normal.map((c) => c.chave)).toEqual(["c1"]);
+    const arq = await carregarConversas(montar().cliente as never, { leitura: "arquivadas" });
+    expect(arq.map((c) => c.chave)).toEqual(["c2"]);
   });
 });

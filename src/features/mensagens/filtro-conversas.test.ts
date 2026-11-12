@@ -10,6 +10,8 @@ const conv = (o: Partial<ResumoConversa> & { chave: string }): ResumoConversa =>
   ultima: { texto: "Oi", quando: "2026-11-10T12:00:00Z", direcao: "recebida" },
   naoLidas: 0,
   idsNaoLidos: [],
+  ultimaRecebidaEm: null,
+  arquivada: false,
   classificacao: null,
   falhou: false,
   enviadas: [],
@@ -81,6 +83,14 @@ describe("filtrarConversas", () => {
 
   it("busca curta demais é ignorada", () => {
     expect(filtrarConversas(todas, { busca: "a" })).toHaveLength(3);
+  });
+
+  it("arquivadas ficam fora da lista e só aparecem no filtro Arquivadas", () => {
+    const arq = conv({ chave: "c7", arquivada: true, naoLidas: 0 });
+    expect(chaves(filtrarConversas([ana, arq], {}))).toEqual(["c1"]);
+    expect(chaves(filtrarConversas([ana, arq], { leitura: "nao_lidas" }))).toEqual(["c1"]);
+    expect(chaves(filtrarConversas([ana, arq], { leitura: "arquivadas" }))).toEqual(["c7"]);
+    expect(lerFiltro({ leitura: "arquivadas" }).leitura).toBe("arquivadas");
   });
 
   it("leitura: não lidas, quer remarcar e confirmou", () => {

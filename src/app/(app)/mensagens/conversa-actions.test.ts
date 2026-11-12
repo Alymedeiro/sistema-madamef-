@@ -17,6 +17,8 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.client
 import {
   buscarConversa,
   buscarConversaSemCadastro,
+  arquivarConversas,
+  desarquivarConversas,
   listarConversas,
   marcarConversaLida,
 } from "./actions";
@@ -131,5 +133,37 @@ describe("listarConversas", () => {
     });
     const r = await listarConversas({ status: "nao-existe" as never });
     expect(r.ok && r.conversas.map((c) => c.chave)).toEqual(["c1"]);
+  });
+});
+
+describe.each([
+  ["arquivarConversas", arquivarConversas, "arquivar_conversas"],
+  ["desarquivarConversas", desarquivarConversas, "desarquivar_conversas"],
+] as const)("%s", (_nome, acao, rpc) => {
+  it("profissional é negada, sem tocar no banco", async () => {
+    perfilAtual = "profissional";
+    await expect(acao(["c1"])).rejects.toThrow("REDIRECT");
+    expect(falso.chamadas).toHaveLength(0);
+    expect(exigirPerfil).toHaveBeenCalledWith("dona", "recepcao");
+  });
+
+  it("vazio, demais e chave inválida são recusados antes do banco", async () => {
+    expect(await acao([])).toEqual({ ok: false, erro: "Escolha pelo menos uma conversa." });
+    expect((await acao(Array.from({ length: 201 }, (_, i) => `k${i}`))).ok).toBe(false);
+    expect((await acao([""])).ok).toBe(false);
+    expect((await acao(["x".repeat(201)])).ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("chama a função do banco com as chaves", async () => {
+    expect(await acao(["c1", "5511987654321"])).toEqual({ ok: true });
+    expect(falso.chamadasRpc(rpc).map((c) => c.args[0])).toEqual([
+      { p_chaves: ["c1", "5511987654321"] },
+    ]);
+  });
+
+  it("erro do banco vira falha", async () => {
+    falso.definirPadrao({ data: null, error: { code: "P0001", message: "boom" } });
+    expect((await acao(["c1"])).ok).toBe(false);
   });
 });
