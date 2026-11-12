@@ -14,7 +14,7 @@ vi.mock("server-only", () => ({}));
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { buscarConversa } from "./actions";
+import { buscarConversa, buscarConversaSemCadastro, marcarConversaLida } from "./actions";
 
 const CLIENTE = "00000000-0000-4000-8000-0000000000c1";
 
@@ -53,5 +53,48 @@ describe("buscarConversa", () => {
     falso.responder("mensagens_recebidas", { data: null, error: { message: "boom" } });
     falso.responder("fila_mensagens", { data: [], error: null });
     expect((await buscarConversa(CLIENTE)).ok).toBe(false);
+  });
+});
+
+describe("marcarConversaLida", () => {
+  const IDS = ["00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000a2"];
+
+  it("profissional é negada, sem tocar no banco", async () => {
+    perfilAtual = "profissional";
+    await expect(marcarConversaLida(IDS)).rejects.toThrow("REDIRECT");
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("ids inválidos ou demais são recusados antes do banco", async () => {
+    expect((await marcarConversaLida(["x"])).ok).toBe(false);
+    const muitos = Array.from(
+      { length: 201 },
+      (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+    );
+    expect((await marcarConversaLida(muitos)).ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("marca cada id como lido", async () => {
+    expect(await marcarConversaLida(IDS)).toEqual({ ok: true });
+    expect(falso.chamadasRpc("marcar_recebida_lida").map((c) => c.args[0])).toEqual([
+      { p_id: IDS[0] },
+      { p_id: IDS[1] },
+    ]);
+  });
+
+  it("lista vazia não chama o banco", async () => {
+    expect(await marcarConversaLida([])).toEqual({ ok: true });
+    expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("buscarConversaSemCadastro", () => {
+  it("profissional é negada e telefone inválido é recusado", async () => {
+    perfilAtual = "profissional";
+    await expect(buscarConversaSemCadastro("5511987654321")).rejects.toThrow("REDIRECT");
+    perfilAtual = "recepcao";
+    expect((await buscarConversaSemCadastro("abc")).ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
   });
 });

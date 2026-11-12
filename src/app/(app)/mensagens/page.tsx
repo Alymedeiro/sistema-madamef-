@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FiltrosFila, ListaFila } from "@/features/mensagens/lista-fila";
-import { FiltrosRespostas, ListaRespostas } from "@/features/mensagens/lista-respostas";
+import { FiltrosRespostas } from "@/features/mensagens/lista-respostas";
+import { TelaConversas } from "@/features/mensagens/tela-conversas";
 import { perfisComAcesso } from "@/lib/dominio/permissoes";
 import {
   ROTULO_CLASSIFICACAO,
@@ -13,7 +14,7 @@ import {
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
-import { carregarFila, carregarRespostas, envioWhatsappAtivo, type FiltroFila } from "./dados";
+import { carregarConversas, carregarFila, envioWhatsappAtivo, type FiltroFila } from "./dados";
 
 export const metadata = { title: "Mensagens | Madame Fê Clinic" };
 
@@ -23,8 +24,11 @@ type Props = {
 
 const unico = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
-function valorDe<T extends string>(rotulos: Record<T, string>, v: string | undefined): T | undefined {
-  return v && v in rotulos ? (v as T) : undefined;
+function valorDe<T extends string>(
+  rotulos: Record<T, string>,
+  v: string | undefined,
+): T | undefined {
+  return v && Object.hasOwn(rotulos, v) ? (v as T) : undefined;
 }
 
 const ABAS = [
@@ -58,18 +62,26 @@ export default async function MensagensPage({ searchParams }: Props) {
   } else {
     const classificacao =
       valorDe<ClassificacaoResposta>(ROTULO_CLASSIFICACAO, unico(busca.classificacao)) ?? null;
-    const itens = await carregarRespostas(supabase, classificacao ? { classificacao } : {});
+    const conversas = await carregarConversas(supabase, classificacao ? { classificacao } : {});
     conteudo = (
       <>
         <FiltrosRespostas classificacao={classificacao} />
-        <ListaRespostas itens={itens} envioAtivo={ativo} />
+        <TelaConversas
+          key={classificacao ?? "todas"}
+          iniciais={conversas}
+          classificacao={classificacao}
+          envioAtivo={ativo}
+          chaveInicial={unico(busca.conversa) ?? null}
+        />
       </>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">Mensagens</h1>
+      <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">
+        Mensagens
+      </h1>
 
       {!ativo && (
         <p className="rounded-md border bg-blush p-3 text-sm">

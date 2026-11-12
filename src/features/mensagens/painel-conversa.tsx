@@ -1,17 +1,29 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useTransition } from "react";
-import { Ban, Check, Clock, Send, Smile, TriangleAlert, MessageCircle } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
+import Link from "next/link";
+import { ArrowLeft, Ban, Check, Clock, Send, Smile, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { buscarConversa, enviarWhatsApp, marcarRespostaLida } from "@/app/(app)/mensagens/actions";
-import type { ItemConversa, Resposta } from "@/app/(app)/mensagens/dados";
+import {
+  buscarConversa,
+  buscarConversaSemCadastro,
+  enviarWhatsApp,
+} from "@/app/(app)/mensagens/actions";
+import type { ItemConversa, ResumoConversa } from "@/app/(app)/mensagens/dados";
 import { LIMITE_TEXTO_AVULSA } from "@/app/(app)/mensagens/schemas";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
 import type { StatusMensagem } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
-import { enviarResposta, estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
+import { estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
 import { SeletorEmoji } from "./seletor-emoji";
 
 /** Recarrega a conversa enquanto o painel está aberto. */
@@ -26,38 +38,17 @@ const STATUS_ENVIADA: Record<StatusMensagem, { rotulo: string; Icone: typeof Che
   cancelada: { rotulo: "Cancelada", Icone: Ban },
 };
 
-/** Botão "Responder" do cartão + painel lateral com a conversa. */
-export function BotaoResponder({ r, envioAtivo }: { r: Resposta; envioAtivo: boolean }) {
-  const [aberto, setAberto] = useState(false);
-  const semCliente = !r.clienteId;
-  return (
-    <>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        disabled={semCliente}
-        title={semCliente ? "Cliente não cadastrada" : undefined}
-        onClick={() => setAberto(true)}
-      >
-        <MessageCircle aria-hidden />
-        Responder
-      </Button>
-      {semCliente && <span className="sr-only">Cliente não cadastrada</span>}
-      {r.clienteId && (
-        <Dialog open={aberto} onOpenChange={setAberto}>
-          <DialogContent
-            className="inset-y-0 right-0 left-auto h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)_auto] gap-0 overflow-hidden rounded-none p-0 sm:max-w-md sm:rounded-l-xl"
-          >
-            {aberto && <Conversa r={r} clienteId={r.clienteId} envioAtivo={envioAtivo} />}
-          </DialogContent>
-        </Dialog>
-      )}
-    </>
-  );
-}
-
-function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string; envioAtivo: boolean }) {
+/** Conteúdo de uma conversa: cabeçalho, balões, composer e recarga a cada 15 s. */
+export function ConteudoConversa({
+  conversa,
+  envioAtivo,
+  onVoltar,
+}: {
+  conversa: ResumoConversa;
+  envioAtivo: boolean;
+  onVoltar: () => void;
+}) {
+  const { clienteId, telefone } = conversa;
   const id = useId();
   const [itens, setItens] = useState<ItemConversa[] | null>(null);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
@@ -68,20 +59,21 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number | null>(null);
-  const lidaRef = useRef(r.lidaEm !== null);
   // Rola ao abrir e após envio próprio; depois só se já estava a ≤ 80 px do fim.
   const forcarRolagemRef = useRef(true);
   const pertoDoFimRef = useRef(true);
 
   const carregar = useCallback(async () => {
-    const res = await buscarConversa(clienteId);
+    const res = clienteId
+      ? await buscarConversa(clienteId)
+      : await buscarConversaSemCadastro(telefone);
     if (res.ok) {
       setItens(res.itens);
       setErroCarga(null);
     } else {
       setErroCarga(res.erro);
     }
-  }, [clienteId]);
+  }, [clienteId, telefone]);
 
   useEffect(() => {
     void carregar();
@@ -129,18 +121,14 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
   }
 
   function enviar() {
-    if (!textoEnviavel(texto) || enviando) return;
+    if (!clienteId || !textoEnviavel(texto) || enviando) return;
     setErro(null);
     iniciar(async () => {
-      const res = await enviarResposta(
-        { clienteId, texto, respostaId: r.id, jaLida: lidaRef.current },
-        { enviar: enviarWhatsApp, marcarLida: marcarRespostaLida },
-      );
+      const res = await enviarWhatsApp({ clienteId, texto });
       if (!res.ok) {
         setErro(res.erro);
         return;
       }
-      if (res.lida) lidaRef.current = true;
       forcarRolagemRef.current = true;
       setTexto("");
       setEmojis(false);
@@ -152,11 +140,31 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
   let diaAnterior = "";
 
   return (
-    <>
-      <DialogHeader className="border-b p-4 pr-14">
-        <DialogTitle>Conversa com {r.clienteNome ?? "cliente"}</DialogTitle>
-        <DialogDescription className="tabular-nums">{formatarTelefone(r.telefone)}</DialogDescription>
-      </DialogHeader>
+    <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)_auto]">
+      <header className="flex items-center gap-2 border-b p-3">
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          className="size-11 shrink-0 lg:hidden"
+          aria-label="Voltar"
+          onClick={onVoltar}
+        >
+          <ArrowLeft aria-hidden />
+        </Button>
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate font-medium">{conversa.nome ?? "Número sem cadastro"}</h2>
+          <p className="text-sm text-muted-foreground tabular-nums">{formatarTelefone(telefone)}</p>
+        </div>
+        {clienteId ? (
+          <Link
+            href={`/clientes/${clienteId}`}
+            className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
+          >
+            Abrir ficha
+          </Link>
+        ) : null}
+      </header>
 
       <div
         ref={listaRef}
@@ -166,13 +174,17 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
         data-testid="conversa"
         className="flex min-h-0 flex-col gap-1 overflow-y-auto bg-muted/40 p-3"
       >
-        {itens === null && !erroCarga && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {itens === null && !erroCarga && (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        )}
         {erroCarga && (
           <p role="alert" className="text-sm text-destructive">
             {erroCarga}
           </p>
         )}
-        {itens?.length === 0 && <p className="text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>}
+        {itens?.length === 0 && (
+          <p className="text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+        )}
         {itens?.map((m) => {
           const dia = rotuloDia(m.quando, agora);
           const separador = dia !== diaAnterior;
@@ -190,78 +202,87 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
         })}
       </div>
 
-      <form
-        noValidate
-        className="relative flex flex-col gap-2 border-t bg-card p-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          enviar();
-        }}
-      >
-        {erro && (
-          <p
-            role="alert"
-            className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive"
-          >
-            {erro}
-          </p>
-        )}
-        {emojis && <SeletorEmoji onEscolher={inserirEmoji} onFechar={() => setEmojis(false)} />}
-        <div className="flex items-end gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            className="size-11 shrink-0"
-            aria-label="Emojis"
-            aria-expanded={emojis}
-            onClick={() => setEmojis((v) => !v)}
-          >
-            <Smile aria-hidden />
-          </Button>
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <label htmlFor={`${id}-texto`} className="sr-only">
-              Mensagem
-            </label>
-            <textarea
-              id={`${id}-texto`}
-              ref={areaRef}
-              value={texto}
-              rows={1}
-              maxLength={LIMITE_TEXTO_AVULSA}
-              placeholder="Escreva a mensagem"
-              onChange={(e) => setTexto(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-                  e.preventDefault();
-                  enviar();
-                }
-              }}
-              className="max-h-[8.5rem] min-h-11 w-full resize-none overflow-y-auto rounded-md border border-input bg-card px-3 py-2.5 text-base leading-6 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring md:text-sm"
-            />
+      {clienteId ? (
+        <form
+          noValidate
+          className="relative flex flex-col gap-2 border-t bg-card p-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            enviar();
+          }}
+        >
+          {erro && (
+            <p
+              role="alert"
+              className="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-sm text-destructive"
+            >
+              {erro}
+            </p>
+          )}
+          {emojis && <SeletorEmoji onEscolher={inserirEmoji} onFechar={() => setEmojis(false)} />}
+          <div className="flex items-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-11 shrink-0"
+              aria-label="Emojis"
+              aria-expanded={emojis}
+              onClick={() => setEmojis((v) => !v)}
+            >
+              <Smile aria-hidden />
+            </Button>
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <label htmlFor={`${id}-texto`} className="sr-only">
+                Mensagem
+              </label>
+              <textarea
+                id={`${id}-texto`}
+                ref={areaRef}
+                value={texto}
+                rows={1}
+                maxLength={LIMITE_TEXTO_AVULSA}
+                placeholder="Escreva a mensagem"
+                onChange={(e) => setTexto(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                    e.preventDefault();
+                    enviar();
+                  }
+                }}
+                className="max-h-[8.5rem] min-h-11 w-full resize-none overflow-y-auto rounded-md border border-input bg-card px-3 py-2.5 text-base leading-6 shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring md:text-sm"
+              />
+            </div>
+            <Button
+              type="submit"
+              size="icon"
+              className="size-11 shrink-0"
+              aria-label="Enviar"
+              disabled={enviando || !textoEnviavel(texto)}
+            >
+              <Send aria-hidden />
+            </Button>
           </div>
-          <Button
-            type="submit"
-            size="icon"
-            className="size-11 shrink-0"
-            aria-label="Enviar"
-            disabled={enviando || !textoEnviavel(texto)}
-          >
-            <Send aria-hidden />
+          {texto.length > CONTADOR_A_PARTIR_DE && (
+            <p className="text-right text-xs text-muted-foreground tabular-nums">
+              {texto.length}/{LIMITE_TEXTO_AVULSA}
+            </p>
+          )}
+          {!envioAtivo && (
+            <p className="text-xs text-muted-foreground">
+              O envio está desligado em Configurações → WhatsApp; a mensagem fica na fila.
+            </p>
+          )}
+        </form>
+      ) : (
+        <div className="flex flex-col items-start gap-2 border-t bg-card p-3 text-sm">
+          <p>Cadastre a cliente para responder.</p>
+          <Button asChild variant="outline">
+            <Link href="/clientes">Cadastrar cliente</Link>
           </Button>
         </div>
-        {texto.length > CONTADOR_A_PARTIR_DE && (
-          <p className="text-right text-xs text-muted-foreground tabular-nums">
-            {texto.length}/{LIMITE_TEXTO_AVULSA}
-          </p>
-        )}
-        {!envioAtivo && (
-          <p className="text-xs text-muted-foreground">
-            O envio está desligado em Configurações → WhatsApp; a mensagem fica na fila.
-          </p>
-        )}
-      </form>
-    </>
+      )}
+    </div>
   );
 }
 
@@ -273,7 +294,9 @@ function Balao({ m }: { m: ItemConversa }) {
       data-testid={enviada ? "balao-enviada" : "balao-recebida"}
       className={cn(
         "max-w-[85%] rounded-lg px-3 py-2 text-sm shadow-sm",
-        enviada ? "self-end bg-[#dcf8c6] text-neutral-900" : "self-start bg-card text-card-foreground",
+        enviada
+          ? "self-end bg-[#dcf8c6] text-neutral-900"
+          : "self-start bg-card text-card-foreground",
       )}
     >
       <p className="break-words whitespace-pre-line">{m.texto}</p>

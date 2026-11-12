@@ -1,4 +1,4 @@
-import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
+import { dataNoFuso, formatarNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 
 /** Insere o emoji no cursor (ou no lugar da seleção); `cursor` é o novo índice UTF-16. */
 export function inserirNoCursor(
@@ -53,4 +53,12 @@ export function estaPertoDoFim(
   margem = 80,
 ): boolean {
   return e.scrollHeight - e.scrollTop - e.clientHeight <= margem;
+}
+
+/** Horário da lista de conversas: "HH:mm" se hoje, "Ontem", senão "dd/MM" (São Paulo). */
+export function rotuloHorarioConversa(quando: Date | string, agora: Date = new Date()): string {
+  const dia = rotuloDia(quando, agora);
+  if (dia === "Hoje") return horaNoFuso(quando);
+  if (dia === "Ontem") return dia;
+  return formatarNoFuso(quando, "dd/MM");
 }
