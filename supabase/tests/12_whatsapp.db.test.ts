@@ -177,6 +177,8 @@ describe("estrutura", () => {
       // 0014 (Fase 5, CRM).
       "retorno",
       "reativacao",
+      // 0016 (robô de atendimento).
+      "robo",
     ]);
     expect(r.s).toEqual(["pendente", "enviando", "enviada", "falhou", "cancelada"]);
     const priv = (auth: boolean) => ({ auth, anon: false, definer: true });
