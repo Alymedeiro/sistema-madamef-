@@ -124,7 +124,16 @@ describe("configuracoesSchema", () => {
 describe("TIPOS_MODELO e modeloSchema", () => {
   it("são os tipos de mensagem menos avulsa", () => {
     expect([...TIPOS_MODELO].sort()).toEqual(
-      ["aniversario", "confirmacao", "lembrete", "pedido_aprovado", "pedido_recusado", "pos_atendimento"],
+      [
+        "aniversario",
+        "confirmacao",
+        "lembrete",
+        "pedido_aprovado",
+        "pedido_recusado",
+        "pos_atendimento",
+        "reativacao",
+        "retorno",
+      ],
     );
     const ok = { variacoes: ["Oi"], ativo: true };
     expect(modeloSchema.safeParse({ ...ok, tipo: "lembrete" }).success).toBe(true);

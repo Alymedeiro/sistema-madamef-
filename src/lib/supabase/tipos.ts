@@ -1260,6 +1260,78 @@ export type Database = {
           },
         ]
       }
+      // 0015: dona e recepção leem, criam e alteram (só as colunas de Insert/
+      // Update abaixo); profissional e anon nada; ninguém apaga. cliente_id e
+      // convertido_em só por converter_lead. perdido_motivo é limpo quando a
+      // etapa não é 'perdido'.
+      leads: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string | null
+          convertido_em: string | null
+          criado_em: string
+          criado_por: string | null
+          etapa: Database["public"]["Enums"]["etapa_lead"]
+          id: string
+          nome: string
+          observacoes: string | null
+          origem: string | null
+          perdido_motivo: string | null
+          responsavel_id: string | null
+          servico_id: string | null
+          whatsapp: string | null
+        }
+        Insert: {
+          etapa?: Database["public"]["Enums"]["etapa_lead"]
+          nome: string
+          observacoes?: string | null
+          origem?: string | null
+          perdido_motivo?: string | null
+          responsavel_id?: string | null
+          servico_id?: string | null
+          whatsapp?: string | null
+        }
+        Update: {
+          etapa?: Database["public"]["Enums"]["etapa_lead"]
+          nome?: string
+          observacoes?: string | null
+          origem?: string | null
+          perdido_motivo?: string | null
+          responsavel_id?: string | null
+          servico_id?: string | null
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       // 0012: dona e recepção leem; escrita só por registrar_recebida
       // (service_role, idempotente por id_externo) e marcar_recebida_lida.
       mensagens_recebidas: {
@@ -2297,6 +2369,56 @@ export type Database = {
         }
         Returns: undefined
       }
+      // 0015 (CRM): dona/recepção (senão "Apenas a dona ou a recepção podem
+      // usar o CRM."). Origem = atendido mais recente por (cliente ativa,
+      // serviço com dias_retorno); sem clientes com agendamento futuro;
+      // data_retorno ≤ p_ate; ordem data_retorno, nome.
+      crm_retornos: {
+        Args: { p_ate: string }
+        Returns: {
+          cliente_id: string
+          cliente_nome: string
+          whatsapp: string | null
+          aceita_marketing: boolean
+          servico_id: string
+          servico_nome: string
+          agendamento_id: string
+          ultimo_atendimento: string
+          data_retorno: string
+          retorno_enviado_em: string | null
+        }[]
+      }
+      // 0015 (CRM): dona/recepção; ordem dias_sem_vir desc.
+      crm_sumidas: {
+        Args: never
+        Returns: {
+          cliente_id: string
+          nome: string
+          whatsapp: string | null
+          aceita_marketing: boolean
+          ultimo_atendimento: string
+          dias_sem_vir: number
+          reativacao_enviada_em: string | null
+        }[]
+      }
+      // 0015 (CRM): só a dona (senão "Apenas a dona vê os indicadores."); uma linha.
+      crm_indicadores: {
+        Args: never
+        Returns: {
+          retornos: number
+          sumidas: number
+          leads_abertos: number
+          convertidos_mes: number
+        }[]
+      }
+      // 0015 (CRM): dona/recepção. Devolve o id da cliente (a existente com o
+      // mesmo WhatsApp ou uma nova). Já convertido → "Este lead já virou
+      // cliente."; p_aceite_lgpd falso → "Confirme o aceite da LGPD.";
+      // inexistente → "Lead não encontrado.".
+      converter_lead: {
+        Args: { p_lead: string; p_aceite_lgpd: boolean; p_aceita_marketing: boolean }
+        Returns: string
+      }
       // 0012: dona/recepção; avulsa pendente para agora; devolve o id. Texto
       // vazio → "Escreva a mensagem."; sem WhatsApp → "Esta cliente não tem
       // WhatsApp cadastrado.".
@@ -2654,6 +2776,7 @@ export type Database = {
         | "imposto"
         | "vale"
         | "outros"
+      etapa_lead: "novo" | "em_conversa" | "orcamento_enviado" | "agendou" | "perdido"
       forma_pagamento:
         | "pix"
         | "dinheiro"
@@ -2684,6 +2807,8 @@ export type Database = {
         | "pedido_aprovado"
         | "pedido_recusado"
         | "avulsa"
+        | "retorno"
+        | "reativacao"
       tipo_movimento_estoque:
         | "entrada"
         | "ajuste"
@@ -2826,6 +2951,7 @@ export const Constants = {
         "vale",
         "outros",
       ],
+      etapa_lead: ["novo", "em_conversa", "orcamento_enviado", "agendou", "perdido"],
       forma_pagamento: [
         "pix",
         "dinheiro",
@@ -2858,6 +2984,8 @@ export const Constants = {
         "pedido_aprovado",
         "pedido_recusado",
         "avulsa",
+        "retorno",
+        "reativacao",
       ],
       tipo_movimento_estoque: [
         "entrada",

@@ -13,6 +13,8 @@ export const ROTULO_TIPO_MENSAGEM: Record<TipoMensagem, string> = {
   pedido_aprovado: "Pedido aprovado",
   pedido_recusado: "Pedido recusado",
   avulsa: "Avulsa",
+  retorno: "Retorno",
+  reativacao: "Reativação",
 };
 
 export const ROTULO_STATUS_MENSAGEM: Record<StatusMensagem, string> = {
@@ -38,7 +40,7 @@ export const VARIAVEIS_MENSAGEM = [
   "clinica",
 ] as const;
 
-/** Iguais aos inseridos em supabase/migrations/0012_whatsapp.sql. */
+/** Iguais aos inseridos em supabase/migrations/0012_whatsapp.sql e 0015_crm.sql. */
 export const TEXTOS_PADRAO: Record<Exclude<TipoMensagem, "avulsa">, string> = {
   confirmacao:
     "Oi, {nome}! Passando para confirmar seu horário de {servico} com {profissional} em {data} às {hora}. Responda 1 para confirmar ou 2 para remarcar. {clinica}",
@@ -52,6 +54,10 @@ export const TEXTOS_PADRAO: Record<Exclude<TipoMensagem, "avulsa">, string> = {
     "Oi, {nome}! Seu horário de {servico} com {profissional} está confirmado para {data} às {hora}. {clinica}",
   pedido_recusado:
     "Oi, {nome}! Infelizmente o horário pedido para {servico} não está disponível. Você pode escolher outro em nosso site ou responder esta mensagem. {clinica}",
+  retorno:
+    "Oi, {nome}! Já está na hora de renovar seu {servico}. Quer que a gente reserve um horário para você? {clinica}",
+  reativacao:
+    "Oi, {nome}! Sentimos sua falta aqui na {clinica}. Que tal agendar um momento para você? É só responder esta mensagem.",
 };
 
 export type DadosMensagem = {
