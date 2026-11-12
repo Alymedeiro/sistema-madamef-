@@ -43,12 +43,11 @@ export const metadata = { title: "Início | Madame Fê Clinic" };
 const INICIAIS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
 export default async function InicioPage() {
-  const { colaborador } = await exigirPerfil();
+  const [{ colaborador }, supabase] = await Promise.all([exigirPerfil(), createClient()]);
   const agora = new Date();
   const { hoje, amanha, fimSemana, seteDiasAtras } = diasDaSemana(agora);
   const ehDona = colaborador.perfil === "dona";
   const gerencia = ehDona || colaborador.perfil === "recepcao";
-  const supabase = await createClient();
 
   // Cada quadro carrega por conta própria: uma falha não apaga o painel.
   const sem: AlertasWhatsapp = { desconectado: false, semChaves: false, falhas: 0, respostas: [] };

@@ -13,16 +13,20 @@ type Props = {
 };
 
 export default async function MensagensPage({ searchParams }: Props) {
-  await exigirPerfil(...perfisComAcesso("mensagens"));
-  const busca = await searchParams;
+  const [, busca, supabase] = await Promise.all([
+    exigirPerfil(...perfisComAcesso("mensagens")),
+    searchParams,
+    createClient(),
+  ]);
   // Links antigos (?aba=fila / ?aba=respostas) abrem a mesma tela: `aba` é ignorada.
   const filtro = lerFiltro(busca);
   const conversa = Array.isArray(busca.conversa) ? busca.conversa[0] : busca.conversa;
 
-  const supabase = await createClient();
   // Falha ao ler a configuração não derruba a tela: só esconde o aviso.
-  const ativo = await envioWhatsappAtivo(supabase).catch(() => true);
-  const conversas = await carregarConversas(supabase, filtro);
+  const [ativo, conversas] = await Promise.all([
+    envioWhatsappAtivo(supabase).catch(() => true),
+    carregarConversas(supabase, filtro),
+  ]);
 
   return (
     <div className="flex flex-col gap-6">

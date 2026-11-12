@@ -28,8 +28,10 @@ const resolverEstado = cache(async (): Promise<EstadoSessao> => {
 
   let userId: string | null = null;
   try {
-    const { data, error } = await supabase.auth.getUser();
-    userId = error ? null : (data.user?.id ?? null);
+    // Validação local do JWT (sem ida ao servidor de auth); o middleware já
+    // renovou o token desta requisição.
+    const { data, error } = await supabase.auth.getClaims();
+    userId = error ? null : (data?.claims?.sub ?? null);
   } catch {
     userId = null;
   }

@@ -262,6 +262,12 @@ Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no pain
 3. Clique em **Deploy**. Se alterar uma variável depois, faça um novo deploy (**Deployments → Redeploy**).
 4. Para usar um domínio próprio: **Settings → Domains → Add**, siga as instruções de DNS e depois atualize `NEXT_PUBLIC_SITE_URL`, a **Site URL** e a **Redirect URL** do Supabase (passo 3) para o novo endereço.
 
+### Desempenho
+
+O arquivo `vercel.json` fixa as funções da Vercel na região **São Paulo (`gru1`)**. O banco de produção do Supabase fica em `sa-east-1` (São Paulo); com as funções na região padrão (`iad1`, Washington), cada consulta ao banco cruzava o continente e deixava todas as telas lentas.
+
+Se o plano da Vercel não permitir escolher a região pelo arquivo, remova o `vercel.json` e troque em **Vercel → Settings → Functions → Function Region** (escolha **São Paulo, Brasil (gru1)**), depois faça um novo deploy.
+
 ## 5. Criar o primeiro acesso (a dona)
 
 Quem desenvolve roda, no computador, apontando para a **produção**. Crie um arquivo `.env.local` (não vai para o GitHub) com `NEXT_PUBLIC_SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` da produção e execute:
