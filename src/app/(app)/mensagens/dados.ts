@@ -28,6 +28,9 @@ export type ItemFila = {
   clienteId: string | null;
   clienteNome: string | null;
   agendamentoId: string | null;
+  /** Avulsa para lead: sem cliente, com o nome do lead. */
+  leadId: string | null;
+  leadNome: string | null;
 };
 
 export type Resposta = {
@@ -60,7 +63,7 @@ function falhou(onde: string, error: { message: string } | null) {
 }
 
 const SELECT_FILA =
-  "id, tipo, status, telefone, texto, agendado_para, enviada_em, criado_em, tentativas, erro, cancelada_motivo, cliente_id, agendamento_id, clientes(nome)";
+  "id, tipo, status, telefone, texto, agendado_para, enviada_em, criado_em, tentativas, erro, cancelada_motivo, cliente_id, agendamento_id, lead_id, clientes(nome), leads(nome)";
 
 type LinhaFila = {
   id: string;
@@ -76,7 +79,9 @@ type LinhaFila = {
   cancelada_motivo: string | null;
   cliente_id: string | null;
   agendamento_id: string | null;
+  lead_id: string | null;
   clientes: { nome: string } | null;
+  leads: { nome: string } | null;
 };
 
 /**
@@ -123,6 +128,8 @@ export async function carregarFila(supabase: Supabase, filtro: FiltroFila = {}):
     clienteId: l.cliente_id,
     clienteNome: l.clientes?.nome ?? null,
     agendamentoId: l.agendamento_id,
+    leadId: l.lead_id,
+    leadNome: l.leads?.nome ?? null,
   }));
 }
 

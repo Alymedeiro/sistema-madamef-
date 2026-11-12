@@ -3,7 +3,7 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 
 vi.mock("server-only", () => ({}));
 
-import { carregarAniversariantes, carregarModeloReativacao, carregarRetornos, carregarSumidas } from "./dados";
+import { carregarAniversariantes, carregarLeads, carregarOpcoesLead, carregarModeloReativacao, carregarRetornos, carregarSumidas } from "./dados";
 
 let falso = criarSupabaseFalso();
 beforeEach(() => {
@@ -161,5 +161,46 @@ describe("carregarModeloReativacao", () => {
     falso.responder("configuracoes_clinica", { data: null, error: { message: "x" } });
     const m = await carregarModeloReativacao(falso.cliente as never);
     expect(m.clinica).toBe("Madame Fê Clinic");
+  });
+});
+
+describe("carregarLeads", () => {
+  it("aplica o corte de 60 dias aos encerrados e mantém os abertos", async () => {
+    falso.responder("leads", {
+      data: [
+        {
+          id: "l1",
+          nome: "Ana",
+          whatsapp: null,
+          etapa: "novo",
+          origem: "Instagram",
+          observacoes: null,
+          perdido_motivo: null,
+          servico_id: "s1",
+          responsavel_id: null,
+          cliente_id: null,
+          criado_em: "2026-11-01T12:00:00Z",
+          servicos: { nome: "Botox" },
+          colaboradores: null,
+        },
+      ],
+      error: null,
+    });
+    const r = await carregarLeads(falso.cliente as never, new Date("2026-11-12T12:00:00Z"));
+    expect(falso.chamadasDe("leads", "or")[0].args[0]).toBe(
+      "etapa.in.(novo,em_conversa,orcamento_enviado),atualizado_em.gte.2026-09-13T12:00:00.000Z",
+    );
+    expect(r[0]).toMatchObject({ id: "l1", servicoNome: "Botox", responsavelNome: null, etapa: "novo" });
+  });
+});
+
+describe("carregarOpcoesLead", () => {
+  it("lê serviços e colaboradoras ativos", async () => {
+    falso.responder("servicos", { data: [{ id: "s1", nome: "Botox" }], error: null });
+    falso.responder("colaboradores", { data: [{ id: "c1", nome: "Bia" }], error: null });
+    expect(await carregarOpcoesLead(falso.cliente as never)).toEqual({
+      servicos: [{ id: "s1", nome: "Botox" }],
+      responsaveis: [{ id: "c1", nome: "Bia" }],
+    });
   });
 });

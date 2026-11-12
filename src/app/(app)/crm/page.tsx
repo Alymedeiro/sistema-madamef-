@@ -1,5 +1,6 @@
 import { AbasCrm, abaDoCrm } from "@/features/crm/abas-crm";
 import { ListaAniversariantes } from "@/features/crm/lista-aniversariantes";
+import { QuadroLeads } from "@/features/crm/quadro-leads";
 import { ListaRetorno } from "@/features/crm/lista-retorno";
 import { ListaSumidas } from "@/features/crm/lista-sumidas";
 import { perfisComAcesso } from "@/lib/dominio/permissoes";
@@ -8,7 +9,9 @@ import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import {
   carregarAniversariantes,
+  carregarLeads,
   carregarModeloReativacao,
+  carregarOpcoesLead,
   carregarRetornos,
   carregarSumidas,
 } from "./dados";
@@ -40,15 +43,8 @@ export default async function CrmPage({ searchParams }: Props) {
   } else if (aba === "aniversariantes") {
     conteudo = <ListaAniversariantes itens={await carregarAniversariantes(supabase, hoje)} hoje={hoje} />;
   } else {
-    conteudo = (
-      <section
-        aria-label="Leads"
-        className="flex flex-col items-center gap-1 rounded-xl border border-dashed bg-card p-8 text-center"
-      >
-        <p className="font-medium">Em breve</p>
-        <p className="text-sm text-muted-foreground">O quadro de leads chega na próxima etapa.</p>
-      </section>
-    );
+    const [leads, opcoes] = await Promise.all([carregarLeads(supabase), carregarOpcoesLead(supabase)]);
+    conteudo = <QuadroLeads leads={leads} opcoes={opcoes} hoje={hoje} />;
   }
 
   return (

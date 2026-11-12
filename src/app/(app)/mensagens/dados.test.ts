@@ -216,6 +216,16 @@ describe("carregarFila", () => {
     expect(r[0]).toMatchObject({ id: "f1", clienteNome: "Ana", agendadoPara: "2026-11-11T12:00:00Z" });
   });
 
+  it("avulsa para lead: sem cliente, com o nome do lead", async () => {
+    falso.responder(
+      "fila_mensagens",
+      ok([{ ...linha, cliente_id: null, clientes: null, lead_id: "l1", leads: { nome: "Lia Lead" } }]),
+    );
+    const r = await carregarFila(falso.cliente as never);
+    expect(r[0]).toMatchObject({ clienteId: null, clienteNome: null, leadId: "l1", leadNome: "Lia Lead" });
+    expect(String(falso.chamadasDe("fila_mensagens", "select")[0].args[0])).toContain("leads(nome)");
+  });
+
   it("busca por nome filtra pelas clientes encontradas; sem nenhuma, nem consulta a fila", async () => {
     falso.responder("clientes", ok([{ id: "c1" }, { id: "c2" }]));
     falso.responder("fila_mensagens", ok([]));

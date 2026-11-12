@@ -133,6 +133,8 @@ function ItemDaFila({ m }: { m: ItemFila }) {
             >
               {m.clienteNome ?? "Cliente"}
             </Link>
+          ) : m.leadId ? (
+            <span className="font-medium">{m.leadNome ?? "Lead"} (lead)</span>
           ) : (
             <span className="font-medium">Pedido online</span>
           )}
