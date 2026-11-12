@@ -1345,6 +1345,35 @@ export type Database = {
           },
         ]
       }
+      // 0018: dona e recepção; escrita pelas funções arquivar_conversas e
+      // desarquivar_conversas. `chave` = chave de agruparConversas (cliente_id
+      // como texto, ou o telefone normalizado por chaveTelefone).
+      conversas_arquivadas: {
+        Row: {
+          arquivada_em: string
+          arquivada_por: string | null
+          chave: string
+        }
+        Insert: {
+          arquivada_em?: string
+          arquivada_por?: string | null
+          chave: string
+        }
+        Update: {
+          arquivada_em?: string
+          arquivada_por?: string | null
+          chave?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversas_arquivadas_arquivada_por_fkey"
+            columns: ["arquivada_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       // 0012: dona e recepção leem; escrita só por registrar_recebida
       // (service_role, idempotente por id_externo) e marcar_recebida_lida.
       mensagens_recebidas: {
@@ -2684,6 +2713,11 @@ export type Database = {
       }
       // 0010: idempotente; chave 1–120 (23514).
       marcar_avisos_lidos: { Args: { p_chaves: string[] }; Returns: undefined }
+      // 0018: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
+      // mensagens."); 1–200 chaves, vazio → "Escolha pelo menos uma conversa.".
+      // Devolvem quantas foram arquivadas / desarquivadas.
+      arquivar_conversas: { Args: { p_chaves: string[] }; Returns: number }
+      desarquivar_conversas: { Args: { p_chaves: string[] }; Returns: number }
       // 0012: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
       // mensagens."); inexistente → "Mensagem não encontrada."; já lida → nada.
       marcar_recebida_lida: { Args: { p_id: string }; Returns: undefined }

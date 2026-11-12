@@ -236,3 +236,46 @@ export async function retomarRobo(telefone: string): Promise<Resultado> {
   revalidar();
   return OK;
 }
+
+const chavesSchema = z
+  .array(z.string().min(1, "Conversa inválida.").max(200, "Conversa inválida."))
+  .min(1, "Escolha pelo menos uma conversa.")
+  .max(200, "Escolha no máximo 200 conversas por vez.");
+
+/** Arquiva conversas (somem da lista até a cliente escrever de novo). Nada é apagado. */
+export async function arquivarConversas(chaves: string[]): Promise<Resultado> {
+  await exigirPerfil(...perfisComAcesso("mensagens"));
+
+  const parsed = chavesSchema.safeParse(chaves);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("arquivar_conversas", { p_chaves: parsed.data });
+    if (error) return falha(mensagemErroBanco(error));
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidar();
+  return OK;
+}
+
+/** Desarquiva conversas (voltam à lista). */
+export async function desarquivarConversas(chaves: string[]): Promise<Resultado> {
+  await exigirPerfil(...perfisComAcesso("mensagens"));
+
+  const parsed = chavesSchema.safeParse(chaves);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("desarquivar_conversas", { p_chaves: parsed.data });
+    if (error) return falha(mensagemErroBanco(error));
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidar();
+  return OK;
+}

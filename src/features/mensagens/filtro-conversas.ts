@@ -11,6 +11,7 @@ export const ROTULO_LEITURA = {
   nao_lidas: "Não lidas",
   quer_remarcar: "Quer remarcar",
   confirmou: "Confirmou",
+  arquivadas: "Arquivadas",
 } as const;
 export type LeituraConversa = keyof typeof ROTULO_LEITURA;
 
@@ -30,6 +31,8 @@ export function filtrarConversas(
 ): ResumoConversa[] {
   const termo = classificarTermoBusca(filtro.busca ?? "");
   return conversas.filter((c) => {
+    // Arquivadas só aparecem no filtro "Arquivadas" (e só elas).
+    if (filtro.leitura === "arquivadas" ? !c.arquivada : c.arquivada) return false;
     // Falhas já reenviadas não contam (mesma regra do selo "Falhou").
     if (filtro.status === "falhou" && !c.falhou) return false;
     if (

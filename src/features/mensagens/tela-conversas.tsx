@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listarConversas, marcarConversaLida } from "@/app/(app)/mensagens/actions";
+import { toast } from "sonner";
+import {
+  arquivarConversas,
+  desarquivarConversas,
+  listarConversas,
+  marcarConversaLida,
+} from "@/app/(app)/mensagens/actions";
 import type { ResumoConversa } from "@/app/(app)/mensagens/dados";
 import { cn } from "@/lib/utils";
 import type { FiltroConversas } from "./filtro-conversas";
@@ -31,7 +37,9 @@ export function TelaConversas({
   const marcadasRef = useRef(new Set<string>());
 
   // A conversa aberta segue a lista; se ela sair do filtro, mantém a última versão vista.
-  const atual = aberta ? (conversas.find((c) => c.chave === aberta.chave) ?? aberta) : null;
+  const atual = aberta
+    ? (conversas.find((c) => c.chave === aberta.chave) ?? aberta)
+    : null;
   const chaveAtual = atual?.chave ?? null;
 
   const selecionar = useCallback((c: ResumoConversa | null) => {
@@ -46,10 +54,81 @@ export function TelaConversas({
     }
   }, []);
 
+  // Enquanto uma (des)arquivação está em andamento, a recarga espera (não traz a conversa de volta).
+  const pendentesRef = useRef(0);
+
   const recarregar = useCallback(async () => {
+    if (pendentesRef.current > 0) return;
     const res = await listarConversas(filtro);
-    if (res.ok) setConversas(res.conversas);
+    if (res.ok && pendentesRef.current === 0) setConversas(res.conversas);
   }, [filtro]);
+
+  const nasArquivadas = filtro.leitura === "arquivadas";
+
+  const desarquivar = useCallback(
+    async (chaves: string[], desfazendoArquivar = false) => {
+      const anteriores = conversas;
+      const saem = new Set(chaves);
+      pendentesRef.current += 1;
+      if (!desfazendoArquivar)
+        setConversas((l) => l.filter((c) => !saem.has(c.chave)));
+      const res = await desarquivarConversas(chaves);
+      pendentesRef.current -= 1;
+      if (!res.ok) {
+        toast.error(res.erro);
+        if (!desfazendoArquivar) setConversas(anteriores);
+        return;
+      }
+      toast.success(
+        chaves.length === 1
+          ? "Conversa desarquivada"
+          : "Conversas desarquivadas",
+      );
+      void recarregar();
+    },
+    [conversas, recarregar],
+  );
+
+  const arquivar = useCallback(
+    async (chaves: string[]) => {
+      const anteriores = conversas;
+      const saem = new Set(chaves);
+      const doGrupo = conversas.filter((c) => saem.has(c.chave));
+      pendentesRef.current += 1;
+      setConversas((l) => l.filter((c) => !saem.has(c.chave)));
+      if (aberta && saem.has(aberta.chave)) selecionar(null);
+      const res = await arquivarConversas(chaves);
+      if (!res.ok) {
+        pendentesRef.current -= 1;
+        toast.error(res.erro);
+        setConversas(anteriores);
+        return;
+      }
+      // Recebidas não lidas passam a lidas, para o alerta do Início não ficar aceso.
+      const ids = doGrupo
+        .flatMap((c) => c.idsNaoLidos)
+        .filter((id) => !marcadasRef.current.has(id));
+      ids.forEach((id) => marcadasRef.current.add(id));
+      if (ids.length > 0) {
+        const lidas = await marcarConversaLida(ids);
+        if (!lidas.ok) ids.forEach((id) => marcadasRef.current.delete(id));
+      }
+      pendentesRef.current -= 1;
+      toast.success(
+        chaves.length === 1
+          ? "Conversa arquivada"
+          : `${chaves.length} conversas arquivadas`,
+        {
+          action: {
+            label: "Desfazer",
+            onClick: () => void desarquivar(chaves, true),
+          },
+        },
+      );
+      void recarregar();
+    },
+    [conversas, aberta, selecionar, desarquivar, recarregar],
+  );
 
   useEffect(() => {
     const t = setInterval(
@@ -66,7 +145,9 @@ export function TelaConversas({
   const idsNaoLidos = atual?.idsNaoLidos.join(",") ?? "";
   useEffect(() => {
     if (!chaveAtual || !idsNaoLidos) return;
-    const ids = idsNaoLidos.split(",").filter((id) => !marcadasRef.current.has(id));
+    const ids = idsNaoLidos
+      .split(",")
+      .filter((id) => !marcadasRef.current.has(id));
     if (ids.length === 0) return;
     ids.forEach((id) => marcadasRef.current.add(id));
     void marcarConversaLida(ids).then((res) => {
@@ -75,9 +156,15 @@ export function TelaConversas({
         return;
       }
       setConversas((lista) =>
-        lista.map((c) => (c.chave === chaveAtual ? { ...c, naoLidas: 0, idsNaoLidos: [] } : c)),
+        lista.map((c) =>
+          c.chave === chaveAtual ? { ...c, naoLidas: 0, idsNaoLidos: [] } : c,
+        ),
       );
-      setAberta((a) => (a && a.chave === chaveAtual ? { ...a, naoLidas: 0, idsNaoLidos: [] } : a));
+      setAberta((a) =>
+        a && a.chave === chaveAtual
+          ? { ...a, naoLidas: 0, idsNaoLidos: [] }
+          : a,
+      );
     });
     // `conversas` muda a cada recarga: uma marcação que falhou é refeita na próxima.
   }, [chaveAtual, idsNaoLidos, conversas]);
@@ -85,7 +172,14 @@ export function TelaConversas({
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">
       <div className={cn(atual && "hidden lg:block")}>
-        <ListaConversas conversas={conversas} selecionada={chaveAtual} onSelecionar={selecionar} />
+        <ListaConversas
+          conversas={conversas}
+          selecionada={chaveAtual}
+          onSelecionar={selecionar}
+          arquivadas={nasArquivadas}
+          onArquivar={(c) => void arquivar(c)}
+          onDesarquivar={(c) => void desarquivar(c)}
+        />
       </div>
 
       {atual ? (

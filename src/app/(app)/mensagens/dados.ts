@@ -334,6 +334,13 @@ export type ResumoConversa = {
   ultima: { texto: string; quando: string; direcao: "recebida" | "enviada" };
   naoLidas: number;
   idsNaoLidos: string[];
+  /** Horário da última mensagem RECEBIDA (nulo se a cliente nunca respondeu). */
+  ultimaRecebidaEm: string | null;
+  /**
+   * Arquivada (0018) e sem mensagem nova da cliente depois. Preenchido por
+   * marcarArquivadas; agruparConversas devolve false.
+   */
+  arquivada: boolean;
   /** Classificação da última recebida (nulo se a cliente nunca respondeu). */
   classificacao: ClassificacaoResposta | null;
   /** Há mensagem `falhou` sem reenvio posterior. */
@@ -446,6 +453,8 @@ export function agruparConversas(
       ultima,
       naoLidas: naoLidas.length,
       idsNaoLidos: naoLidas.map((r) => r.id),
+      ultimaRecebidaEm: ultimaRecebida?.recebida_em ?? null,
+      arquivada: false,
       classificacao: ultimaRecebida?.classificacao ?? null,
       falhou:
         contarFalhasSemReenvio(
@@ -467,6 +476,25 @@ export function agruparConversas(
 }
 
 /**
+ * Regra de exibição das arquivadas (0018): a conversa está arquivada se há
+ * marca com `arquivada_em` >= horário da última mensagem RECEBIDA. Mensagem
+ * nova da cliente depois de arquivar traz a conversa de volta; o que a clínica
+ * envia depois não. A chave é a de agruparConversas.
+ */
+export function marcarArquivadas(
+  conversas: ResumoConversa[],
+  arquivadas: { chave: string; arquivada_em: string }[],
+): ResumoConversa[] {
+  const quando = new Map(arquivadas.map((a) => [a.chave, instante(a.arquivada_em)]));
+  return conversas.map((c) => {
+    const em = quando.get(c.chave);
+    const arquivada =
+      em !== undefined && (c.ultimaRecebidaEm === null || em >= instante(c.ultimaRecebidaEm));
+    return { ...c, arquivada };
+  });
+}
+
+/**
  * Conversas da tela de Mensagens, a mais recente primeiro: lê as últimas 500
  * recebidas e as últimas 2000 mensagens da clínica, agrupa, filtra e fica com
  * até 500 conversas.
@@ -475,7 +503,7 @@ export async function carregarConversas(
   supabase: Supabase,
   filtro: FiltroConversas = {},
 ): Promise<ResumoConversa[]> {
-  const [recebidas, enviadas] = await Promise.all([
+  const [recebidas, enviadas, arquivadas] = await Promise.all([
     supabase
       .from("mensagens_recebidas")
       .select(
@@ -490,14 +518,21 @@ export async function carregarConversas(
       )
       .order("agendado_para", { ascending: false })
       .limit(LIMITE_ENVIADAS),
+    supabase.from("conversas_arquivadas").select("chave, arquivada_em"),
   ]);
   falhou("as respostas do WhatsApp", recebidas.error);
   falhou("as mensagens enviadas", enviadas.error);
+  falhou("as conversas arquivadas", arquivadas.error);
 
   return filtrarConversas(
-    agruparConversas(
-      (recebidas.data ?? []) as unknown as LinhaConversaRecebida[],
-      (enviadas.data ?? []) as unknown as LinhaConversaEnviada[],
+    marcarArquivadas(
+      agruparConversas(
+        (recebidas.data ?? []) as unknown as LinhaConversaRecebida[],
+        (enviadas.data ?? []) as unknown as LinhaConversaEnviada[],
+      ),
+      ((arquivadas.data ?? []) as { chave?: string; arquivada_em?: string }[]).filter(
+        (a): a is { chave: string; arquivada_em: string } => !!a.chave && !!a.arquivada_em,
+      ),
     ),
     filtro,
   ).slice(0, LIMITE_CONVERSAS);
