@@ -142,3 +142,53 @@ describe("POST /api/webhooks/zapi", () => {
     erro.mockRestore();
   });
 });
+
+/** Formato DEFAULT do webhook de canal da Z-API Omni (mensagem recebida). */
+const PAYLOAD_OMNI = {
+  message: {
+    _id: "019E6F1A93FE78DCB54332F9FF0CCAE7",
+    channel_id: "019E4C54B1B375A28970B605CA9B03C3",
+    created: 1779980473342,
+    metadata: { "@class": ".Metadata", from_api: false, from_me: false, middleware: "Z_API_WHATSAPP" },
+    sender: { "@class": ".Sender", identifier: "5511988887777", name: "Maria" },
+    recipient: { "@class": ".Recipient", identifier: "5511999990000" },
+    contents: [{ "@class": ".TextContent", message: " 1 ", type: "TEXT" }],
+    attachments: [],
+  },
+  messageEventType: "NEW_MESSAGE",
+};
+
+describe("POST /api/webhooks/zapi — formato Omni (DEFAULT)", () => {
+  it("mensagem recebida → registrar_recebida com sender, texto e _id", async () => {
+    const r = await POST(requisicao(PAYLOAD_OMNI));
+    expect(await r.json()).toEqual({ registrada: true });
+    expect(falso.chamadasRpc("registrar_recebida").map((c) => c.args[0])).toEqual([
+      { p_telefone: "5511988887777", p_texto: " 1 ", p_id_externo: "019E6F1A93FE78DCB54332F9FF0CCAE7" },
+    ]);
+  });
+
+  it("ignora enviada pelo negócio, de grupo, sem texto e callback de status", async () => {
+    const m = PAYLOAD_OMNI.message;
+    const casos = [
+      { ...PAYLOAD_OMNI, message: { ...m, metadata: { ...m.metadata, from_me: true } } },
+      {
+        ...PAYLOAD_OMNI,
+        message: {
+          ...m,
+          contents: [{ type: "TEXT", message: "oi", internal_information: { group_id: "120363-group" } }],
+        },
+      },
+      { ...PAYLOAD_OMNI, message: { ...m, contents: [] } },
+      {
+        ...PAYLOAD_OMNI,
+        message: { ...m, contents: [{ type: "MessageStatusCallback", phone: "5511988887777" }] },
+      },
+    ];
+    for (const c of casos) expect(await (await POST(requisicao(c))).json()).toEqual({ ignorada: true });
+    expect(falso.chamadasRpc("registrar_recebida")).toHaveLength(0);
+  });
+
+  it("continua exigindo o token", async () => {
+    expect((await POST(requisicao(PAYLOAD_OMNI, "errado"))).status).toBe(401);
+  });
+});

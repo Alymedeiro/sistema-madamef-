@@ -6,7 +6,7 @@ let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => falso.cliente }));
 
 const zapi = vi.hoisted(() => ({
-  credenciaisZapi: vi.fn(),
+  temChavesWhatsapp: vi.fn(),
   enviarTexto: vi.fn(),
   statusConexao: vi.fn(),
 }));
@@ -57,7 +57,7 @@ beforeEach(() => {
   vi.setSystemTime(AGORA);
   falso = criarSupabaseFalso();
   falso.definirPadrao(ok(null));
-  zapi.credenciaisZapi.mockReset().mockReturnValue({ instancia: "I", token: "T", clientToken: "C" });
+  zapi.temChavesWhatsapp.mockReset().mockReturnValue(true);
   zapi.enviarTexto.mockReset().mockResolvedValue({ ok: true, idExterno: "m1" });
   zapi.statusConexao.mockReset().mockResolvedValue("conectado");
 });
@@ -94,7 +94,7 @@ describe("POST /api/whatsapp/processar — autenticação", () => {
 
 describe("POST /api/whatsapp/processar — status da conexão", () => {
   it("sem chaves: grava sem_chaves e sai sem chamar proxima_mensagem", async () => {
-    zapi.credenciaisZapi.mockReturnValue(null);
+    zapi.temChavesWhatsapp.mockReturnValue(false);
     prepararBase({ estado: "conectado", verificado_em: minutosAtras(1) });
     const r = await POST(requisicao(TOKEN));
     expect(r.status).toBe(200);
@@ -107,7 +107,7 @@ describe("POST /api/whatsapp/processar — status da conexão", () => {
   });
 
   it("sem chaves já gravado há pouco: não regrava", async () => {
-    zapi.credenciaisZapi.mockReturnValue(null);
+    zapi.temChavesWhatsapp.mockReturnValue(false);
     prepararBase({ estado: "sem_chaves", verificado_em: minutosAtras(1) });
     await POST(requisicao(TOKEN));
     expect(falso.chamadasRpc("gravar_status_whatsapp")).toHaveLength(0);

@@ -2,7 +2,7 @@ import { dadosDaMensagem, podeEnviar, renderizarMensagem } from "@/lib/dominio/w
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/tipos";
 import { tokenConfere } from "@/lib/whatsapp/token";
-import { credenciaisZapi, enviarTexto, statusConexao } from "@/lib/whatsapp/zapi";
+import { enviarTexto, statusConexao, temChavesWhatsapp } from "@/lib/whatsapp/zapi";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
   }
 
   const agora = new Date();
-  const estado = await atualizarStatus(admin, credenciaisZapi() !== null, agora);
+  const estado = await atualizarStatus(admin, temChavesWhatsapp(), agora);
   // Sem chaves ou desconectado: não pega mensagem; a fila acumula até voltar.
   if (estado !== "conectado") return json({ enviado: false, motivo: estado });
 

@@ -1,6 +1,6 @@
 vi.mock("server-only", () => ({}));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { credenciaisZapi, enviarTexto, statusConexao } from "./zapi";
+import { credenciaisOmni, credenciaisZapi, enviarTexto, statusConexao, temChavesWhatsapp } from "./zapi";
 
 const resposta = (corpo: unknown, status = 200) =>
   new Response(JSON.stringify(corpo), { status });
@@ -114,5 +114,66 @@ describe("statusConexao", () => {
     const nunca = vi.fn();
     expect(await statusConexao(nunca)).toBe("sem_chaves");
     expect(nunca).not.toHaveBeenCalled();
+  });
+});
+
+describe("Z-API Omni (OMNI_SECRET_KEY + OMNI_CHANNEL_ID)", () => {
+  beforeEach(() => {
+    vi.stubEnv("OMNI_SECRET_KEY", "SECRET");
+    vi.stubEnv("OMNI_CHANNEL_ID", "CANAL1");
+  });
+
+  it("envia texto pela Omni com Bearer e o corpo exato", async () => {
+    const f = vi.fn().mockResolvedValue(resposta({ messageId: "01A0C92D0C957FE98B73C8BA0CACF741" }));
+    const r = await enviarTexto("5511999999999", "Oi", f);
+    expect(r).toEqual({ ok: true, idExterno: "01A0C92D0C957FE98B73C8BA0CACF741" });
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe("https://api.omni.z-api.io/v1/channels/CANAL1/messages");
+    expect(init.method).toBe("POST");
+    expect(init.headers.Authorization).toBe("Bearer SECRET");
+    expect(JSON.parse(init.body)).toEqual({
+      recipient: { identifier: "5511999999999" },
+      content: { type: "TEXT", body: { message: "Oi" } },
+    });
+  });
+
+  it("422 CHANNEL_DISCONNECTED → desconectado", async () => {
+    const f = vi.fn().mockResolvedValue(
+      resposta({ code: "BUSINESS_RULE_VIOLATION", subCode: "CHANNEL_DISCONNECTED", message: "Channel is disconnected" }, 422),
+    );
+    const r = await enviarTexto("5511999999999", "Oi", f);
+    expect(r).toEqual({ ok: false, erro: "Omni 422: CHANNEL_DISCONNECTED", desconectado: true });
+  });
+
+  it("outro erro não é desconexão", async () => {
+    const f = vi.fn().mockResolvedValue(resposta({ code: "VALIDATION_ERROR", message: "Field 'x'" }, 400));
+    const r = await enviarTexto("5511999999999", "Oi", f);
+    expect(r).toEqual({ ok: false, erro: "Omni 400: Field 'x'", desconectado: false });
+  });
+
+  it("2xx sem messageId vira erro", async () => {
+    const f = vi.fn().mockResolvedValue(resposta({}));
+    expect(await enviarTexto("5511999999999", "Oi", f)).toEqual({
+      ok: false,
+      erro: "Omni não devolveu id da mensagem",
+      desconectado: false,
+    });
+  });
+
+  it("status pelo endpoint do QR Code (connected)", async () => {
+    const f = vi.fn().mockResolvedValue(resposta({ connected: true, qrcode: null }));
+    expect(await statusConexao(f)).toBe("conectado");
+    const [url, init] = f.mock.calls[0];
+    expect(url).toBe("https://api.omni.z-api.io/v1/channels/CANAL1/zapi/qr-code/image");
+    expect(init.headers.Authorization).toBe("Bearer SECRET");
+    const g = vi.fn().mockResolvedValue(resposta({ connected: false, qrcode: "data:..." }));
+    expect(await statusConexao(g)).toBe("desconectado");
+  });
+
+  it("Omni tem prioridade sobre a Z-API tradicional; sem nenhuma → temChavesWhatsapp false", async () => {
+    expect(temChavesWhatsapp()).toBe(true);
+    vi.unstubAllEnvs();
+    expect(temChavesWhatsapp()).toBe(false);
+    expect(credenciaisOmni()).toBeNull();
   });
 });
