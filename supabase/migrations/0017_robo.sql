@@ -19,6 +19,9 @@
 --      0 = domingo; [inicio, fim)).
 --   2. Nada se a recebida é 'confirmou'/'quer_remarcar' com agendamento (a
 --      resposta da confirmação tem prioridade; registrar_recebida já tratou).
+--      O dígito só é resposta de confirmação se a última enviada ao telefone
+--      entre {confirmação, robô} foi a confirmação; se foi o robô (nas últimas
+--      2 h), registrar_recebida classifica 'para_ler' e o robô responde.
 --   3. Telefone: o WhatsApp da cliente encontrada, senão o recebido; fora de
 --      ^55\d{10,11}$ → nada. Nada se a sessão está pausada (pausado_ate > agora).
 --   4. Texto normalizado (trim, minúsculas, sem acento): '0' ou 'menu' →
@@ -643,7 +646,8 @@ $$;
 
 revoke execute on function public.robo_processar(uuid) from public, anon, authenticated, service_role;
 
--- registrar_recebida: corpo de 0012 (mesma assinatura e grants) mais, ao
+-- registrar_recebida: corpo de 0012 (mesma assinatura e grants) mais: dígito
+-- depois de mensagem do robô não é resposta de confirmação (ver abaixo) e, ao
 -- final de uma resposta nova, o robô.
 create or replace function public.registrar_recebida(p_telefone text, p_texto text, p_id_externo text)
 returns uuid
@@ -659,6 +663,7 @@ declare
   v_agendamento uuid;
   v_status public.status_agendamento;
   v_cliente uuid;
+  v_ultimo_tipo public.tipo_mensagem;
   v_id uuid;
 begin
   if p_id_externo is null or btrim(p_id_externo) = '' then
@@ -696,6 +701,30 @@ begin
     where c.whatsapp in (v_telefone, v_alternativo)
     order by c.ativo desc, (c.whatsapp = v_telefone) desc, c.criado_em desc
     limit 1;
+  end if;
+
+  -- Robô (0017): o dígito responde ao que saiu por último para o telefone.
+  -- Se a mensagem enviada mais recente entre {confirmação, robô} é do robô
+  -- (nas últimas 2 h), o dígito é opção do menu: 'para_ler', sem tocar no
+  -- agendamento (robo_processar responde a opção). Sem nenhuma das duas, ou
+  -- com a confirmação mais recente, vale a classificação de sempre.
+  if v_classificacao in ('confirmou', 'quer_remarcar') and v_agendamento is not null then
+    select f.tipo into v_ultimo_tipo
+    from public.fila_mensagens f
+    where f.telefone in (v_telefone, v_alternativo)
+      and f.status = 'enviada'
+      and f.tipo in ('confirmacao', 'robo')
+    order by f.enviada_em desc, f.id
+    limit 1;
+    if v_ultimo_tipo = 'robo' and exists (
+      select 1 from public.fila_mensagens f
+      where f.telefone in (v_telefone, v_alternativo)
+        and f.status = 'enviada'
+        and f.tipo = 'robo'
+        and f.enviada_em > now() - interval '2 hours'
+    ) then
+      v_classificacao := 'para_ler';
+    end if;
   end if;
 
   if v_agendamento is null and v_classificacao in ('confirmou', 'quer_remarcar') then

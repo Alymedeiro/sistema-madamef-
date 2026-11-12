@@ -157,6 +157,18 @@ async function expediente(c: PoolClient, aberto: boolean) {
   await c.query("update configuracoes_clinica set horario_funcionamento = $1", [horario]);
 }
 
+/** Agendamento pendente da Maria daqui a 2 dias (o gatilho cria a confirmação). */
+async function agendamentoPendente(c: PoolClient): Promise<string> {
+  return (
+    await c.query<{ id: string }>(
+      `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status)
+       values ($1, $2, $3, now() + interval '2 days', now() + interval '2 days 30 minutes', 'pendente')
+       returning id`,
+      [cli, profId, servico],
+    )
+  ).rows[0].id;
+}
+
 beforeAll(async () => {
   await resetarBanco();
   ({ uid: dona } = await criarUsuario("dona"));
@@ -547,6 +559,70 @@ describe("conversa com o robô", () => {
       expect(st.rows[0].status).toBe("confirmado");
       // Texto livre com agendamento: o robô responde normalmente.
       expect(await conversar(c, "obrigada")).toEqual([MENU]);
+    });
+  });
+
+  it("confirmação ontem, menu enviado hoje, '1' → opção 1 e agendamento continua pendente", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await agendamentoPendente(c);
+      await c.query(
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+         where agendamento_id = $1 and tipo = 'confirmacao'`,
+        [ag],
+      );
+      // Menu do robô (texto livre) enviado agora.
+      expect(await conversar(c, "bom dia")).toEqual([MENU]);
+      await c.query(
+        "update fila_mensagens set status = 'enviada', enviada_em = now() - interval '1 minute' where tipo = 'robo'",
+      );
+      const antes = new Set((await c.query("select id from mensagens_recebidas")).rows.map((r) => r.id));
+      expect(await conversar(c, "1")).toEqual([
+        `Confira nossos serviços e valores: ... (edite este texto em Configurações → WhatsApp → Robô)\n\n${RODAPE}`,
+      ]);
+      const r = await c.query("select id, classificacao from mensagens_recebidas");
+      const nova = r.rows.find((x) => !antes.has(x.id));
+      expect(nova.classificacao).toBe("para_ler");
+      const st = await c.query("select status::text from agendamentos where id = $1", [ag]);
+      expect(st.rows[0].status).toBe("pendente");
+    });
+  });
+
+  it("confirmação enviada depois do menu, '1' → confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await agendamentoPendente(c);
+      expect(await conversar(c, "bom dia")).toEqual([MENU]);
+      await c.query(
+        "update fila_mensagens set status = 'enviada', enviada_em = now() - interval '30 minutes' where tipo = 'robo'",
+      );
+      await c.query(
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '5 minutes'
+         where agendamento_id = $1 and tipo = 'confirmacao'`,
+        [ag],
+      );
+      expect(await conversar(c, "1")).toEqual([]);
+      const st = await c.query("select status::text from agendamentos where id = $1", [ag]);
+      expect(st.rows[0].status).toBe("confirmado");
+    });
+  });
+
+  it("robô enviado há mais de 2 h e confirmação antes: '1' → confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await agendamentoPendente(c);
+      await c.query(
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+         where agendamento_id = $1 and tipo = 'confirmacao'`,
+        [ag],
+      );
+      await conversar(c, "bom dia");
+      await c.query(
+        "update fila_mensagens set status = 'enviada', enviada_em = now() - interval '3 hours' where tipo = 'robo'",
+      );
+      expect(await conversar(c, "1")).toEqual([]);
+      const st = await c.query("select status::text from agendamentos where id = $1", [ag]);
+      expect(st.rows[0].status).toBe("confirmado");
     });
   });
 
