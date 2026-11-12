@@ -43,11 +43,13 @@ import {
   cancelarDoBalao,
   estaPertoDoFim,
   inserirNoCursor,
+  reaproveitarUrlsMidia,
   reenviarDoBalao,
   rotuloAgendada,
   rotuloDia,
   textoEnviavel,
 } from "./conversa";
+import { MidiaBalao } from "./midia-balao";
 import { SeletorEmoji } from "./seletor-emoji";
 
 /** Recarrega a conversa enquanto o painel está aberto. */
@@ -85,6 +87,8 @@ export function ConteudoConversa({
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number | null>(null);
+  // URLs assinadas já mostradas: a recarga de 15 s não troca a imagem/vídeo.
+  const urlsMidiaRef = useRef(new Map<string, { url: string; em: number }>());
   // Rola ao abrir e após envio próprio; depois só se já estava a ≤ 80 px do fim.
   const forcarRolagemRef = useRef(true);
   const pertoDoFimRef = useRef(true);
@@ -97,7 +101,7 @@ export function ConteudoConversa({
     // A pausa do robô é um detalhe do cabeçalho: erro aqui não atrapalha a conversa.
     if (robo.ok) setPausa(robo.pausa);
     if (res.ok) {
-      setItens(res.itens);
+      setItens(reaproveitarUrlsMidia(res.itens, urlsMidiaRef.current));
       setErroCarga(null);
     } else {
       setErroCarga(res.erro);
@@ -370,6 +374,8 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
   const enviada = m.direcao === "enviada";
   const agendada = enviada ? rotuloAgendada(m) : null;
   const status = enviada && m.status ? STATUS_ENVIADA[m.status] : null;
+  // Figurinha pronta aparece solta, sem o fundo do balão.
+  const semFundo = m.midia?.tipo === "figurinha" && m.midia.status === "salva" && !!m.midia.url;
 
   function cancelar() {
     if (!confirmando) {
@@ -402,6 +408,7 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
         enviada
           ? "self-end bg-[#dcf8c6] text-neutral-900"
           : "self-start bg-card text-card-foreground",
+        semFundo && "bg-transparent px-0 shadow-none",
       )}
     >
       {m.tipo === "robo" ? (
@@ -416,7 +423,11 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
           </Badge>
         )
       )}
-      <p className="break-words whitespace-pre-line">{m.texto}</p>
+      {m.midia ? (
+        <MidiaBalao midia={m.midia} />
+      ) : (
+        <p className="break-words whitespace-pre-line">{m.texto}</p>
+      )}
       {m.status === "falhou" && m.erro && (
         <p className="mt-1 text-xs text-destructive">Erro: {m.erro}</p>
       )}

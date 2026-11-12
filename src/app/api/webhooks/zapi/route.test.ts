@@ -5,6 +5,15 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: () => falso.cliente }));
 
+/** Tarefas de after() (rodam depois da resposta; o teste as executa). */
+let depois: (() => unknown)[] = [];
+vi.mock("next/server", () => ({ after: (fn: () => unknown) => void depois.push(fn) }));
+const rodarDepois = async () => {
+  const tarefas = depois;
+  depois = [];
+  for (const t of tarefas) await t();
+};
+
 import { POST } from "./route";
 
 const SEGREDO = "segredo-do-webhook";
@@ -45,11 +54,15 @@ function requisicao(corpo: unknown, token: string | null = SEGREDO) {
 }
 
 beforeEach(() => {
+  depois = [];
   falso = criarSupabaseFalso();
   falso.definirPadrao({ data: "d0000000-0000-4000-8000-0000000000d1", error: null });
   vi.stubEnv("ZAPI_WEBHOOK_TOKEN", SEGREDO);
 });
-afterEach(() => vi.unstubAllEnvs());
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 describe("POST /api/webhooks/zapi", () => {
   it("401 sem token, com token errado ou sem ZAPI_WEBHOOK_TOKEN", async () => {
@@ -190,5 +203,145 @@ describe("POST /api/webhooks/zapi — formato Omni (DEFAULT)", () => {
 
   it("continua exigindo o token", async () => {
     expect((await POST(requisicao(PAYLOAD_OMNI, "errado"))).status).toBe(401);
+  });
+});
+
+const ID_RECEBIDA = "d0000000-0000-4000-8000-0000000000d1";
+
+/** Imagem recebida, formato DEFAULT do Omni (exemplo da documentação, from_me: false). */
+const PAYLOAD_OMNI_IMAGEM = {
+  message: {
+    _id: "019E6F1A9553705584AD73DBA1F995A1",
+    channel_id: "019E4C54B1B375A28970B605CA9B03C3",
+    created: 1779980473683,
+    metadata: { "@class": ".Metadata", forwarded: false, from_api: false, from_me: false, middleware: "Z_API_WHATSAPP" },
+    sender: { "@class": ".Sender", identifier: "5511988887777", name: "Maria" },
+    recipient: { "@class": ".Recipient", identifier: "5511999990000" },
+    contents: [],
+    attachments: [
+      {
+        "@class": ".ImageAttachment",
+        caption: "Confira nossa linha de produtos exclusivos!",
+        identifier: "019E6F1A9553705584AC33FB12CBAE6B",
+        internal_information: {},
+        thumbnail_url: "https://exemplo.com/imagem-thumb.png",
+        type: "IMAGE",
+        url: "https://exemplo.com/imagem.png",
+      },
+    ],
+    actions: [],
+  },
+  messageEventType: "NEW_MESSAGE",
+};
+
+/** Áudio recebido, formato Z_API (ReceivedCallback). */
+const PAYLOAD_ZAPI_AUDIO = {
+  ...PAYLOAD_REAL,
+  messageId: "3EB0AUDIO",
+  text: undefined,
+  audio: {
+    ptt: true,
+    seconds: 10,
+    audioUrl: "https://storage.z-api.io/audio.ogg",
+    mimeType: "audio/ogg; codecs=opus",
+    viewOnce: false,
+  },
+};
+
+describe("POST /api/webhooks/zapi — mídia", () => {
+  beforeEach(() => {
+    falso.definirPadrao({ data: ID_RECEBIDA, error: null });
+    falso.responder("rpc:gravar_midia_recebida", { data: null, error: null });
+  });
+
+  it("Omni DEFAULT: registra a imagem pendente, responde e baixa depois", async () => {
+    const f = vi.fn().mockResolvedValue(
+      new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } }),
+    );
+    vi.stubGlobal("fetch", f);
+    const r = await POST(requisicao(PAYLOAD_OMNI_IMAGEM));
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ registrada: true });
+    expect(falso.chamadasRpc("registrar_recebida")).toHaveLength(0);
+    expect(falso.chamadasRpc("registrar_recebida_midia").map((c) => c.args[0])).toEqual([
+      {
+        p_telefone: "5511988887777",
+        p_id_externo: "019E6F1A9553705584AD73DBA1F995A1",
+        p_midia_tipo: "imagem",
+        p_midia_url_origem: "https://exemplo.com/imagem.png",
+        p_midia_mime: null,
+        p_midia_nome: null,
+        p_midia_tamanho: null,
+        p_legenda: "Confira nossa linha de produtos exclusivos!",
+      },
+    ]);
+    // Nada baixado antes da resposta.
+    expect(f).not.toHaveBeenCalled();
+    await rodarDepois();
+    expect(f).toHaveBeenCalledTimes(1);
+    expect(falso.chamadasDe("storage:whatsapp-midia", "upload")[0].args[0]).toMatch(
+      new RegExp(`^\\d{4}/\\d{2}/${ID_RECEBIDA}\\.png$`),
+    );
+    expect(falso.chamadasRpc("gravar_midia_recebida")[0].args[0]).toMatchObject({
+      p_id: ID_RECEBIDA,
+      p_status: "salva",
+    });
+  });
+
+  it("Z_API: áudio com mime do provedor", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(new Uint8Array([1]))));
+    const r = await POST(requisicao(PAYLOAD_ZAPI_AUDIO));
+    expect(await r.json()).toEqual({ registrada: true });
+    expect(falso.chamadasRpc("registrar_recebida_midia")[0].args[0]).toMatchObject({
+      p_telefone: "5511988887777",
+      p_id_externo: "3EB0AUDIO",
+      p_midia_tipo: "audio",
+      p_midia_url_origem: "https://storage.z-api.io/audio.ogg",
+      p_midia_mime: "audio/ogg; codecs=opus",
+    });
+    await rodarDepois();
+    expect(falso.chamadasDe("storage:whatsapp-midia", "upload")[0].args[0]).toMatch(/\.ogg$/);
+  });
+
+  it("falha no download não quebra o webhook: 200 e a mídia fica 'falhou'", async () => {
+    const aviso = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("fetch failed")));
+    const r = await POST(requisicao(PAYLOAD_OMNI_IMAGEM));
+    expect(r.status).toBe(200);
+    await expect(rodarDepois()).resolves.toBeUndefined();
+    expect(falso.chamadasRpc("gravar_midia_recebida")[0].args[0]).toMatchObject({
+      p_status: "falhou",
+    });
+    expect(falso.chamadasDe("storage:whatsapp-midia")).toHaveLength(0);
+    aviso.mockRestore();
+  });
+
+  it("mídia de grupo, enviada pelo negócio ou sem URL → ignorada", async () => {
+    const m = PAYLOAD_OMNI_IMAGEM.message;
+    const anexo = m.attachments[0];
+    const casos = [
+      { ...PAYLOAD_OMNI_IMAGEM, message: { ...m, metadata: { ...m.metadata, from_me: true } } },
+      {
+        ...PAYLOAD_OMNI_IMAGEM,
+        message: {
+          ...m,
+          attachments: [{ ...anexo, internal_information: { group_id: "120363-group" } }],
+        },
+      },
+      { ...PAYLOAD_OMNI_IMAGEM, message: { ...m, attachments: [{ ...anexo, url: "" }] } },
+      { ...PAYLOAD_ZAPI_AUDIO, isGroup: true },
+      { ...PAYLOAD_ZAPI_AUDIO, audio: { ptt: true } },
+    ];
+    for (const c of casos) expect(await (await POST(requisicao(c))).json()).toEqual({ ignorada: true });
+    expect(falso.chamadasRpc("registrar_recebida_midia")).toHaveLength(0);
+    expect(depois).toHaveLength(0);
+  });
+
+  it("erro do banco ao registrar a mídia → 500, sem download", async () => {
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    falso.responder("rpc:registrar_recebida_midia", { data: null, error: { message: "boom" } });
+    expect((await POST(requisicao(PAYLOAD_OMNI_IMAGEM))).status).toBe(500);
+    expect(depois).toHaveLength(0);
+    erro.mockRestore();
   });
 });

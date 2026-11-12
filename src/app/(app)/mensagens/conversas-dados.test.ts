@@ -347,3 +347,20 @@ describe("carregarConversas", () => {
     await expect(carregarConversas(falso.cliente as never)).rejects.toThrow("boom");
   });
 });
+
+describe("prévia de mídia", () => {
+  it("recebida com mídia mostra o rótulo do tipo ou o emoji e a legenda", () => {
+    const [foto] = agruparConversas(
+      [rec({ id: "r1", texto: "", midia_tipo: "imagem", legenda: null })],
+      [],
+    );
+    expect(foto.ultima).toMatchObject({ texto: "📷 Foto", direcao: "recebida" });
+    const [doc] = agruparConversas(
+      [rec({ id: "r1", texto: "", midia_tipo: "documento", legenda: "Exame" })],
+      [],
+    );
+    expect(doc.ultima.texto).toBe("📄 Exame");
+    const [fig] = agruparConversas([rec({ id: "r1", texto: "", midia_tipo: "figurinha" })], []);
+    expect(fig.ultima.texto).toBe("Figurinha");
+  });
+});

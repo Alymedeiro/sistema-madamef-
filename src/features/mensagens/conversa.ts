@@ -89,3 +89,53 @@ export function rotuloAgendada(
   if (m.status !== "pendente" || new Date(m.quando).getTime() <= agora.getTime()) return null;
   return `Agendada para ${formatarNoFuso(m.quando, "dd/MM HH:mm")}`;
 }
+
+/** "850 B", "12 KB", "1,2 MB" (pt-BR). */
+export function formatarTamanho(bytes: number | null): string | null {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB`;
+}
+
+/** Aviso no lugar da mídia que não pode ser mostrada; nulo quando ela está pronta. */
+export function avisoMidia(m: { status: string; url: string | null }): string | null {
+  if (m.status === "pendente") return "Carregando mídia…";
+  if (m.status === "falhou") return "Não foi possível baixar a mídia";
+  if (m.status === "grande_demais") return "Arquivo grande demais — veja no celular";
+  if (!m.url) return "Mídia indisponível no momento";
+  return null;
+}
+
+/** Link "Baixar" do documento: pede ao Storage para baixar com o nome original. */
+export function urlBaixar(url: string, nome: string | null): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}download=${encodeURIComponent(nome ?? "")}`;
+}
+
+/** Reaproveita a URL assinada por até 8 min (ela vale 10): a recarga de 15 s não troca as imagens. */
+export const REUSO_URL_MIDIA_MS = 8 * 60_000;
+
+type ComMidia = { id: string; midia?: { url: string | null } };
+
+/**
+ * Para cada mídia com URL: se o cache tem uma URL do mesmo item obtida há
+ * menos de 8 min, usa a do cache; senão guarda a nova. Devolve os itens (novos
+ * objetos só onde a URL mudou).
+ */
+export function reaproveitarUrlsMidia<T extends ComMidia>(
+  itens: T[],
+  cache: Map<string, { url: string; em: number }>,
+  agora: number = Date.now(),
+): T[] {
+  return itens.map((i) => {
+    const url = i.midia?.url;
+    if (!i.midia || !url) return i;
+    const antiga = cache.get(i.id);
+    if (antiga && agora - antiga.em < REUSO_URL_MIDIA_MS) {
+      return antiga.url === url ? i : { ...i, midia: { ...i.midia, url: antiga.url } };
+    }
+    cache.set(i.id, { url, em: agora });
+    return i;
+  });
+}
