@@ -25,11 +25,13 @@ type Props = {
 const unico = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
 
 export default async function CrmPage({ searchParams }: Props) {
-  await exigirPerfil(...perfisComAcesso("crm"));
-  const busca = await searchParams;
+  const [, busca, supabase] = await Promise.all([
+    exigirPerfil(...perfisComAcesso("crm")),
+    searchParams,
+    createClient(),
+  ]);
   const aba = abaDoCrm(unico(busca.aba));
   const hoje = dataNoFuso(new Date());
-  const supabase = await createClient();
 
   let conteudo: React.ReactNode;
   if (aba === "retorno") {
