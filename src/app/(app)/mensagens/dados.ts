@@ -7,12 +7,6 @@ import {
 } from "@/lib/dominio/whatsapp";
 import { filtrarConversas, type FiltroConversas } from "@/features/mensagens/filtro-conversas";
 import type { createClient } from "@/lib/supabase/server";
-import {
-  BUCKET_MIDIA,
-  rotuloPreviaMidia,
-  type StatusMidia,
-  type TipoMidia,
-} from "@/lib/whatsapp/midia";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -50,16 +44,7 @@ function falhou(onde: string, error: { message: string } | null) {
 }
 
 const SELECT_RESPOSTA =
-  "id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, agendamento_id, midia_tipo, legenda, clientes(nome), agendamentos(inicio)";
-
-/** Texto da recebida para listas e prévias: com mídia, o rótulo ("📷 Foto") ou a legenda. */
-function textoRecebida(l: {
-  texto: string;
-  midia_tipo?: TipoMidia | null;
-  legenda?: string | null;
-}): string {
-  return l.midia_tipo ? rotuloPreviaMidia(l.midia_tipo, l.legenda ?? null) : l.texto;
-}
+  "id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, agendamento_id, clientes(nome), agendamentos(inicio)";
 
 type LinhaResposta = {
   id: string;
@@ -70,8 +55,6 @@ type LinhaResposta = {
   lida_em: string | null;
   cliente_id: string | null;
   agendamento_id: string | null;
-  midia_tipo?: TipoMidia | null;
-  legenda?: string | null;
   clientes: { nome: string } | null;
   agendamentos: { inicio: string } | null;
 };
@@ -80,7 +63,7 @@ function paraResposta(l: LinhaResposta): Resposta {
   return {
     id: l.id,
     telefone: l.telefone,
-    texto: textoRecebida(l),
+    texto: l.texto,
     recebidaEm: l.recebida_em,
     classificacao: l.classificacao,
     lidaEm: l.lida_em,
@@ -217,19 +200,6 @@ export async function carregarAlertasWhatsapp(
 }
 
 export const LIMITE_CONVERSA = 100;
-/** Validade das URLs assinadas da mídia (o painel reaproveita a URL por 8 min). */
-export const URL_MIDIA_SEGUNDOS = 600;
-
-export type MidiaConversa = {
-  tipo: TipoMidia;
-  status: StatusMidia;
-  /** URL assinada (curta) quando salva; nula se pendente, com falha ou sem assinatura. */
-  url: string | null;
-  mime: string | null;
-  nome: string | null;
-  tamanho: number | null;
-  legenda: string | null;
-};
 
 export type ItemConversa = {
   id: string;
@@ -241,65 +211,9 @@ export type ItemConversa = {
   /** Só enviadas: motivo da falha / do cancelamento (para o balão). */
   erro?: string | null;
   canceladaMotivo?: string | null;
-  /** Só recebidas: foto, figurinha, vídeo, áudio ou documento. */
-  midia?: MidiaConversa;
 };
 
-type LinhaRecebida = {
-  id: string;
-  texto: string;
-  recebida_em: string;
-  midia_tipo?: TipoMidia | null;
-  midia_status?: StatusMidia | null;
-  midia_path?: string | null;
-  midia_mime?: string | null;
-  midia_nome?: string | null;
-  midia_tamanho?: number | null;
-  legenda?: string | null;
-};
-
-const SELECT_RECEBIDA_CONVERSA =
-  "id, texto, recebida_em, midia_tipo, midia_status, midia_path, midia_mime, midia_nome, midia_tamanho, legenda";
-
-function midiaDaLinha(r: LinhaRecebida, urls: Map<string, string>): MidiaConversa | undefined {
-  if (!r.midia_tipo) return undefined;
-  const status = r.midia_status ?? "pendente";
-  return {
-    tipo: r.midia_tipo,
-    status,
-    url: status === "salva" && r.midia_path ? (urls.get(r.midia_path) ?? null) : null,
-    mime: r.midia_mime ?? null,
-    nome: r.midia_nome ?? null,
-    tamanho: r.midia_tamanho ?? null,
-    legenda: r.legenda ?? null,
-  };
-}
-
-/**
- * URLs assinadas (10 min) das mídias salvas, com o cliente de quem pede: o
- * Storage confere a política do bucket (só dona e recepção leem). Falha ao
- * assinar não derruba a conversa: a mídia aparece como indisponível.
- */
-async function assinarMidias(
-  supabase: Supabase,
-  recebidas: LinhaRecebida[],
-): Promise<Map<string, string>> {
-  const paths = [
-    ...new Set(
-      recebidas
-        .filter((r) => r.midia_status === "salva" && r.midia_path)
-        .map((r) => r.midia_path as string),
-    ),
-  ];
-  if (paths.length === 0) return new Map();
-  const { data, error } = await supabase.storage
-    .from(BUCKET_MIDIA)
-    .createSignedUrls(paths, URL_MIDIA_SEGUNDOS);
-  if (error || !data) return new Map();
-  return new Map(
-    data.flatMap((a) => (a.path && a.signedUrl && !a.error ? [[a.path, a.signedUrl] as const] : [])),
-  );
-}
+type LinhaRecebida = { id: string; texto: string; recebida_em: string };
 type LinhaEnviada = {
   id: string;
   texto: string | null;
@@ -315,19 +229,14 @@ type LinhaEnviada = {
 export function montarConversa(
   recebidas: LinhaRecebida[],
   enviadas: LinhaEnviada[],
-  urls: Map<string, string> = new Map(),
 ): ItemConversa[] {
   const itens: ItemConversa[] = [
-    ...recebidas.map((r) => {
-      const midia = midiaDaLinha(r, urls);
-      return {
-        id: r.id,
-        direcao: "recebida" as const,
-        texto: r.texto,
-        quando: r.recebida_em,
-        ...(midia ? { midia } : {}),
-      };
-    }),
+    ...recebidas.map((r) => ({
+      id: r.id,
+      direcao: "recebida" as const,
+      texto: r.texto,
+      quando: r.recebida_em,
+    })),
     ...enviadas.map((e) => ({
       id: e.id,
       direcao: "enviada" as const,
@@ -351,7 +260,7 @@ export async function carregarConversa(
   const [recebidas, enviadas] = await Promise.all([
     supabase
       .from("mensagens_recebidas")
-      .select(SELECT_RECEBIDA_CONVERSA)
+      .select("id, texto, recebida_em")
       .eq("cliente_id", clienteId)
       .order("recebida_em", { ascending: false })
       .limit(LIMITE_CONVERSA),
@@ -364,11 +273,9 @@ export async function carregarConversa(
   ]);
   falhou("as mensagens recebidas", recebidas.error);
   falhou("as mensagens enviadas", enviadas.error);
-  const linhas = (recebidas.data ?? []) as unknown as LinhaRecebida[];
   return montarConversa(
-    linhas,
+    (recebidas.data ?? []) as unknown as LinhaRecebida[],
     (enviadas.data ?? []) as unknown as LinhaEnviada[],
-    await assinarMidias(supabase, linhas),
   );
 }
 
@@ -406,8 +313,6 @@ export type LinhaConversaRecebida = {
   classificacao: ClassificacaoResposta;
   lida_em: string | null;
   cliente_id: string | null;
-  midia_tipo?: TipoMidia | null;
-  legenda?: string | null;
   clientes: { nome: string } | null;
 };
 
@@ -482,11 +387,7 @@ export function agruparConversas(
             direcao: "enviada",
           }
         : ultimaRecebida
-          ? {
-              texto: textoRecebida(ultimaRecebida),
-              quando: ultimaRecebida.recebida_em,
-              direcao: "recebida",
-            }
+          ? { texto: ultimaRecebida.texto, quando: ultimaRecebida.recebida_em, direcao: "recebida" }
           : {
               texto: textoEnviada(candidataSemRecebida!),
               quando: quandoEnviada(candidataSemRecebida!),
@@ -538,7 +439,7 @@ export async function carregarConversas(
     supabase
       .from("mensagens_recebidas")
       .select(
-        "id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, midia_tipo, legenda, clientes(nome)",
+        "id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, clientes(nome)",
       )
       .order("recebida_em", { ascending: false })
       .limit(LIMITE_RECEBIDAS),
@@ -570,7 +471,7 @@ export async function carregarConversaPorTelefone(
   const [recebidas, enviadas] = await Promise.all([
     supabase
       .from("mensagens_recebidas")
-      .select(SELECT_RECEBIDA_CONVERSA)
+      .select("id, texto, recebida_em")
       .eq("telefone", telefone)
       .is("cliente_id", null)
       .order("recebida_em", { ascending: false })
@@ -585,11 +486,9 @@ export async function carregarConversaPorTelefone(
   ]);
   falhou("as mensagens recebidas", recebidas.error);
   falhou("as mensagens enviadas", enviadas.error);
-  const linhas = (recebidas.data ?? []) as unknown as LinhaRecebida[];
   return montarConversa(
-    linhas,
+    (recebidas.data ?? []) as unknown as LinhaRecebida[],
     (enviadas.data ?? []) as unknown as LinhaEnviada[],
-    await assinarMidias(supabase, linhas),
   );
 }
 

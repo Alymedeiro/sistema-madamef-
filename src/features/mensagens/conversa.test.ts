@@ -1,18 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  avisoMidia,
   cancelarDoBalao,
   enviarResposta,
   estaPertoDoFim,
-  formatarTamanho,
   inserirNoCursor,
-  reaproveitarUrlsMidia,
   reenviarDoBalao,
   rotuloAgendada,
   rotuloDia,
   rotuloHorarioConversa,
   textoEnviavel,
-  urlBaixar,
 } from "./conversa";
 
 describe("enviarResposta", () => {
@@ -159,42 +155,5 @@ describe("rotuloAgendada", () => {
     expect(rotuloAgendada({ status: "pendente", quando: "2026-11-10T11:00:00Z" }, agora)).toBeNull();
     expect(rotuloAgendada({ status: "enviada", quando: "2026-11-12T17:30:00Z" }, agora)).toBeNull();
     expect(rotuloAgendada({ quando: "2026-11-12T17:30:00Z" }, agora)).toBeNull();
-  });
-});
-
-describe("mídia no balão", () => {
-  it("formatarTamanho", () => {
-    expect(formatarTamanho(null)).toBeNull();
-    expect(formatarTamanho(850)).toBe("850 B");
-    expect(formatarTamanho(12 * 1024)).toBe("12 KB");
-    expect(formatarTamanho(1.25 * 1024 * 1024)).toBe("1,3 MB");
-  });
-
-  it("avisoMidia por status", () => {
-    expect(avisoMidia({ status: "pendente", url: null })).toBe("Carregando mídia…");
-    expect(avisoMidia({ status: "falhou", url: null })).toBe("Não foi possível baixar a mídia");
-    expect(avisoMidia({ status: "grande_demais", url: null })).toBe(
-      "Arquivo grande demais — veja no celular",
-    );
-    expect(avisoMidia({ status: "salva", url: null })).toBe("Mídia indisponível no momento");
-    expect(avisoMidia({ status: "salva", url: "https://x" })).toBeNull();
-  });
-
-  it("urlBaixar acrescenta download com o nome", () => {
-    expect(urlBaixar("https://s/x?token=a", "Exame 1.pdf")).toBe(
-      "https://s/x?token=a&download=Exame%201.pdf",
-    );
-    expect(urlBaixar("https://s/x", null)).toBe("https://s/x?download=");
-  });
-
-  it("reaproveitarUrlsMidia mantém a URL por 8 min e depois troca", () => {
-    const cache = new Map<string, { url: string; em: number }>();
-    const item = (url: string | null) => ({ id: "r1", midia: { url } });
-    expect(reaproveitarUrlsMidia([item("u1")], cache, 0)[0].midia.url).toBe("u1");
-    expect(reaproveitarUrlsMidia([item("u2")], cache, 7 * 60_000)[0].midia.url).toBe("u1");
-    expect(reaproveitarUrlsMidia([item("u3")], cache, 8 * 60_000)[0].midia.url).toBe("u3");
-    expect(reaproveitarUrlsMidia([item(null)], cache, 9 * 60_000)[0].midia.url).toBeNull();
-    const semMidia = { id: "x" };
-    expect(reaproveitarUrlsMidia([semMidia], cache)[0]).toBe(semMidia);
   });
 });

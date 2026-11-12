@@ -54,28 +54,6 @@ describe("buscarConversa", () => {
     });
   });
 
-  it("URL assinada da mídia exige perfil: profissional não chega ao Storage", async () => {
-    const linha = {
-      id: "r1",
-      texto: "",
-      recebida_em: "2026-11-10T12:00:00Z",
-      midia_tipo: "imagem",
-      midia_status: "salva",
-      midia_path: "2026/11/r1.jpg",
-    };
-    perfilAtual = "profissional";
-    falso.responder("mensagens_recebidas", { data: [linha], error: null });
-    await expect(buscarConversa(CLIENTE)).rejects.toThrow("REDIRECT");
-    await expect(buscarConversaSemCadastro("5511987654321")).rejects.toThrow("REDIRECT");
-    expect(falso.chamadasDe("storage:whatsapp-midia")).toHaveLength(0);
-
-    perfilAtual = "recepcao";
-    falso.responder("fila_mensagens", { data: [], error: null });
-    const r = await buscarConversa(CLIENTE);
-    expect(r.ok && r.itens[0].midia?.url).toBe("https://assinada/2026/11/r1.jpg");
-    expect(falso.chamadasDe("storage:whatsapp-midia", "createSignedUrls")[0].args[1]).toBe(600);
-  });
-
   it("erro do banco vira falha", async () => {
     falso.responder("mensagens_recebidas", { data: null, error: { message: "boom" } });
     falso.responder("fila_mensagens", { data: [], error: null });
