@@ -326,6 +326,24 @@ describe("enviar_retorno", () => {
     });
   });
 
+  it("só a origem mais recente do serviço, de cliente ativa", async () => {
+    await emTeste(async (c) => {
+      const cli = await novaCliente(c);
+      const antiga = await agendar(c, { cliente: cli, status: "atendido", daqui: "-90 days" });
+      const recente = await agendar(c, { cliente: cli, status: "atendido", daqui: "-40 days" });
+      // Atendido mais recente de outro serviço não muda a origem deste.
+      await agendar(c, { cliente: cli, servico: servicoSem, status: "atendido", daqui: "-10 days" });
+      const inativa = await novaCliente(c, { ativo: false });
+      const agInativa = await agendar(c, { cliente: inativa, status: "atendido", daqui: "-41 days" });
+      await logarComo(c, recepcao);
+      expect((await falha(c, "select enviar_retorno($1)", [antiga])).message).toBe(MSG_SEM_RETORNO);
+      expect((await falha(c, "select enviar_retorno($1)", [agInativa])).message).toBe(MSG_SEM_RETORNO);
+      await c.query("select enviar_retorno($1)", [recente]);
+      await comoSuper(c);
+      expect((await filaDoTipo(c, "retorno", [cli])).map((l) => l.agendamento_id)).toEqual([recente]);
+    });
+  });
+
   it("sucesso: 1 pendente para agora com a origem", async () => {
     await emTeste(async (c) => {
       const cli = await novaCliente(c);
@@ -453,6 +471,22 @@ describe("enviar_avulsa_lead", () => {
         texto: "Olá, Carla!",
         criado_por: recepcaoId,
       });
+
+      // Reenviar uma avulsa de lead que falhou mantém o lead.
+      await c.query("update fila_mensagens set status = 'falhou' where id = $1", [id]);
+      const novo = await como(c, recepcao, async () =>
+        (await c.query<{ id: string }>("select reenviar_mensagem($1) as id", [id])).rows[0].id,
+      );
+      expect(await msg(c, novo)).toMatchObject({
+        tipo: "avulsa",
+        status: "pendente",
+        lead_id: lead,
+        cliente_id: null,
+        texto: "Olá, Carla!",
+        telefone: whats,
+      });
+      await c.query("update fila_mensagens set status = 'cancelada', cancelada_motivo = 'x' where id = $1", [novo]);
+      await c.query("update fila_mensagens set status = 'pendente' where id = $1", [id]);
 
       // No envio, o nome vem do lead.
       await configurar(c);

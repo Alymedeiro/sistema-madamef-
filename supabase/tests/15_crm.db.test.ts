@@ -509,6 +509,8 @@ describe("converter_lead", () => {
     await emTeste(async (c) => {
       const whats = zap();
       const existente = await novaCliente(c, { nome: "Já Cliente", whatsapp: whats, marketing: false });
+      const aceite = "2025-01-10T12:00:00Z";
+      await c.query("update clientes set aceite_lgpd_em = $2 where id = $1", [existente, aceite]);
       const lead = await novoLead(c, { nome: "Outro nome", whatsapp: whats });
       const antes = await contar(c, "clientes");
       const cli = await como(c, recepcao, async () =>
@@ -518,6 +520,12 @@ describe("converter_lead", () => {
       expect(await contar(c, "clientes")).toBe(antes);
       const l = await c.query("select cliente_id from leads where id = $1", [lead]);
       expect(l.rows[0].cliente_id).toBe(existente);
+      // A cliente existente não muda: opt-in e aceite LGPD já gravado ficam como estavam.
+      const e = await c.query(
+        "select aceita_whatsapp_marketing, aceite_lgpd_em = $2::timestamptz as mesmo_aceite from clientes where id = $1",
+        [existente, aceite],
+      );
+      expect(e.rows[0]).toEqual({ aceita_whatsapp_marketing: false, mesmo_aceite: true });
     });
   });
 

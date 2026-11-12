@@ -7,8 +7,8 @@
 --   2. Envios: fila_mensagens.lead_id (avulsa para lead), um retorno por
 --      origem, enviar_retorno, enviar_reativacao, enviar_avulsa_lead,
 --      enfileirar_retornos_do_dia / enfileirar_retornos (job pg_cron
---      crm_retornos, 09:00 SP) e proxima_mensagem com as regras de retorno e
---      reativação no envio.
+--      crm_retornos, 09:00 SP), proxima_mensagem com as regras de retorno e
+--      reativação no envio, e reenviar_mensagem copiando lead_id.
 --
 -- Regras (spec 2026-11-12-fase-5-crm-design.md §2):
 --   * Retorno: para cada par (cliente ativa, serviço com dias_retorno), o
@@ -333,8 +333,10 @@ grant execute on function public.crm_indicadores() to authenticated;
 
 -- Converte o lead em cliente: liga à cliente com o mesmo WhatsApp (ativa
 -- primeiro, depois a mais antiga) ou cria uma (nome, WhatsApp, origem, aceite
--- LGPD agora, opt-in conforme p_aceita_marketing). Cliente existente não é
--- alterada. A etapa do lead não muda. Devolve o id da cliente.
+-- LGPD agora, opt-in conforme p_aceita_marketing). Na cliente existente só
+-- grava aceite_lgpd_em = agora se estiver nulo (defensivo: a coluna é not null
+-- desde 0001); o resto dela, opt-in incluído, não muda. A etapa do lead não
+-- muda. Devolve o id da cliente.
 create function public.converter_lead(p_lead uuid, p_aceite_lgpd boolean, p_aceita_marketing boolean)
 returns uuid
 language plpgsql
@@ -366,7 +368,10 @@ begin
     limit 1;
   end if;
 
-  if v_cliente is null then
+  if v_cliente is not null then
+    update public.clientes c set aceite_lgpd_em = now()
+    where c.id = v_cliente and c.aceite_lgpd_em is null;
+  else
     insert into public.clientes (nome, whatsapp, origem, aceite_lgpd_em, aceita_whatsapp_marketing)
     values (btrim(v_lead.nome), v_lead.whatsapp, v_lead.origem, now(), coalesce(p_aceita_marketing, false))
     returning id into v_cliente;
@@ -405,7 +410,8 @@ create unique index fila_mensagens_retorno_unico_idx
   where tipo = 'retorno' and status not in ('cancelada', 'falhou');
 
 -- Envio manual de um retorno (linha da lista), agendado para agora. A origem
--- precisa ser 'atendido' e o serviço ter dias_retorno. Devolve o id.
+-- precisa ser o 'atendido' mais recente da cliente (ativa) naquele serviço, e
+-- o serviço ter dias_retorno. Devolve o id.
 create function public.enviar_retorno(p_agendamento uuid)
 returns uuid
 language plpgsql
@@ -416,24 +422,39 @@ declare
   v_status public.status_agendamento;
   v_dias int;
   v_cliente uuid;
+  v_servico uuid;
+  v_inicio timestamptz;
+  v_ativa boolean;
   v_telefone text;
   v_marketing boolean;
   v_id uuid;
 begin
   perform public.exigir_equipe_crm();
 
-  select a.status, s.dias_retorno, a.cliente_id into v_status, v_dias, v_cliente
+  select a.status, s.dias_retorno, a.cliente_id, a.servico_id, a.inicio
+    into v_status, v_dias, v_cliente, v_servico, v_inicio
   from public.agendamentos a
   join public.servicos s on s.id = a.servico_id
   where a.id = p_agendamento;
   if not found then
     raise exception 'Agendamento não encontrado.' using errcode = 'P0001';
-  elsif v_status <> 'atendido' or v_dias is null then
+  end if;
+
+  select c.ativo, c.whatsapp, c.aceita_whatsapp_marketing into v_ativa, v_telefone, v_marketing
+  from public.clientes c where c.id = v_cliente;
+
+  if v_status <> 'atendido' or v_dias is null or not v_ativa
+     or exists (
+       -- Há um atendido mais recente do mesmo serviço: ele é a origem.
+       select 1 from public.agendamentos a2
+       where a2.cliente_id = v_cliente
+         and a2.servico_id = v_servico
+         and a2.status = 'atendido'
+         and (a2.inicio > v_inicio or (a2.inicio = v_inicio and a2.id > p_agendamento))
+     ) then
     raise exception 'Este atendimento não tem retorno.' using errcode = 'P0001';
   end if;
 
-  select c.whatsapp, c.aceita_whatsapp_marketing into v_telefone, v_marketing
-  from public.clientes c where c.id = v_cliente;
   if v_telefone is null then
     raise exception 'Esta cliente não tem WhatsApp cadastrado.' using errcode = 'P0001';
   elsif not v_marketing then
@@ -750,3 +771,47 @@ begin
   end if;
 end
 $$;
+
+-- Reenvio (0012) passa a copiar lead_id: a avulsa reenviada para um lead
+-- continua ligada a ele. Resto do corpo, assinatura e grants iguais a 0012.
+create or replace function public.reenviar_mensagem(p_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_msg public.fila_mensagens;
+  v_id uuid;
+begin
+  perform public.exigir_equipe_whatsapp();
+
+  select * into v_msg from public.fila_mensagens f where f.id = p_id for update;
+  if not found then
+    raise exception 'Mensagem não encontrada.' using errcode = 'P0001';
+  elsif v_msg.status not in ('falhou', 'cancelada') then
+    raise exception 'Só é possível reenviar mensagens com falha ou canceladas.'
+      using errcode = 'P0001';
+  end if;
+
+  begin
+    insert into public.fila_mensagens (
+      tipo, cliente_id, pedido_online_id, agendamento_id, lead_id, telefone, texto,
+      agendado_para, criado_por
+    ) values (
+      v_msg.tipo, v_msg.cliente_id, v_msg.pedido_online_id, v_msg.agendamento_id,
+      v_msg.lead_id, v_msg.telefone,
+      case when v_msg.tipo = 'avulsa' then v_msg.texto end,
+      now(), public.colaborador_atual_id()
+    )
+    returning id into v_id;
+  exception when unique_violation then
+    raise exception 'Já existe uma mensagem pendente deste tipo.' using errcode = 'P0001';
+  end;
+
+  return v_id;
+end;
+$$;
+
+revoke execute on function public.reenviar_mensagem(uuid) from public, anon, authenticated;
+grant execute on function public.reenviar_mensagem(uuid) to authenticated;
