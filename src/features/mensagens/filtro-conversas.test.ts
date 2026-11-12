@@ -4,6 +4,7 @@ import { filtrarConversas, lerFiltro } from "./filtro-conversas";
 
 const conv = (o: Partial<ResumoConversa> & { chave: string }): ResumoConversa => ({
   clienteId: o.chave,
+  leadId: null,
   nome: "Ana Souza",
   telefone: "5511987654321",
   ultima: { texto: "Oi", quando: "2026-11-10T12:00:00Z", direcao: "recebida" },

@@ -174,6 +174,11 @@ describe("estrutura", () => {
       "pedido_aprovado",
       "pedido_recusado",
       "avulsa",
+      // 0014 (Fase 5, CRM).
+      "retorno",
+      "reativacao",
+      // 0016 (robô de atendimento).
+      "robo",
     ]);
     expect(r.s).toEqual(["pendente", "enviando", "enviada", "falhou", "cancelada"]);
     const priv = (auth: boolean) => ({ auth, anon: false, definer: true });
@@ -191,7 +196,7 @@ describe("estrutura", () => {
     ]);
   });
 
-  it("seis modelos padrão (sem avulsa), uma variação cada", async () => {
+  it("modelos padrão (sem avulsa), uma variação cada", async () => {
     const r = await comoUsuario(prof, async (c) =>
       (
         await c.query<{ tipo: string; n: number; ativo: boolean; v: string }>(
@@ -207,6 +212,9 @@ describe("estrutura", () => {
       "aniversario",
       "pedido_aprovado",
       "pedido_recusado",
+      // 0015 (Fase 5, CRM).
+      "retorno",
+      "reativacao",
     ]);
     expect(r.every((m) => m.n === 1 && m.ativo)).toBe(true);
     expect(r[0].v).toBe(
@@ -237,7 +245,7 @@ describe("modelos_mensagem", () => {
     await comoUsuario(recepcao, async (c) => {
       const r = await c.query("update modelos_mensagem set ativo = false where tipo = 'lembrete'");
       expect(r.rowCount).toBe(0);
-      expect(await contar(c, "modelos_mensagem")).toBe(6);
+      expect(await contar(c, "modelos_mensagem")).toBe(8); // 6 + retorno/reativação (0015)
     });
   });
 

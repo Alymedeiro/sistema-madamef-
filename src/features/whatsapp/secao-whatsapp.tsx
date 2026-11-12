@@ -23,9 +23,11 @@ type Props = {
   estado: EstadoWhatsapp;
   clinica: string;
   modelos: ModeloEditavel[];
+  /** Subseções (ex.: robô de atendimento), depois dos modelos. */
+  children?: React.ReactNode;
 };
 
-export function SecaoWhatsapp({ inicial, estado, clinica, modelos }: Props) {
+export function SecaoWhatsapp({ inicial, estado, clinica, modelos, children }: Props) {
   const [ativo, setAtivo] = useState(inicial.ativo);
   const [inicio, setInicio] = useState(inicial.janelaInicio);
   const [fim, setFim] = useState(inicial.janelaFim);
@@ -141,6 +143,7 @@ export function SecaoWhatsapp({ inicial, estado, clinica, modelos }: Props) {
         </div>
       </form>
       <EditorModelos modelos={modelos} clinica={clinica} />
+      {children}
     </section>
   );
 }

@@ -1059,6 +1059,9 @@ export type Database = {
       // do pedido online, enviar_avulsa / cancelar_mensagem /
       // reenviar_mensagem, enfileirar_aniversarios). texto nulo até enviar
       // (exceto avulsa); cliente_id nulo na resposta de pedido recusado.
+      // 0015: lead_id só na avulsa para lead (enviar_avulsa_lead), com
+      // cliente_id nulo; um retorno por agendamento de origem (fora
+      // cancelada/falhou).
       fila_mensagens: {
         Row: {
           agendado_para: string
@@ -1072,6 +1075,7 @@ export type Database = {
           erro: string | null
           id: string
           id_externo: string | null
+          lead_id: string | null
           pedido_online_id: string | null
           proxima_tentativa_em: string | null
           status: Database["public"]["Enums"]["status_mensagem"]
@@ -1092,6 +1096,7 @@ export type Database = {
           erro?: string | null
           id?: string
           id_externo?: string | null
+          lead_id?: string | null
           pedido_online_id?: string | null
           proxima_tentativa_em?: string | null
           status?: Database["public"]["Enums"]["status_mensagem"]
@@ -1112,6 +1117,7 @@ export type Database = {
           erro?: string | null
           id?: string
           id_externo?: string | null
+          lead_id?: string | null
           pedido_online_id?: string | null
           proxima_tentativa_em?: string | null
           status?: Database["public"]["Enums"]["status_mensagem"]
@@ -1140,6 +1146,13 @@ export type Database = {
             columns: ["criado_por"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fila_mensagens_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
           {
@@ -1256,6 +1269,78 @@ export type Database = {
             columns: ["colaborador_id"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // 0015: dona e recepção leem, criam e alteram (só as colunas de Insert/
+      // Update abaixo); profissional e anon nada; ninguém apaga. cliente_id e
+      // convertido_em só por converter_lead. perdido_motivo é limpo quando a
+      // etapa não é 'perdido'.
+      leads: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string | null
+          convertido_em: string | null
+          criado_em: string
+          criado_por: string | null
+          etapa: Database["public"]["Enums"]["etapa_lead"]
+          id: string
+          nome: string
+          observacoes: string | null
+          origem: string | null
+          perdido_motivo: string | null
+          responsavel_id: string | null
+          servico_id: string | null
+          whatsapp: string | null
+        }
+        Insert: {
+          etapa?: Database["public"]["Enums"]["etapa_lead"]
+          nome: string
+          observacoes?: string | null
+          origem?: string | null
+          perdido_motivo?: string | null
+          responsavel_id?: string | null
+          servico_id?: string | null
+          whatsapp?: string | null
+        }
+        Update: {
+          etapa?: Database["public"]["Enums"]["etapa_lead"]
+          nome?: string
+          observacoes?: string | null
+          origem?: string | null
+          perdido_motivo?: string | null
+          responsavel_id?: string | null
+          servico_id?: string | null
+          whatsapp?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_responsavel_id_fkey"
+            columns: ["responsavel_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leads_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
             referencedColumns: ["id"]
           },
         ]
@@ -2166,6 +2251,111 @@ export type Database = {
         }
         Relationships: []
       }
+      // 0017: linha única; dona e recepção leem; só a dona altera.
+      robo_config: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          boas_vindas: string
+          linha_unica: boolean
+          link_agendamento: string | null
+          nao_entendi: string
+          quando: "sempre" | "fora_do_horario"
+          rodape_opcao: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          boas_vindas?: string
+          linha_unica?: boolean
+          link_agendamento?: string | null
+          nao_entendi?: string
+          quando?: "sempre" | "fora_do_horario"
+          rodape_opcao?: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          boas_vindas?: string
+          linha_unica?: boolean
+          link_agendamento?: string | null
+          nao_entendi?: string
+          quando?: "sempre" | "fora_do_horario"
+          rodape_opcao?: string
+        }
+        Relationships: []
+      }
+      // 0017: numero 1–8 único; resposta obrigatória no tipo texto. Dona e
+      // recepção leem; só a dona escreve.
+      robo_opcoes: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          id: string
+          numero: number
+          resposta: string | null
+          rotulo: string
+          tipo: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          id?: string
+          numero: number
+          resposta?: string | null
+          rotulo: string
+          tipo: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          id?: string
+          numero?: number
+          resposta?: string | null
+          rotulo?: string
+          tipo?: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Relationships: []
+      }
+      // 0017: uma por telefone; dona e recepção leem; escrita só pelas funções.
+      robo_sessoes: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string | null
+          menu_enviado_em: string | null
+          nao_entendi_em: string | null
+          pausado_ate: string | null
+          pediu_equipe_em: string | null
+          telefone: string
+        }
+        Insert: {
+          atualizado_em?: string
+          cliente_id?: string | null
+          menu_enviado_em?: string | null
+          nao_entendi_em?: string | null
+          pausado_ate?: string | null
+          pediu_equipe_em?: string | null
+          telefone: string
+        }
+        Update: {
+          atualizado_em?: string
+          cliente_id?: string | null
+          menu_enviado_em?: string | null
+          nao_entendi_em?: string | null
+          pausado_ate?: string | null
+          pediu_equipe_em?: string | null
+          telefone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "robo_sessoes_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       // 0012: linha única; dona e recepção leem; escrita só por
       // gravar_status_whatsapp (service_role).
       whatsapp_status: {
@@ -2297,6 +2487,75 @@ export type Database = {
         }
         Returns: undefined
       }
+      // 0015 (CRM): dona/recepção (senão "Apenas a dona ou a recepção podem
+      // usar o CRM."). Origem = atendido mais recente por (cliente ativa,
+      // serviço com dias_retorno); sem clientes com agendamento futuro;
+      // data_retorno ≤ p_ate; ordem data_retorno, nome.
+      crm_retornos: {
+        Args: { p_ate: string }
+        Returns: {
+          cliente_id: string
+          cliente_nome: string
+          whatsapp: string | null
+          aceita_marketing: boolean
+          servico_id: string
+          servico_nome: string
+          agendamento_id: string
+          ultimo_atendimento: string
+          data_retorno: string
+          retorno_enviado_em: string | null
+        }[]
+      }
+      // 0015 (CRM): dona/recepção; ordem dias_sem_vir desc.
+      crm_sumidas: {
+        Args: never
+        Returns: {
+          cliente_id: string
+          nome: string
+          whatsapp: string | null
+          aceita_marketing: boolean
+          ultimo_atendimento: string
+          dias_sem_vir: number
+          reativacao_enviada_em: string | null
+        }[]
+      }
+      // 0015 (CRM): só a dona (senão "Apenas a dona vê os indicadores."); uma linha.
+      crm_indicadores: {
+        Args: never
+        Returns: {
+          retornos: number
+          sumidas: number
+          leads_abertos: number
+          convertidos_mes: number
+        }[]
+      }
+      // 0015 (CRM): dona/recepção. Devolve o id da cliente (a existente com o
+      // mesmo WhatsApp ou uma nova). Já convertido → "Este lead já virou
+      // cliente."; p_aceite_lgpd falso → "Confirme o aceite da LGPD.";
+      // inexistente → "Lead não encontrado.".
+      converter_lead: {
+        Args: { p_lead: string; p_aceite_lgpd: boolean; p_aceita_marketing: boolean }
+        Returns: string
+      }
+      // 0015 (CRM): dona/recepção (senão "Apenas a dona ou a recepção podem
+      // usar o CRM."). Retorno manual da origem, para agora; devolve o id.
+      // Origem não atendida ou serviço sem dias_retorno → "Este atendimento
+      // não tem retorno."; sem WhatsApp → "Esta cliente não tem WhatsApp
+      // cadastrado."; sem opt-in → "A cliente não aceitou mensagens de
+      // marketing."; já na fila → "Já existe um retorno na fila para este
+      // atendimento.".
+      enviar_retorno: { Args: { p_agendamento: string }; Returns: string }
+      // 0015 (CRM): dona/recepção; 1–500 clientes distintas ("Escolha pelo
+      // menos uma cliente." / "Escolha no máximo 500 clientes."). Pula sem
+      // WhatsApp, sem opt-in, inativa ou com reativação nos últimos 30 dias.
+      enviar_reativacao: {
+        Args: { p_clientes: string[] }
+        Returns: { enfileiradas: number; puladas: number }[]
+      }
+      // 0015 (CRM): dona/recepção; avulsa para o lead, para agora; devolve o
+      // id. Texto vazio → "Escreva a mensagem."; sem WhatsApp → "Este lead não
+      // tem WhatsApp cadastrado.".
+      enviar_avulsa_lead: { Args: { p_lead: string; p_texto: string }; Returns: string }
       // 0012: dona/recepção; avulsa pendente para agora; devolve o id. Texto
       // vazio → "Escreva a mensagem."; sem WhatsApp → "Esta cliente não tem
       // WhatsApp cadastrado.".
@@ -2547,6 +2806,31 @@ export type Database = {
       // 0012: dona/recepção; só falhou/cancelada (senão "Só é possível
       // reenviar mensagens com falha ou canceladas."); nova pendente agora.
       reenviar_mensagem: { Args: { p_id: string }; Returns: string }
+      // 0017: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
+      // mensagens."); limpa pausado_ate e pediu_equipe_em da sessão.
+      retomar_robo: { Args: { p_telefone: string }; Returns: undefined }
+      // 0017: whatsapp_relogio.url + '/agendar' (nulo sem URL ou fora de
+      // dona/recepção); link padrão do robô.
+      robo_link_site: { Args: never; Returns: string | null }
+      // 0017: pediram atendimento nas últimas 24 h sem avulsa da equipe
+      // depois (RLS de quem chama: profissional vê 0).
+      robo_pedidos_atendimento: { Args: never; Returns: number }
+      // 0017: horario_funcionamento por extenso ("seg a sex 09:00 às 18:00").
+      robo_texto_horario: { Args: { p_horario: Json }; Returns: string }
+      // 0017: só a dona (senão "Apenas a dona pode alterar o robô."); grava a
+      // configuração e substitui as opções.
+      salvar_robo: {
+        Args: {
+          p_ativo: boolean
+          p_quando: string
+          p_boas_vindas: string
+          p_nao_entendi: string
+          p_rodape_opcao: string
+          p_link_agendamento: string | null
+          p_opcoes: Json
+        }
+        Returns: undefined
+      }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
       registrar_acesso: {
@@ -2654,6 +2938,7 @@ export type Database = {
         | "imposto"
         | "vale"
         | "outros"
+      etapa_lead: "novo" | "em_conversa" | "orcamento_enviado" | "agendou" | "perdido"
       forma_pagamento:
         | "pix"
         | "dinheiro"
@@ -2684,6 +2969,9 @@ export type Database = {
         | "pedido_aprovado"
         | "pedido_recusado"
         | "avulsa"
+        | "retorno"
+        | "reativacao"
+        | "robo"
       tipo_movimento_estoque:
         | "entrada"
         | "ajuste"
@@ -2826,6 +3114,7 @@ export const Constants = {
         "vale",
         "outros",
       ],
+      etapa_lead: ["novo", "em_conversa", "orcamento_enviado", "agendou", "perdido"],
       forma_pagamento: [
         "pix",
         "dinheiro",
@@ -2858,6 +3147,9 @@ export const Constants = {
         "pedido_aprovado",
         "pedido_recusado",
         "avulsa",
+        "retorno",
+        "reativacao",
+        "robo",
       ],
       tipo_movimento_estoque: [
         "entrada",

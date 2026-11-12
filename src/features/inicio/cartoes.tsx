@@ -10,7 +10,13 @@ import { BotaoEnviarWhatsapp } from "@/features/mensagens/dialogo-enviar";
 import { ItemResposta } from "@/features/mensagens/lista-respostas";
 import { tempoRestante } from "@/features/pedidos/prazo";
 import type { Resposta } from "@/app/(app)/mensagens/dados";
-import type { Aniversariante, ItemAgenda, ItemSemTermo, PedidoAguardando } from "./dados";
+import type {
+  Aniversariante,
+  IndicadoresCrm as DadosCrm,
+  ItemAgenda,
+  ItemSemTermo,
+  PedidoAguardando,
+} from "./dados";
 import type { ProdutoEstoque } from "./painel";
 
 export function CartaoPainel({
@@ -258,5 +264,32 @@ export function ResumoFalhasWhatsapp({ falhas }: { falhas: number }) {
         Ver mensagens com falha
       </Link>
     </div>
+  );
+}
+
+/** Quatro números do CRM (só dona); cada um leva para a aba correspondente. */
+export function IndicadoresCrm({ dados }: { dados: DadosCrm }) {
+  const itens = [
+    { href: "/crm?aba=retorno", rotulo: "Retornos da semana", valor: dados.retornos },
+    { href: "/crm?aba=sumidas", rotulo: "Clientes sumidas", valor: dados.sumidas },
+    { href: "/crm?aba=leads", rotulo: "Leads em aberto", valor: dados.leadsAbertos },
+    { href: "/crm?aba=leads", rotulo: "Leads convertidos no mês", valor: dados.convertidosMes },
+  ];
+  return (
+    <ul className="grid grid-cols-2 gap-4 lg:col-span-2 lg:grid-cols-4">
+      {itens.map((i) => (
+        <li key={i.rotulo}>
+          <Link
+            href={i.href}
+            className="flex min-h-11 flex-col gap-1 rounded-xl border bg-card p-4 shadow-sm hover:bg-accent"
+          >
+            <span className="font-titulo text-2xl font-semibold text-ouro-escuro tabular-nums">
+              {i.valor}
+            </span>
+            <span className="text-xs text-muted-foreground">{i.rotulo}</span>
+          </Link>
+        </li>
+      ))}
+    </ul>
   );
 }

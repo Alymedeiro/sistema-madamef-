@@ -5,6 +5,7 @@ import {
   NOME_DIA,
 } from "@/lib/dominio/intervalos";
 import { telefoneOpcional, textoOpcional } from "@/lib/validacao";
+import { MAX_OPCOES_ROBO } from "@/lib/dominio/robo";
 import { ROTULO_TIPO_MENSAGEM, type TipoMensagem } from "@/lib/dominio/whatsapp";
 
 const hora = z.string().regex(HORA_REGEX, "Use horas no formato HH:mm.");
@@ -43,6 +44,11 @@ export const configuracoesSchema = z.object({
   telefone: telefoneOpcional,
   endereco: textoOpcional(250, "O endereço pode ter no máximo 250 caracteres."),
   horarioFuncionamento: horarioFuncionamentoSchema,
+  diasClienteSumida: z
+    .number("Use um número entre 1 e 730.")
+    .int("Use um número entre 1 e 730.")
+    .min(1, "Use um número entre 1 e 730.")
+    .max(730, "Use um número entre 1 e 730."),
   onlineAtivo: z.boolean().default(false),
   onlineAntecedenciaMinHoras: z
     .number("Informe a antecedência mínima em horas.")
@@ -81,11 +87,11 @@ export const whatsappConfigSchema = z
 
 export type WhatsappConfigInput = z.input<typeof whatsappConfigSchema>;
 
-export type TipoModelo = Exclude<TipoMensagem, "avulsa">;
+export type TipoModelo = Exclude<TipoMensagem, "avulsa" | "robo">;
 
-/** Tipos com modelo editável: todos menos avulsa (o texto já vem pronto). */
+/** Tipos com modelo editável: todos menos avulsa e robô (o texto já vem pronto). */
 export const TIPOS_MODELO = Object.keys(ROTULO_TIPO_MENSAGEM).filter(
-  (t): t is TipoModelo => t !== "avulsa",
+  (t): t is TipoModelo => t !== "avulsa" && t !== "robo",
 ) as [TipoModelo, ...TipoModelo[]];
 
 export const modeloSchema = z.object({
@@ -104,3 +110,55 @@ export const modeloSchema = z.object({
 });
 
 export type ModeloInput = z.input<typeof modeloSchema>;
+
+// Robô de atendimento (0017). Mesmos limites das restrições do banco.
+const textoRobo = (rotulo: string) =>
+  z
+    .string()
+    .trim()
+    .min(1, `Escreva ${rotulo}.`)
+    .max(1000, `${rotulo[0].toUpperCase()}${rotulo.slice(1)} pode ter no máximo 1000 caracteres.`);
+
+export const opcaoRoboSchema = z
+  .object({
+    numero: z.number().int().min(1, "Use números de 1 a 8.").max(MAX_OPCOES_ROBO, "Use números de 1 a 8."),
+    rotulo: z
+      .string()
+      .trim()
+      .min(1, "Dê um nome para a opção.")
+      .max(60, "O nome da opção pode ter no máximo 60 caracteres."),
+    tipo: z.enum(["texto", "agendar_online", "falar_com_equipe"]),
+    resposta: z
+      .string()
+      .trim()
+      .max(1000, "A resposta pode ter no máximo 1000 caracteres.")
+      .nullable()
+      .transform((v) => (v ? v : null)),
+    ativo: z.boolean(),
+  })
+  .refine((o) => o.tipo !== "texto" || !!o.resposta, {
+    path: ["resposta"],
+    message: "Escreva a resposta desta opção.",
+  })
+  .transform((o) => (o.tipo === "texto" ? o : { ...o, resposta: null }));
+
+export const roboConfigSchema = z.object({
+  ativo: z.boolean(),
+  quando: z.enum(["sempre", "fora_do_horario"]),
+  boasVindas: textoRobo("a mensagem de boas-vindas"),
+  naoEntendi: textoRobo("a mensagem de 'não entendi'"),
+  rodapeOpcao: z.string().trim().max(1000, "O rodapé pode ter no máximo 1000 caracteres."),
+  linkAgendamento: z
+    .string()
+    .trim()
+    .refine((v) => v === "" || /^https?:\/\/\S+$/.test(v), "Use um link começando com https://.")
+    .transform((v) => (v === "" ? null : v)),
+  opcoes: z
+    .array(opcaoRoboSchema)
+    .max(MAX_OPCOES_ROBO, `Use no máximo ${MAX_OPCOES_ROBO} opções.`)
+    .refine((l) => new Set(l.map((o) => o.numero)).size === l.length, {
+      message: "Cada opção precisa de um número diferente.",
+    }),
+});
+
+export type RoboConfigInput = z.input<typeof roboConfigSchema>;

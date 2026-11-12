@@ -218,6 +218,28 @@ describe("POST /api/whatsapp/processar — envio", () => {
     });
   });
 
+  it("robô usa o texto já gravado", async () => {
+    prepararBase();
+    falso.responder(
+      "rpc:proxima_mensagem",
+      ok([
+        {
+          ...linhaConfirmacao,
+          tipo: "robo",
+          texto: "1 - Serviços\n2 - Agendar",
+          variacoes: null,
+          status_agendamento: null,
+          inicio: null,
+        },
+      ]),
+    );
+    await POST(requisicao(TOKEN));
+    expect(zapi.enviarTexto).toHaveBeenCalledWith("5511988887777", "1 - Serviços\n2 - Agendar");
+    expect(falso.chamadasRpc("concluir_envio")[0].args[0]).toMatchObject({
+      p_texto: "1 - Serviços\n2 - Agendar",
+    });
+  });
+
   it("confirmação de agendamento já confirmado → descartar_envio, sem enviar", async () => {
     prepararBase();
     falso.responder(

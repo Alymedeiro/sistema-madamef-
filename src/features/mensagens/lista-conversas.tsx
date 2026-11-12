@@ -67,6 +67,7 @@ export function ListaConversas({
               ) : (
                 <Badge variant="outline">sem cadastro</Badge>
               )}
+              {c.leadId && !c.clienteId && <Badge variant="outline">lead</Badge>}
               {c.falhou && (
                 <Badge
                   variant="outline"

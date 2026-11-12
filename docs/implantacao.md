@@ -21,7 +21,7 @@ A `service_role key` é secreta: dá acesso total ao banco. Nunca a envie por e-
 
 ## 2. Criar as tabelas (migrations)
 
-As tabelas e as regras de segurança estão em `supabase/migrations/`, em doze arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`, `0010_financeiro.sql`, `0011_comissoes_estoque.sql`, `0012_whatsapp.sql`. (Se o projeto já está em uso, veja as seções "Fase 2", "Fase 3A", "Fase 4", "Fase 4B" e "Fase 3B" abaixo antes de aplicar 0006 a 0012.)
+As tabelas e as regras de segurança estão em `supabase/migrations/`, em dezessete arquivos que **devem ser aplicados nesta ordem**: `0001_base.sql`, `0002_agenda.sql`, `0003_caixa.sql`, `0004_clientes_busca.sql`, `0005_pagamento_unico.sql`, `0006_ficha_clinica.sql`, `0007_pacotes_cobranca.sql`, `0008_ajustes_fase2.sql`, `0009_agendamento_online.sql`, `0010_financeiro.sql`, `0011_comissoes_estoque.sql`, `0012_whatsapp.sql`, `0013_whatsapp_status_where.sql`, `0014_crm_tipos.sql`, `0015_crm.sql`, `0016_robo_tipos.sql`, `0017_robo.sql`. (Se o projeto já está em uso, veja as seções "Fase 2", "Fase 3A", "Fase 4", "Fase 4B", "Fase 3B" e "Fase 5" abaixo antes de aplicar 0006 a 0017.)
 
 Escolha uma das formas, para cada projeto:
 
@@ -190,6 +190,34 @@ A Fase 3B manda WhatsApp automático pela Z-API: confirmação, lembrete, pós-a
 
 **Teste de tela da Fase 3B:** `e2e/whatsapp.spec.ts` (dona edita um modelo e vê a prévia, liga e desliga o envio, recepção envia avulsa e vê `Pendente` na Fila, cancela e tenta de novo, resposta inserida por `registrar_recebida` aparece em `Respostas do WhatsApp` no Início e some ao marcar como lida, profissional não vê `Mensagens`, nos 3 tamanhos) exige o projeto de testes **com a 0012 aplicada** e `E2E_PERMITIR_PROJETO`. O spec **termina sempre com o envio desligado** e devolve o texto original do modelo de aniversário. Mensagens e respostas não podem ser apagadas: a avulsa fica como Cancelada e a resposta como lida no projeto de testes. Desde a 0012 a fila tem FK para agendamentos, pedidos e clientes, então os specs `agendar` e `agenda` **não apagam mais** agendamentos, pedidos nem clientes: cancelam o dia (`liberarHorario`), expiram os pedidos aguardando e usam nome e telefone únicos por execução. O atendimento do `whatsapp.spec` fica em hoje+24 (dia que nenhum outro spec usa) e o `agendar.spec` pega a mesma trava de `e2e/trava-caixa.ts` e grava `whatsapp_ativo = false` (os diálogos de pedido só mostram "Avisar no WhatsApp" com o envio desligado).
 
+## Fase 5 — CRM e robô
+
+A Fase 5 traz o menu **CRM** (`/crm`, só dona e recepção: abas Retorno, Sumidas, Leads e Aniversariantes), o painel novo do **Início** (cartões, gráficos e o quadro de CRM), a tela única de **Mensagens** (lista de conversas e conversa lado a lado) e o **robô de atendimento** do WhatsApp (menu de opções numeradas, sem inteligência artificial; o WhatsApp continua só com textos e emojis). As migrações são quatro: `0014_crm_tipos.sql` (novos valores `retorno` e `reativacao` de tipo de mensagem), `0015_crm.sql` (modelos Retorno e Reativação, `leads`, listas de retorno e de sumidas, indicadores, envios e o job `crm_retornos`), `0016_robo_tipos.sql` (valor `robo`) e `0017_robo.sql` (`robo_config`, `robo_opcoes`, `robo_sessoes` e as funções do robô). Os tipos novos precisam de uma migração própria (`0014` e `0016`) porque o Postgres só deixa usar um valor de enum depois que ele foi confirmado.
+
+**Estado atual:** 0014–0017 ainda não aplicadas (nem no projeto de testes `myfpjwtmfonuvsrsvato`, nem na produção `vxvrzhskytsbreexnbun`).
+
+0. **No projeto de testes, antes de tudo:** aplique 0014, 0015, 0016 e 0017 lá, faça as conferências do passo 3 e rode os E2E da Fase 5 (abaixo).
+1. **Antes de aplicar a 0015, confira os retornos:** rode `select count(*) from public.servicos where dias_retorno is not null;`. Se der **mais que 0**, o job `crm_retornos` começa a mandar retornos já no dia seguinte: logo depois de aplicar a 0015, desative o modelo **Retorno** (`update public.modelos_mensagem set ativo = false where tipo = 'retorno';`, ou em Configurações → WhatsApp) até a dona revisar os dias de retorno e o texto, e só então ligue de novo.
+2. **Aplique `0014`, `0015`, `0016` e `0017`, uma por vez e em sequência (espere cada uma terminar antes da próxima), em testes e na produção ANTES do merge em main** (o merge publica na Vercel; o código depende das tabelas e das funções). SQL Editor, um arquivo por vez, ou `pnpm supabase link --project-ref <ref> && pnpm supabase db push`. Nunca aplique `shim.sql`. A 0014 e a 0016 só adicionam valores de enum: rode cada uma sozinha, antes da migração que as usa.
+3. Conferências (rode nos dois projetos, logo depois de aplicar):
+   - Políticas: `select tablename, count(*) from pg_policies where tablename in ('leads','robo_config','robo_opcoes','robo_sessoes') group by tablename;` deve listar as **4** tabelas (leads 3, robo_config 2, robo_opcoes 4, robo_sessoes 1); RLS ligado nelas, e nenhuma tabela pública sem RLS.
+   - Job: `select jobname from cron.job;` deve incluir `crm_retornos` (09:00 de São Paulo; enfileira os retornos do dia).
+   - Tipos de mensagem: `select unnest(enum_range(null::public.tipo_mensagem));` deve incluir `retorno`, `reativacao` e `robo`; `select tipo from public.modelos_mensagem where tipo in ('retorno','reativacao');` deve voltar as **2** linhas.
+   - Robô nasce **desligado**: `select ativo from public.robo_config;` deve dar `false`; `select numero, rotulo from public.robo_opcoes order by numero;` mostra as 4 opções de exemplo.
+4. **Passos da dona (depois do deploy):**
+   - Em **Serviços**, preencha **Dias para retorno** nos serviços que pedem manutenção (por exemplo, 30 para limpeza de pele). Só esses entram na aba **Retorno**.
+   - Em **Configurações → WhatsApp**, revise os modelos **Retorno** e **Reativação** (e os dias para uma cliente contar como sumida, padrão 90).
+   - Em **Configurações → WhatsApp → Robô de atendimento**, escreva as respostas das opções (a opção 1 vem com um texto de exemplo para trocar), confira a prévia, escolha quando responder (sempre ou só fora do horário de funcionamento) e marque **Robô ativo**. O robô só responde com o envio automático do WhatsApp ligado.
+   - Cadastre a **Jornada das profissionais** (Equipe), senão a opção "Agendar horário" do robô leva a uma página de agendamento online sem horários.
+5. **Observações de uso:**
+   - O robô fica pausado por 24 h numa conversa quando a equipe responde **pelo sistema** (Mensagens, ficha ou CRM) ou quando a cliente escolhe falar com a equipe (o Início mostra "pediu atendimento"). A pausa aparece no topo da conversa, com o botão **Retomar robô**.
+   - **Resposta da equipe pelo celular (fora do sistema) não pausa o robô**: ele não enxerga o que sai do aparelho. Responda pelo sistema, ou use **Retomar robô** só quando quiser que ele volte.
+   - A reativação só vai para quem aceitou marketing e não recebeu outra nos últimos 30 dias; as mensagens entram na fila e saem no horário de envio.
+   - **A reativação em lote divide o limite por hora com o robô** (e com as outras mensagens): a fila manda no máximo 1 por minuto e até o limite por hora de Configurações → WhatsApp. O robô passa na frente, mas um lote grande ocupa a hora inteira e as respostas do robô esperam o limite liberar. Prefira lotes menores ou envie fora do horário de mais conversa.
+   - O robô também responde fora da janela de envio (a cliente acabou de escrever); a resposta dele vale 1 h na fila.
+
+**Testes de tela da Fase 5:** `e2e/crm.spec.ts` (dona abre as 4 abas; recepção cria lead, move para Em conversa e converte; recepção seleciona uma cliente sumida, envia a reativação e vê a mensagem Pendente na conversa; profissional não vê o menu CRM; dona vê os 4 cartões no Início), `e2e/inicio-painel.spec.ts` (painel de dona, recepção e profissional sem rolagem horizontal; recepção e profissional sem dinheiro; profissional sem CRM e só com os próprios atendimentos) e `e2e/robo.spec.ts` (dona configura o robô e vê a prévia; uma resposta recebida gera o menu na conversa com o selo do robô; "falar com a equipe" pausa e **Retomar robô** volta a atender), todos nos 3 tamanhos, exigem o projeto de testes **com 0014–0017 aplicadas** e `E2E_PERMITIR_PROJETO`. Leads, mensagens da fila e respostas não podem ser apagados: o lead, a reativação (Pendente, nunca sai porque o relógio de testes não tem URL) e a conversa do robô ficam no projeto de testes, com nomes e telefones únicos por execução; a limpeza desativa as clientes criadas e libera o horário do atendimento antigo (`e2e/horario-livre.ts`). As tabelas do robô não aceitam escrita da chave de serviço: o `robo.spec` grava a configuração pela sessão da dona (`salvar_robo`), devolve a original no fim, **termina sempre com `whatsapp_ativo = false`** e se reveza com os outros specs de WhatsApp pela trava de `e2e/trava-caixa.ts`.
+
 ## 3. Configurar o login (Authentication)
 
 Faça isto nos dois projetos. Todos os itens ficam em **Authentication** no painel.
@@ -282,7 +310,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm test:db && pnpm e2e && pnpm bui
 
 ### E2E contra o projeto Supabase de testes
 
-Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar`, `financeiro`, `comissoes-estoque` e `whatsapp` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` cancela os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
+Os specs `agenda`, `caixa`, `permissoes`, `ficha`, `cobranca`, `agendar`, `financeiro`, `comissoes-estoque`, `whatsapp`, `crm`, `inicio-painel` e `robo` (e a preparação `auth.setup.ts`) rodam contra o projeto `madame-fe-testes` com as migrations e o `seed.sql` aplicados. **Nunca aponte para a produção.** A preparação (`auth.setup.ts`) redefine a senha dos usuários `e2e-*` para um valor conhecido e cria usuários, uma cliente e um agendamento de teste; o spec `caixa` ainda apaga pagamentos, contas a receber e o caixa de hoje, e o spec `agenda` cancela os agendamentos da profissional de teste no dia escolhido. Por isso há uma trava: nada disso roda sem `E2E_PERMITIR_PROJETO=<ref do projeto>` (o trecho `<ref>` de `https://<ref>.supabase.co`, ou `local` para um stack local em 127.0.0.1/localhost) igual ao projeto da `NEXT_PUBLIC_SUPABASE_URL`. Se faltar ou não conferir, os specs são pulados com a explicação.
 
 ```bash
 export NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
@@ -298,13 +326,14 @@ O `auth.setup.ts` cria dona, recepção e duas profissionais pelo cliente admin 
 
 ### Lista de conferência pós-deploy
 
-- [ ] Migrations 0001 a 0012 aplicadas, na ordem, e `shim.sql` **não** aplicado.
+- [ ] Migrations 0001 a 0017 aplicadas, na ordem, e `shim.sql` **não** aplicado.
 - [ ] 0006, 0007 e 0008 aplicadas na produção ANTES do merge em main (o merge publica na Vercel).
 - [ ] 0009 aplicada na produção ANTES do merge; job `pedidos_online_limpeza` presente em `cron.job`.
 - [ ] `NEXT_PUBLIC_TURNSTILE_SITE_KEY` e `TURNSTILE_SECRET_KEY` definidas juntas na Vercel; `/agendar` abre e um pedido de teste chega ao Início.
 - [ ] 0010 aplicada na produção ANTES do merge; 5 tabelas do Financeiro com política (`pg_policies`) e bucket `financeiro` privado de 5 MB.
 - [ ] 0011 aplicada na produção ANTES do merge (imediatamente antes); 4 tabelas com política (`comissoes`, `movimentos_estoque`, `colaboradores_comissao`, `servicos_comissao`); soma dos movimentos = `estoque_atual` em todos os produtos; percentuais de comissão preenchidos pela dona antes de a equipe marcar atendimentos.
 - [ ] 0012 aplicada na produção ANTES do merge; 4 tabelas com política (`modelos_mensagem`, `fila_mensagens`, `mensagens_recebidas`, `whatsapp_status`); `cron.job` com `whatsapp_relogio` e `whatsapp_aniversarios`; `pg_net` instalada; `whatsapp_relogio.url` gravada; 4 variáveis `ZAPI_*` na Vercel; webhook "Ao receber" configurado na Z-API; dona revisou os modelos antes de ligar `Envio automático ativo`.
+- [ ] 0014, 0015, 0016 e 0017 aplicadas na produção ANTES do merge, nesta ordem; políticas (`pg_policies`) em `leads`, `robo_config`, `robo_opcoes` e `robo_sessoes`; `cron.job` com `crm_retornos`; tipos `retorno`, `reativacao` e `robo` em `tipo_mensagem`; robô desligado; dona preencheu os dias para retorno, revisou os modelos Retorno e Reativação e configurou o robô antes de ligá-lo.
 - [ ] Bucket `ficha-clinica` existe e é **privado** (Storage > Buckets: sem o rótulo "Public").
 - [ ] Cadastro público desligado; Redirect URL `<site>/auth/confirmar` e modelos Invite/Reset password ajustados.
 - [ ] `NEXT_PUBLIC_SITE_URL` definido na Vercel; inatividade de sessão em 12 h (se o plano permitir).

@@ -13,7 +13,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { salvarConfigWhatsapp, salvarModelo } from "./actions";
+import { salvarConfiguracoes, salvarConfigWhatsapp, salvarModelo, salvarRobo } from "./actions";
 
 const config = { ativo: true, janelaInicio: "09:00", janelaFim: "19:00", limitePorHora: 20 };
 
@@ -101,5 +101,91 @@ describe("salvarModelo", () => {
     const r = await salvarModelo({ ...modelo, tipo: "avulsa" as never });
     expect(r.ok).toBe(false);
     expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("salvarConfiguracoes: dias para cliente sumida", () => {
+  const dia = [{ inicio: "09:00", fim: "18:00" }];
+  const dados = {
+    nome: "Madame Fê Clinic",
+    telefone: "",
+    endereco: "",
+    horarioFuncionamento: { "0": [], "1": dia, "2": dia, "3": dia, "4": dia, "5": dia, "6": [] },
+    diasClienteSumida: 90,
+    onlineAtivo: false,
+    onlineAntecedenciaMinHoras: 2,
+    onlineAntecedenciaMaxDias: 60,
+    onlineAvisoPrivacidade: "Usamos seus dados apenas para agendar o atendimento.",
+  };
+
+  it("0 e 731 são recusados antes do banco", async () => {
+    for (const v of [0, 731]) {
+      expect(await salvarConfiguracoes({ ...dados, diasClienteSumida: v })).toEqual({
+        ok: false,
+        erro: "Use um número entre 1 e 730.",
+      });
+    }
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("90 é salvo em dias_cliente_sumida", async () => {
+    expect(await salvarConfiguracoes(dados)).toEqual({ ok: true });
+    expect(falso.chamadasDe("configuracoes_clinica", "upsert")[0].args[0]).toMatchObject({
+      dias_cliente_sumida: 90,
+    });
+  });
+});
+
+describe("salvarRobo", () => {
+  const robo = {
+    ativo: true,
+    quando: "fora_do_horario" as const,
+    boasVindas: "Oi, {nome}!",
+    naoEntendi: "Hein?",
+    rodapeOpcao: " Digite 0 ",
+    linkAgendamento: "",
+    opcoes: [
+      { numero: 2, rotulo: "Equipe", tipo: "falar_com_equipe" as const, resposta: null, ativo: true },
+      { numero: 1, rotulo: "Preços", tipo: "texto" as const, resposta: "R$ 10", ativo: false },
+    ],
+  };
+
+  it("recepção e profissional são negadas sem tocar no banco", async () => {
+    for (const p of ["recepcao", "profissional"] as const) {
+      perfilAtual = p;
+      await expect(salvarRobo(robo)).rejects.toThrow("REDIRECT:/inicio");
+    }
+    expect(falso.chamadas).toHaveLength(0);
+    expect(exigirPerfil).toHaveBeenCalledWith("dona");
+  });
+
+  it("dados inválidos não tocam no banco", async () => {
+    const r = await salvarRobo({ ...robo, opcoes: [robo.opcoes[0], { ...robo.opcoes[1], numero: 2 }] });
+    expect(r).toEqual({ ok: false, erro: "Cada opção precisa de um número diferente." });
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("chama salvar_robo com os campos aparados e as opções em ordem", async () => {
+    expect(await salvarRobo(robo)).toEqual({ ok: true });
+    expect(falso.chamadasRpc("salvar_robo")[0].args[0]).toEqual({
+      p_ativo: true,
+      p_quando: "fora_do_horario",
+      p_boas_vindas: "Oi, {nome}!",
+      p_nao_entendi: "Hein?",
+      p_rodape_opcao: "Digite 0",
+      p_link_agendamento: null,
+      p_opcoes: [
+        { numero: 1, rotulo: "Preços", tipo: "texto", resposta: "R$ 10", ativo: false },
+        { numero: 2, rotulo: "Equipe", tipo: "falar_com_equipe", resposta: null, ativo: true },
+      ],
+    });
+  });
+
+  it("erro P0001 do banco vira a mensagem", async () => {
+    falso.responder("rpc:salvar_robo", {
+      data: null,
+      error: { code: "P0001", message: "Apenas a dona pode alterar o robô." },
+    });
+    expect(await salvarRobo(robo)).toEqual({ ok: false, erro: "Apenas a dona pode alterar o robô." });
   });
 });

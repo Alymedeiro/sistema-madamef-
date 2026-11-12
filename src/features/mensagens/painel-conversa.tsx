@@ -27,11 +27,13 @@ import { Button } from "@/components/ui/button";
 import {
   buscarConversa,
   buscarConversaSemCadastro,
+  buscarPausaRobo,
   cancelarMensagem,
   enviarWhatsApp,
   reenviarMensagem,
+  retomarRobo,
 } from "@/app/(app)/mensagens/actions";
-import type { ItemConversa, ResumoConversa } from "@/app/(app)/mensagens/dados";
+import type { ItemConversa, PausaRobo, ResumoConversa } from "@/app/(app)/mensagens/dados";
 import { LIMITE_TEXTO_AVULSA } from "@/app/(app)/mensagens/schemas";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
@@ -70,7 +72,7 @@ export function ConteudoConversa({
   envioAtivo: boolean;
   onVoltar: () => void;
 }) {
-  const { clienteId, telefone } = conversa;
+  const { clienteId, leadId, telefone } = conversa;
   const id = useId();
   const [itens, setItens] = useState<ItemConversa[] | null>(null);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
@@ -78,6 +80,8 @@ export function ConteudoConversa({
   const [erro, setErro] = useState<string | null>(null);
   const [emojis, setEmojis] = useState(false);
   const [enviando, iniciar] = useTransition();
+  const [pausa, setPausa] = useState<PausaRobo | null>(null);
+  const [retomando, iniciarRetomada] = useTransition();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number | null>(null);
@@ -86,9 +90,12 @@ export function ConteudoConversa({
   const pertoDoFimRef = useRef(true);
 
   const carregar = useCallback(async () => {
-    const res = clienteId
-      ? await buscarConversa(clienteId)
-      : await buscarConversaSemCadastro(telefone);
+    const [res, robo] = await Promise.all([
+      clienteId ? buscarConversa(clienteId) : buscarConversaSemCadastro(telefone),
+      buscarPausaRobo({ clienteId, telefone }),
+    ]);
+    // A pausa do robô é um detalhe do cabeçalho: erro aqui não atrapalha a conversa.
+    if (robo.ok) setPausa(robo.pausa);
     if (res.ok) {
       setItens(res.itens);
       setErroCarga(null);
@@ -158,6 +165,20 @@ export function ConteudoConversa({
     });
   }
 
+  function retomar() {
+    if (!pausa) return;
+    iniciarRetomada(async () => {
+      const r = await retomarRobo(pausa.telefone);
+      if (!r.ok) {
+        toast.error(r.erro);
+        return;
+      }
+      toast.success("Robô retomado nesta conversa.");
+      setPausa(null);
+      await carregar();
+    });
+  }
+
   const agora = new Date();
   let diaAnterior = "";
 
@@ -175,8 +196,29 @@ export function ConteudoConversa({
           <ArrowLeft aria-hidden />
         </Button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-medium">{conversa.nome ?? "Número sem cadastro"}</h2>
+          <h2 className="flex items-center gap-2 font-medium">
+            <span className="truncate">{conversa.nome ?? "Número sem cadastro"}</span>
+            {leadId && !clienteId ? (
+              <Badge variant="outline" className="shrink-0">
+                lead
+              </Badge>
+            ) : null}
+          </h2>
           <p className="text-sm text-muted-foreground tabular-nums">{formatarTelefone(telefone)}</p>
+          {pausa ? (
+            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" role="status">
+              <span>Robô pausado até {horaNoFuso(pausa.pausadoAte)}</span>
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto min-h-11 px-0 text-xs text-ouro-escuro sm:min-h-0"
+                disabled={retomando}
+                onClick={retomar}
+              >
+                {retomando ? "Retomando..." : "Retomar robô"}
+              </Button>
+            </p>
+          ) : null}
         </div>
         {clienteId ? (
           <Link
@@ -184,6 +226,13 @@ export function ConteudoConversa({
             className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
           >
             Abrir ficha
+          </Link>
+        ) : leadId ? (
+          <Link
+            href="/crm?aba=leads"
+            className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
+          >
+            Abrir lead
           </Link>
         ) : null}
       </header>
@@ -296,6 +345,13 @@ export function ConteudoConversa({
             </p>
           )}
         </form>
+      ) : leadId ? (
+        <div className="flex flex-col items-start gap-2 border-t bg-card p-3 text-sm">
+          <p>Lead: para responder, use o WhatsApp do lead no CRM.</p>
+          <Button asChild variant="outline">
+            <Link href="/crm?aba=leads">Abrir leads no CRM</Link>
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-col items-start gap-2 border-t bg-card p-3 text-sm">
           <p>Cadastre a cliente para responder.</p>
@@ -348,10 +404,17 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
           : "self-start bg-card text-card-foreground",
       )}
     >
-      {m.tipo && m.tipo !== "avulsa" && (
-        <Badge variant="outline" className="mb-1 border-neutral-400/60 bg-white/60 text-neutral-800">
-          {ROTULO_TIPO_MENSAGEM[m.tipo]}
-        </Badge>
+      {m.tipo === "robo" ? (
+        <p className="mb-1 text-xs font-medium text-neutral-600">
+          <span aria-hidden>🤖 </span>Robô
+        </p>
+      ) : (
+        m.tipo &&
+        m.tipo !== "avulsa" && (
+          <Badge variant="outline" className="mb-1 border-neutral-400/60 bg-white/60 text-neutral-800">
+            {ROTULO_TIPO_MENSAGEM[m.tipo]}
+          </Badge>
+        )
       )}
       <p className="break-words whitespace-pre-line">{m.texto}</p>
       {m.status === "falhou" && m.erro && (

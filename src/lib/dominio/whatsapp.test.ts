@@ -5,6 +5,8 @@ import {
   dadosDaMensagem,
   podeEnviar,
   renderizarMensagem,
+  ROTULO_TIPO_MENSAGEM,
+  temTextoPronto,
   TEXTOS_PADRAO,
 } from "./whatsapp";
 
@@ -83,6 +85,15 @@ describe("podeEnviar", () => {
   });
 });
 
+describe("temTextoPronto e rótulo do robô", () => {
+  it("avulsa e robô têm texto pronto", () => {
+    expect(temTextoPronto("avulsa")).toBe(true);
+    expect(temTextoPronto("robo")).toBe(true);
+    expect(temTextoPronto("confirmacao")).toBe(false);
+    expect(ROTULO_TIPO_MENSAGEM.robo).toBe("Robô");
+  });
+});
+
 describe("classificarResposta", () => {
   it.each([
     ["1", "confirmou"],
@@ -101,7 +112,9 @@ describe("classificarResposta", () => {
 
 describe("TEXTOS_PADRAO", () => {
   it("é igual ao inserido na migração", () => {
-    const sql = readFileSync("supabase/migrations/0012_whatsapp.sql", "utf8");
+    const sql = ["0012_whatsapp.sql", "0015_crm.sql"]
+      .map((f) => readFileSync(`supabase/migrations/${f}`, "utf8"))
+      .join("\n");
     for (const [tipo, texto] of Object.entries(TEXTOS_PADRAO)) {
       expect(sql).toContain(`('${tipo}', array['${texto}'])`);
     }

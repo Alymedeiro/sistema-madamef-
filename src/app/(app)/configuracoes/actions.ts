@@ -10,6 +10,8 @@ import {
   type ConfiguracoesInput,
   modeloSchema,
   type ModeloInput,
+  roboConfigSchema,
+  type RoboConfigInput,
   whatsappConfigSchema,
   type WhatsappConfigInput,
 } from "./schemas";
@@ -24,6 +26,7 @@ export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Re
     telefone,
     endereco,
     horarioFuncionamento,
+    diasClienteSumida,
     onlineAtivo,
     onlineAntecedenciaMinHoras,
     onlineAntecedenciaMaxDias,
@@ -40,6 +43,7 @@ export async function salvarConfiguracoes(dados: ConfiguracoesInput): Promise<Re
         telefone,
         endereco,
         horario_funcionamento: horarioFuncionamento,
+        dias_cliente_sumida: diasClienteSumida,
         online_ativo: onlineAtivo,
         online_antecedencia_min_horas: onlineAntecedenciaMinHoras,
         online_antecedencia_max_dias: onlineAntecedenciaMaxDias,
@@ -101,6 +105,35 @@ export async function salvarModelo(dados: ModeloInput): Promise<Resultado> {
       .select("tipo");
     if (error) return falha(mensagemErroBanco(error));
     if (!data || data.length === 0) return falha("Modelo não encontrado.");
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidatePath("/configuracoes");
+  return OK;
+}
+
+/** Robô de atendimento: configuração e opções de uma vez (salvar_robo, só a dona). */
+export async function salvarRobo(dados: RoboConfigInput): Promise<Resultado> {
+  await exigirPerfil("dona");
+
+  const parsed = roboConfigSchema.safeParse(dados);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+  const { ativo, quando, boasVindas, naoEntendi, rodapeOpcao, linkAgendamento, opcoes } =
+    parsed.data;
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("salvar_robo", {
+      p_ativo: ativo,
+      p_quando: quando,
+      p_boas_vindas: boasVindas,
+      p_nao_entendi: naoEntendi,
+      p_rodape_opcao: rodapeOpcao,
+      p_link_agendamento: linkAgendamento,
+      p_opcoes: [...opcoes].sort((a, b) => a.numero - b.numero),
+    });
+    if (error) return falha(mensagemErroBanco(error));
   } catch {
     return falha(ERRO_INESPERADO);
   }

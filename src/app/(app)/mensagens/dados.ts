@@ -88,7 +88,24 @@ export async function carregarRespostas(
   return ((data ?? []) as unknown as LinhaResposta[]).map(paraResposta);
 }
 
-const SELECT_CHAVE = "status, tipo, cliente_id, agendamento_id, pedido_online_id, criado_em";
+const SELECT_CHAVE =
+  "status, tipo, cliente_id, agendamento_id, pedido_online_id, lead_id, telefone, criado_em";
+
+/**
+ * Chave de um WhatsApp brasileiro que junta as formas com e sem o 9 depois do
+ * DDD: 55DD+8 dígitos vira 55DD+9+8 dígitos (o formato de clientes.whatsapp).
+ * Outro formato fica como veio.
+ */
+export function chaveTelefone(telefone: string): string {
+  return /^55\d{10}$/.test(telefone) ? `${telefone.slice(0, 4)}9${telefone.slice(4)}` : telefone;
+}
+
+/** As duas formas do número (com e sem o 9), como robo_telefones no banco. */
+export function formasTelefone(telefone: string): string[] {
+  if (/^55\d{10}$/.test(telefone)) return [telefone, `${telefone.slice(0, 4)}9${telefone.slice(4)}`];
+  const m = /^55(\d{2})9(\d{8})$/.exec(telefone);
+  return m ? [telefone, `55${m[1]}${m[2]}`] : [telefone];
+}
 
 export type LinhaChave = {
   status: StatusMensagem;
@@ -96,17 +113,28 @@ export type LinhaChave = {
   cliente_id: string | null;
   agendamento_id: string | null;
   pedido_online_id: string | null;
+  lead_id?: string | null;
+  telefone?: string;
   criado_em: string;
 };
 
 /**
  * Falhas que ainda pedem atenção: "Tentar de novo" cria uma mensagem nova e a
  * antiga fica `falhou`; ela deixa de contar quando há uma mais nova, não
- * cancelada nem com falha, do mesmo tipo, cliente e agendamento/pedido.
+ * cancelada nem com falha, do mesmo tipo, cliente, lead e agendamento/pedido
+ * (sem cliente, pedido nem lead — ex.: robô para número sem cadastro —, do
+ * mesmo telefone, com ou sem o 9).
  */
 export function contarFalhasSemReenvio(linhas: LinhaChave[]): number {
   const chave = (l: LinhaChave) =>
-    [l.tipo, l.cliente_id ?? "", l.agendamento_id ?? "", l.pedido_online_id ?? ""].join("|");
+    [
+      l.tipo,
+      l.cliente_id ?? "",
+      l.agendamento_id ?? "",
+      l.pedido_online_id ?? "",
+      l.lead_id ?? "",
+      !l.cliente_id && !l.pedido_online_id && !l.lead_id ? chaveTelefone(l.telefone ?? "") : "",
+    ].join("|");
   const ultimaViva = new Map<string, number>();
   for (const l of linhas) {
     if (l.status === "falhou") continue;
@@ -134,9 +162,18 @@ async function carregarReenvios(supabase: Supabase, falhas: LinhaChave[]): Promi
   const unicos = (v: (string | null)[]) => [...new Set(v.filter((x): x is string => !!x))];
   const clientes = unicos(falhas.map((f) => f.cliente_id));
   const pedidos = unicos(falhas.map((f) => f.pedido_online_id));
+  const leads = unicos(falhas.map((f) => f.lead_id ?? null));
+  const telefones = unicos(
+    falhas
+      .filter((f) => !f.cliente_id && !f.pedido_online_id && !f.lead_id)
+      .flatMap((f) => formasTelefone(f.telefone ?? ""))
+      .filter((t) => /^\d+$/.test(t)),
+  );
   const filtros = [
     clientes.length > 0 ? `cliente_id.in.(${clientes.join(",")})` : null,
     pedidos.length > 0 ? `pedido_online_id.in.(${pedidos.join(",")})` : null,
+    leads.length > 0 ? `lead_id.in.(${leads.join(",")})` : null,
+    telefones.length > 0 ? `telefone.in.(${telefones.join(",")})` : null,
   ].filter((f): f is string => f !== null);
   if (filtros.length === 0) return [];
   const maisAntiga = falhas.reduce(
@@ -290,6 +327,8 @@ export type ResumoConversa = {
   /** `cliente_id` quando houver; senão o telefone (conversa "sem cadastro"). */
   chave: string;
   clienteId: string | null;
+  /** Conversa de lead (sem cliente): mensagens avulsas enviadas pelo CRM. */
+  leadId: string | null;
   nome: string | null;
   telefone: string;
   ultima: { texto: string; quando: string; direcao: "recebida" | "enviada" };
@@ -326,7 +365,9 @@ export type LinhaConversaEnviada = {
   agendamento_id?: string | null;
   pedido_online_id?: string | null;
   criado_em?: string;
+  lead_id?: string | null;
   clientes?: { nome: string } | null;
+  leads?: { nome: string } | null;
 };
 
 const instante = (v: string) => new Date(v).getTime();
@@ -345,12 +386,13 @@ export function agruparConversas(
 ): ResumoConversa[] {
   const recebidasPor = new Map<string, LinhaConversaRecebida[]>();
   for (const r of recebidas) {
-    const chave = r.cliente_id ?? r.telefone;
+    // Sem cadastro: o mesmo número com e sem o 9 é uma conversa só.
+    const chave = r.cliente_id ?? chaveTelefone(r.telefone);
     recebidasPor.set(chave, [...(recebidasPor.get(chave) ?? []), r]);
   }
   const enviadasPor = new Map<string, LinhaConversaEnviada[]>();
   for (const e of enviadas) {
-    const chave = e.cliente_id ?? e.telefone;
+    const chave = e.cliente_id ?? chaveTelefone(e.telefone);
     enviadasPor.set(chave, [...(enviadasPor.get(chave) ?? []), e]);
   }
 
@@ -395,10 +437,11 @@ export function agruparConversas(
     conversas.push({
       chave,
       clienteId,
+      leadId: clienteId ? null : (doGrupo.find((e) => e.lead_id)?.lead_id ?? null),
       nome:
         recentes.find((r) => r.clientes)?.clientes?.nome ??
         doGrupo.find((e) => e.clientes)?.clientes?.nome ??
-        null,
+        (clienteId ? null : (doGrupo.find((e) => e.leads)?.leads?.nome ?? null)),
       telefone: ultimaRecebida?.telefone ?? porData(doGrupo).telefone,
       ultima,
       naoLidas: naoLidas.length,
@@ -412,6 +455,8 @@ export function agruparConversas(
             cliente_id: e.cliente_id,
             agendamento_id: e.agendamento_id ?? null,
             pedido_online_id: e.pedido_online_id ?? null,
+            lead_id: e.lead_id ?? null,
+            telefone: e.telefone,
             criado_em: e.criado_em ?? e.agendado_para,
           })),
         ) > 0,
@@ -441,7 +486,7 @@ export async function carregarConversas(
     supabase
       .from("fila_mensagens")
       .select(
-        "id, telefone, texto, status, tipo, enviada_em, agendado_para, cliente_id, agendamento_id, pedido_online_id, criado_em, clientes(nome)",
+        "id, telefone, texto, status, tipo, enviada_em, agendado_para, cliente_id, agendamento_id, pedido_online_id, criado_em, lead_id, clientes(nome), leads(nome)",
       )
       .order("agendado_para", { ascending: false })
       .limit(LIMITE_ENVIADAS),
@@ -458,7 +503,7 @@ export async function carregarConversas(
   ).slice(0, LIMITE_CONVERSAS);
 }
 
-/** Conversa de um número sem cadastro: recebidas e enviadas pelo telefone. */
+/** Conversa de um número sem cadastro: recebidas e enviadas pelo telefone (com e sem o 9). */
 export async function carregarConversaPorTelefone(
   supabase: Supabase,
   telefone: string,
@@ -467,14 +512,14 @@ export async function carregarConversaPorTelefone(
     supabase
       .from("mensagens_recebidas")
       .select("id, texto, recebida_em")
-      .eq("telefone", telefone)
+      .in("telefone", formasTelefone(telefone))
       .is("cliente_id", null)
       .order("recebida_em", { ascending: false })
       .limit(LIMITE_CONVERSA),
     supabase
       .from("fila_mensagens")
       .select("id, texto, status, tipo, enviada_em, agendado_para, erro, cancelada_motivo")
-      .eq("telefone", telefone)
+      .in("telefone", formasTelefone(telefone))
       .is("cliente_id", null)
       .order("agendado_para", { ascending: false })
       .limit(LIMITE_CONVERSA),
@@ -495,4 +540,39 @@ export async function envioWhatsappAtivo(supabase: Supabase): Promise<boolean> {
     .maybeSingle();
   falhou("a configuração do WhatsApp", error);
   return data?.whatsapp_ativo ?? false;
+}
+
+export type PausaRobo = { telefone: string; pausadoAte: string };
+
+/**
+ * Pausa do robô de atendimento na conversa (0017): a sessão da cliente (pelo
+ * cliente_id) ou do número sem cadastro, se `pausado_ate` ainda não passou.
+ * Com mais de uma sessão (WhatsApp com e sem o 9), vale a pausa mais longa.
+ */
+export async function carregarPausaRobo(
+  supabase: Supabase,
+  conversa: { clienteId: string | null; telefone: string },
+  agora: Date = new Date(),
+): Promise<PausaRobo | null> {
+  const base = supabase.from("robo_sessoes").select("telefone, pausado_ate");
+  const consulta = conversa.clienteId
+    ? base.eq("cliente_id", conversa.clienteId)
+    : base.eq("telefone", conversa.telefone);
+  const { data, error } = await consulta.gt("pausado_ate", agora.toISOString());
+  falhou("a pausa do robô", error);
+  const linhas = (data ?? []) as { telefone: string; pausado_ate: string | null }[];
+  const maior = linhas
+    .filter((l): l is { telefone: string; pausado_ate: string } => l.pausado_ate !== null)
+    .sort((a, b) => instante(b.pausado_ate) - instante(a.pausado_ate))[0];
+  return maior ? { telefone: maior.telefone, pausadoAte: maior.pausado_ate } : null;
+}
+
+/**
+ * Alerta do Início: quantas pediram atendimento ao robô nas últimas 24 h e
+ * ainda não receberam mensagem da equipe (robo_pedidos_atendimento, 0017).
+ */
+export async function contarPedidosAtendimento(supabase: Supabase): Promise<number> {
+  const { data, error } = await supabase.rpc("robo_pedidos_atendimento");
+  falhou("os pedidos de atendimento", error);
+  return typeof data === "number" ? data : 0;
 }

@@ -58,6 +58,7 @@ describe("ITENS_MENU", () => {
       "agenda",
       "clientes",
       "mensagens",
+      "crm",
       "servicos",
       "produtos",
       "financeiro",
@@ -70,12 +71,25 @@ describe("ITENS_MENU", () => {
       "Agenda",
       "Clientes",
       "Mensagens",
+      "CRM",
       "Serviços",
       "Produtos",
       "Financeiro",
       "Equipe",
       "Configurações",
     ]);
+  });
+
+  it("crm (HeartHandshake): dona e recepção; profissional não", () => {
+    expect(podeAcessar("dona", "crm")).toBe(true);
+    expect(podeAcessar("recepcao", "crm")).toBe(true);
+    expect(podeAcessar("profissional", "crm")).toBe(false);
+    expect(ITENS_MENU.find((i) => i.recurso === "crm")).toEqual({
+      recurso: "crm",
+      rotulo: "CRM",
+      href: "/crm",
+      icone: "HeartHandshake",
+    });
   });
 
   it("Financeiro (ícone Wallet) aponta para /financeiro", () => {
@@ -113,16 +127,16 @@ describe("dividirMenuInferior (barra do celular)", () => {
   const menuDe = (perfil: Perfil) => ITENS_MENU.filter((i) => podeAcessar(perfil, i.recurso));
   const recursos = (itens: { recurso: Recurso }[]) => itens.map((i) => i.recurso);
 
-  it("dona (8 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
+  it("dona (10 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
     const r = dividirMenuInferior(menuDe("dona"));
     expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
-    expect(recursos(r.mais)).toEqual(["mensagens", "servicos", "produtos", "equipe", "configuracoes"]);
+    expect(recursos(r.mais)).toEqual(["mensagens", "crm", "servicos", "produtos", "equipe", "configuracoes"]);
   });
 
-  it("recepção (6 itens): mesmos 4 + Mais com Serviços e Produtos", () => {
+  it("recepção (7 itens): mesmos 4 + Mais com Mensagens, CRM, Serviços e Produtos", () => {
     const r = dividirMenuInferior(menuDe("recepcao"));
     expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
-    expect(recursos(r.mais)).toEqual(["mensagens", "servicos", "produtos"]);
+    expect(recursos(r.mais)).toEqual(["mensagens", "crm", "servicos", "produtos"]);
   });
 
   it("profissional (5 itens): cabe tudo, sem Mais", () => {
