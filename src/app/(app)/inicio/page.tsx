@@ -3,6 +3,7 @@ import {
   AlertaWhatsappDesconectado,
   CartaoPainel,
   ListaAniversariantes,
+  IndicadoresCrm,
   ListaContasVencendo,
   ListaAtendimentos,
   ListaEstoqueBaixo,
@@ -17,6 +18,7 @@ import {
   atendidosSemPagamento,
   atendidosSemTermo,
   atendimentosDoDia,
+  carregarIndicadoresCrm,
   contasVencendo,
   pedidosAguardando,
   produtosComEstoqueBaixo,
@@ -55,6 +57,7 @@ export default async function InicioPage() {
     online,
     vencendo,
     whatsapp,
+    crm,
   ] = await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
@@ -66,6 +69,7 @@ export default async function InicioPage() {
     carregarCartao(gerencia ? pedidosAguardando(supabase) : Promise.resolve([])),
     carregarCartao(ehDona ? contasVencendo(supabase, hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? carregarAlertasWhatsapp(supabase, agora) : Promise.resolve(sem)),
+    carregarCartao(carregarIndicadoresCrm(supabase, colaborador.perfil)),
   ]);
   const estado = <T,>(c: Cartao<T[]>) => ({
     falhou: !c.ok,
@@ -94,6 +98,8 @@ export default async function InicioPage() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-2">
+        {ehDona && crm.ok && crm.dados && <IndicadoresCrm dados={crm.dados} />}
+
         <CartaoPainel
           id="atendimentos-t"
           titulo="Atendimentos de hoje"

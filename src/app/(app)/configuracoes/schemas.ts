@@ -43,6 +43,11 @@ export const configuracoesSchema = z.object({
   telefone: telefoneOpcional,
   endereco: textoOpcional(250, "O endereço pode ter no máximo 250 caracteres."),
   horarioFuncionamento: horarioFuncionamentoSchema,
+  diasClienteSumida: z
+    .number("Use um número entre 1 e 730.")
+    .int("Use um número entre 1 e 730.")
+    .min(1, "Use um número entre 1 e 730.")
+    .max(730, "Use um número entre 1 e 730."),
   onlineAtivo: z.boolean().default(false),
   onlineAntecedenciaMinHoras: z
     .number("Informe a antecedência mínima em horas.")

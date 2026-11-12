@@ -56,6 +56,7 @@ describe("configuracoesSchema", () => {
     telefone: "(11) 3456-7890",
     endereco: "Rua das Flores, 100",
     horarioFuncionamento: { ...fechado, "1": util },
+    diasClienteSumida: 90,
     onlineAtivo: false,
     onlineAntecedenciaMinHoras: 2,
     onlineAntecedenciaMaxDias: 60,
@@ -98,6 +99,18 @@ describe("configuracoesSchema", () => {
     expect(ok(-1)).toBe(false);
     expect(ok(73)).toBe(false);
     expect(ok(1.5)).toBe(false);
+  });
+
+  it("dias para cliente sumida: 1 a 730, inteiro", () => {
+    const r = (v: number) => configuracoesSchema.safeParse({ ...base, diasClienteSumida: v });
+    expect(r(1).success).toBe(true);
+    expect(r(90).success).toBe(true);
+    expect(r(730).success).toBe(true);
+    for (const v of [0, 731, 1.5, Number.NaN]) {
+      const x = r(v);
+      expect(x.success).toBe(false);
+      expect(x.error?.issues[0].message).toBe("Use um número entre 1 e 730.");
+    }
   });
 
   it("limites da antecedência máxima (1 a 180 dias, inteiro)", () => {

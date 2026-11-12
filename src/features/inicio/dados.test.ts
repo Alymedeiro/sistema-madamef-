@@ -8,6 +8,7 @@ import {
   aniversariantesDaSemana,
   atendidosSemPagamento,
   atendidosSemTermo,
+  carregarIndicadoresCrm,
   pedidosAguardando,
 } from "./dados";
 
@@ -180,5 +181,35 @@ describe("pedidosAguardando", () => {
         expiraEm: "2026-11-09T10:30:00.000Z",
       },
     ]);
+  });
+});
+
+describe("carregarIndicadoresCrm", () => {
+  it("recepção e profissional recebem null, sem chamar a RPC", async () => {
+    const falso = criarSupabaseFalso();
+    expect(await carregarIndicadoresCrm(falso.cliente as never, "recepcao")).toBeNull();
+    expect(await carregarIndicadoresCrm(falso.cliente as never, "profissional")).toBeNull();
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("dona: mapeia os campos de crm_indicadores", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder(
+      "rpc:crm_indicadores",
+      ok([{ retornos: 3, sumidas: 12, leads_abertos: 5, convertidos_mes: 2 }]),
+    );
+    expect(await carregarIndicadoresCrm(falso.cliente as never, "dona")).toEqual({
+      retornos: 3,
+      sumidas: 12,
+      leadsAbertos: 5,
+      convertidosMes: 2,
+    });
+    expect(falso.chamadasRpc("crm_indicadores")).toHaveLength(1);
+  });
+
+  it("erro da RPC vira exceção (o cartão isola a falha)", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:crm_indicadores", { data: null, error: { message: "x" } });
+    await expect(carregarIndicadoresCrm(falso.cliente as never, "dona")).rejects.toThrow();
   });
 });

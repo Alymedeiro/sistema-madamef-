@@ -1,4 +1,5 @@
 import "server-only";
+import type { Perfil } from "@/lib/dominio/permissoes";
 import type { StatusAgendamento } from "@/lib/dominio/status";
 import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
 import { carregarContasVencendo, type ContaVencendo } from "@/features/avisos/dados";
@@ -219,4 +220,29 @@ export async function pedidosAguardando(supabase: Supabase): Promise<PedidoAguar
 /** Cartão "Contas vencendo" (só dona): as 5 primeiras por vencimento, sem olhar os lidos. */
 export async function contasVencendo(supabase: Supabase, hoje: string): Promise<ContaVencendo[]> {
   return carregarContasVencendo(supabase, hoje, 5);
+}
+
+export type IndicadoresCrm = {
+  retornos: number;
+  sumidas: number;
+  leadsAbertos: number;
+  convertidosMes: number;
+};
+
+/** Números do CRM para a dona; qualquer outro perfil recebe null e a RPC nem é chamada. */
+export async function carregarIndicadoresCrm(
+  supabase: Supabase,
+  perfil: Perfil,
+): Promise<IndicadoresCrm | null> {
+  if (perfil !== "dona") return null;
+  const { data, error } = await supabase.rpc("crm_indicadores");
+  falhou("os indicadores do CRM", error);
+  const l = data?.[0];
+  if (!l) throw new Error("Falha ao carregar os indicadores do CRM: sem resposta");
+  return {
+    retornos: l.retornos,
+    sumidas: l.sumidas,
+    leadsAbertos: l.leads_abertos,
+    convertidosMes: l.convertidos_mes,
+  };
 }

@@ -13,7 +13,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { salvarConfigWhatsapp, salvarModelo } from "./actions";
+import { salvarConfiguracoes, salvarConfigWhatsapp, salvarModelo } from "./actions";
 
 const config = { ativo: true, janelaInicio: "09:00", janelaFim: "19:00", limitePorHora: 20 };
 
@@ -101,5 +101,37 @@ describe("salvarModelo", () => {
     const r = await salvarModelo({ ...modelo, tipo: "avulsa" as never });
     expect(r.ok).toBe(false);
     expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("salvarConfiguracoes: dias para cliente sumida", () => {
+  const dia = [{ inicio: "09:00", fim: "18:00" }];
+  const dados = {
+    nome: "Madame Fê Clinic",
+    telefone: "",
+    endereco: "",
+    horarioFuncionamento: { "0": [], "1": dia, "2": dia, "3": dia, "4": dia, "5": dia, "6": [] },
+    diasClienteSumida: 90,
+    onlineAtivo: false,
+    onlineAntecedenciaMinHoras: 2,
+    onlineAntecedenciaMaxDias: 60,
+    onlineAvisoPrivacidade: "Usamos seus dados apenas para agendar o atendimento.",
+  };
+
+  it("0 e 731 são recusados antes do banco", async () => {
+    for (const v of [0, 731]) {
+      expect(await salvarConfiguracoes({ ...dados, diasClienteSumida: v })).toEqual({
+        ok: false,
+        erro: "Use um número entre 1 e 730.",
+      });
+    }
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("90 é salvo em dias_cliente_sumida", async () => {
+    expect(await salvarConfiguracoes(dados)).toEqual({ ok: true });
+    expect(falso.chamadasDe("configuracoes_clinica", "upsert")[0].args[0]).toMatchObject({
+      dias_cliente_sumida: 90,
+    });
   });
 });

@@ -17,6 +17,7 @@ type Props = {
     telefone: string;
     endereco: string;
     horario: IntervalosPorDia;
+    diasClienteSumida: number;
     onlineAtivo: boolean;
     onlineAntecedenciaMinHoras: number;
     onlineAntecedenciaMaxDias: number;
@@ -30,6 +31,7 @@ const CAMPOS_COM_ERRO = [
   "nome",
   "telefone",
   "endereco",
+  "diasClienteSumida",
   "onlineAntecedenciaMinHoras",
   "onlineAntecedenciaMaxDias",
   "onlineAvisoPrivacidade",
@@ -47,6 +49,7 @@ export function FormularioConfiguracoes({ inicial, siteUrl: siteUrlBruto = "" }:
   const [telefone, setTelefone] = useState(inicial.telefone);
   const [endereco, setEndereco] = useState(inicial.endereco);
   const [horario, setHorario] = useState<IntervalosPorDia>(inicial.horario);
+  const [diasSumida, setDiasSumida] = useState(String(inicial.diasClienteSumida));
   const [onlineAtivo, setOnlineAtivo] = useState(inicial.onlineAtivo);
   const [minHoras, setMinHoras] = useState(String(inicial.onlineAntecedenciaMinHoras));
   const [maxDias, setMaxDias] = useState(String(inicial.onlineAntecedenciaMaxDias));
@@ -62,6 +65,7 @@ export function FormularioConfiguracoes({ inicial, siteUrl: siteUrlBruto = "" }:
       telefone,
       endereco,
       horarioFuncionamento: horario,
+      diasClienteSumida: numeroOuNaN(diasSumida),
       onlineAtivo,
       onlineAntecedenciaMinHoras: numeroOuNaN(minHoras),
       onlineAntecedenciaMaxDias: numeroOuNaN(maxDias),
@@ -163,6 +167,29 @@ export function FormularioConfiguracoes({ inicial, siteUrl: siteUrlBruto = "" }:
               </p>
             ) : null}
           </div>
+        </div>
+        <div className="flex flex-col gap-2 sm:max-w-xs">
+          <Label htmlFor="cfg-dias-sumida">Dias para cliente sumida</Label>
+          <Input
+            id="cfg-dias-sumida"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={730}
+            step={1}
+            value={diasSumida}
+            onChange={(e) => setDiasSumida(e.target.value)}
+            aria-invalid={erros.diasClienteSumida ? true : undefined}
+            aria-describedby="cfg-dias-sumida-ajuda"
+          />
+          <p id="cfg-dias-sumida-ajuda" className="text-xs text-muted-foreground">
+            Depois de quantos dias sem atendimento a cliente aparece em CRM, Sumidas.
+          </p>
+          {erros.diasClienteSumida ? (
+            <p role="alert" className="text-sm font-medium text-destructive">
+              {erros.diasClienteSumida}
+            </p>
+          ) : null}
         </div>
       </section>
 
