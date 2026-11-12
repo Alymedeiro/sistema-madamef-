@@ -1059,6 +1059,9 @@ export type Database = {
       // do pedido online, enviar_avulsa / cancelar_mensagem /
       // reenviar_mensagem, enfileirar_aniversarios). texto nulo até enviar
       // (exceto avulsa); cliente_id nulo na resposta de pedido recusado.
+      // 0015: lead_id só na avulsa para lead (enviar_avulsa_lead), com
+      // cliente_id nulo; um retorno por agendamento de origem (fora
+      // cancelada/falhou).
       fila_mensagens: {
         Row: {
           agendado_para: string
@@ -1072,6 +1075,7 @@ export type Database = {
           erro: string | null
           id: string
           id_externo: string | null
+          lead_id: string | null
           pedido_online_id: string | null
           proxima_tentativa_em: string | null
           status: Database["public"]["Enums"]["status_mensagem"]
@@ -1092,6 +1096,7 @@ export type Database = {
           erro?: string | null
           id?: string
           id_externo?: string | null
+          lead_id?: string | null
           pedido_online_id?: string | null
           proxima_tentativa_em?: string | null
           status?: Database["public"]["Enums"]["status_mensagem"]
@@ -1112,6 +1117,7 @@ export type Database = {
           erro?: string | null
           id?: string
           id_externo?: string | null
+          lead_id?: string | null
           pedido_online_id?: string | null
           proxima_tentativa_em?: string | null
           status?: Database["public"]["Enums"]["status_mensagem"]
@@ -1140,6 +1146,13 @@ export type Database = {
             columns: ["criado_por"]
             isOneToOne: false
             referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fila_mensagens_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
             referencedColumns: ["id"]
           },
           {
@@ -2419,6 +2432,25 @@ export type Database = {
         Args: { p_lead: string; p_aceite_lgpd: boolean; p_aceita_marketing: boolean }
         Returns: string
       }
+      // 0015 (CRM): dona/recepção (senão "Apenas a dona ou a recepção podem
+      // usar o CRM."). Retorno manual da origem, para agora; devolve o id.
+      // Origem não atendida ou serviço sem dias_retorno → "Este atendimento
+      // não tem retorno."; sem WhatsApp → "Esta cliente não tem WhatsApp
+      // cadastrado."; sem opt-in → "A cliente não aceitou mensagens de
+      // marketing."; já na fila → "Já existe um retorno na fila para este
+      // atendimento.".
+      enviar_retorno: { Args: { p_agendamento: string }; Returns: string }
+      // 0015 (CRM): dona/recepção; 1–500 clientes distintas ("Escolha pelo
+      // menos uma cliente." / "Escolha no máximo 500 clientes."). Pula sem
+      // WhatsApp, sem opt-in, inativa ou com reativação nos últimos 30 dias.
+      enviar_reativacao: {
+        Args: { p_clientes: string[] }
+        Returns: { enfileiradas: number; puladas: number }[]
+      }
+      // 0015 (CRM): dona/recepção; avulsa para o lead, para agora; devolve o
+      // id. Texto vazio → "Escreva a mensagem."; sem WhatsApp → "Este lead não
+      // tem WhatsApp cadastrado.".
+      enviar_avulsa_lead: { Args: { p_lead: string; p_texto: string }; Returns: string }
       // 0012: dona/recepção; avulsa pendente para agora; devolve o id. Texto
       // vazio → "Escreva a mensagem."; sem WhatsApp → "Esta cliente não tem
       // WhatsApp cadastrado.".
