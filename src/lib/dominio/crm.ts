@@ -81,3 +81,17 @@ export function aniversariantesEntre<T extends { data_nascimento: string | null 
   }
   return resultado;
 }
+
+/** Por que (ou se) dá para mandar WhatsApp de marketing a esta cliente. */
+export type EnvioMarketing = "enviado" | "sem_whatsapp" | "sem_optin" | "livre";
+
+export function classificarEnvio(c: {
+  whatsapp: string | null;
+  aceitaMarketing: boolean;
+  enviadoEm?: string | null;
+}): EnvioMarketing {
+  if (c.enviadoEm) return "enviado";
+  if (!c.whatsapp) return "sem_whatsapp";
+  if (!c.aceitaMarketing) return "sem_optin";
+  return "livre";
+}
