@@ -17,6 +17,7 @@ const conv = (o: Partial<ResumoConversa> & { chave: string }): ResumoConversa =>
 
 const ana = conv({
   chave: "c1",
+  falhou: true,
   naoLidas: 1,
   idsNaoLidos: ["r1"],
   classificacao: "quer_remarcar",
@@ -44,6 +45,19 @@ describe("filtrarConversas", () => {
   it("status: conversas com pelo menos uma mensagem enviada naquele status", () => {
     expect(chaves(filtrarConversas(todas, { status: "falhou" }))).toEqual(["c1"]);
     expect(chaves(filtrarConversas(todas, { status: "pendente" }))).toEqual(["c2"]);
+  });
+
+  it("status falhou ignora conversas cuja falha já foi reenviada", () => {
+    const reenviada = conv({
+      chave: "c9",
+      falhou: false,
+      enviadas: [
+        { status: "falhou", tipo: "lembrete" },
+        { status: "enviada", tipo: "lembrete" },
+      ],
+    });
+    expect(chaves(filtrarConversas([ana, reenviada], { status: "falhou" }))).toEqual(["c1"]);
+    expect(chaves(filtrarConversas([reenviada], { status: "enviada" }))).toEqual(["c9"]);
   });
 
   it("tipo: pelo menos uma mensagem daquele tipo", () => {

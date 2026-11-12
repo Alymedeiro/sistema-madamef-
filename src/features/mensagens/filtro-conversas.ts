@@ -30,6 +30,8 @@ export function filtrarConversas(
 ): ResumoConversa[] {
   const termo = classificarTermoBusca(filtro.busca ?? "");
   return conversas.filter((c) => {
+    // Falhas já reenviadas não contam (mesma regra do selo "Falhou").
+    if (filtro.status === "falhou" && !c.falhou) return false;
     if (
       (filtro.status || filtro.tipo) &&
       !c.enviadas.some(
