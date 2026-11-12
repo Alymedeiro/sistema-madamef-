@@ -24,20 +24,47 @@ const MAX_TELEFONE = 40;
  * null (ignoradas). WhatsApp com 12 dígitos (sem o 9) vai como veio: o banco
  * procura a cliente com e sem o 9.
  */
+function montar(telefone: string, texto: string, idExterno: string): Recebida | null {
+  const id = idExterno.trim();
+  if (id.length > MAX_ID_EXTERNO) return null;
+  return {
+    // Número fora do padrão (ex.: estrangeiro) vai como veio; o banco guarda.
+    telefone: normalizarWhatsApp(telefone) ?? telefone.trim().slice(0, MAX_TELEFONE),
+    texto,
+    idExterno: id,
+  };
+}
+
+const objeto = (v: unknown): Record<string, unknown> | null =>
+  v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+
+/**
+ * Formato padrão (DEFAULT) do webhook de canal da Z-API Omni:
+ * { message: { _id, metadata: { from_me }, sender: { identifier },
+ * contents: [{ type: "TEXT", message, internal_information?: { group_id } }] } }.
+ * Enviadas pelo negócio (from_me), de grupo ou sem texto → null.
+ */
+function extrairRecebidaOmni(c: Record<string, unknown>): Recebida | null {
+  const m = objeto(c.message);
+  if (!m) return null;
+  if (objeto(m.metadata)?.from_me === true) return null;
+  const contents = Array.isArray(m.contents) ? m.contents : [];
+  const textos = contents.map(objeto).filter((x) => x !== null);
+  if (textos.some((x) => textoNaoVazio(objeto(x.internal_information)?.group_id))) return null;
+  const texto = textos.find((x) => x.type === "TEXT" && textoNaoVazio(x.message))?.message;
+  const telefone = objeto(m.sender)?.identifier;
+  if (!textoNaoVazio(texto) || !textoNaoVazio(m._id) || !textoNaoVazio(telefone)) return null;
+  return montar(telefone, texto, m._id);
+}
+
 function extrairRecebida(corpo: unknown): Recebida | null {
   if (!corpo || typeof corpo !== "object" || Array.isArray(corpo)) return null;
   const c = corpo as Record<string, unknown>;
+  if (objeto(c.message)) return extrairRecebidaOmni(c);
   if (c.fromMe === true || c.isGroup === true || c.isNewsletter === true) return null;
   const texto = (c.text as Record<string, unknown> | null | undefined)?.message;
   if (!textoNaoVazio(texto) || !textoNaoVazio(c.messageId) || !textoNaoVazio(c.phone)) return null;
-  const idExterno = c.messageId.trim();
-  if (idExterno.length > MAX_ID_EXTERNO) return null;
-  return {
-    // Número fora do padrão (ex.: estrangeiro) vai como veio; o banco guarda.
-    telefone: normalizarWhatsApp(c.phone) ?? c.phone.trim().slice(0, MAX_TELEFONE),
-    texto,
-    idExterno,
-  };
+  return montar(c.phone, texto, c.messageId);
 }
 
 /**
