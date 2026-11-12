@@ -74,6 +74,28 @@ describe("montarConversa", () => {
   });
 });
 
+describe("montarConversa: falha e cancelamento", () => {
+  it("leva o erro e o motivo do cancelamento para o item", () => {
+    const itens = montarConversa(
+      [],
+      [
+        { ...env("e1", { status: "falhou" }), erro: "Número inválido" },
+        { ...env("e2", { status: "cancelada" }), cancelada_motivo: "Cancelada pela equipe" },
+      ],
+    );
+    expect(itens[0]).toMatchObject({ erro: "Número inválido", canceladaMotivo: null });
+    expect(itens[1]).toMatchObject({ erro: null, canceladaMotivo: "Cancelada pela equipe" });
+  });
+
+  it("mensagens futuras entram no histórico", () => {
+    const itens = montarConversa(
+      [rec("r1", "2026-11-10T12:00:00Z")],
+      [env("e1", { status: "pendente", agendado_para: "2026-12-01T12:00:00Z" })],
+    );
+    expect(itens.map((i) => i.id)).toEqual(["r1", "e1"]);
+  });
+});
+
 describe("carregarConversa", () => {
   it("lê recebidas e enviadas da cliente e monta a conversa", async () => {
     falso.responder("mensagens_recebidas", ok([rec("r1", "2026-11-10T12:00:00Z")]));

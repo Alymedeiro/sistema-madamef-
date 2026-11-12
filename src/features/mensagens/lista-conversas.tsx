@@ -18,7 +18,7 @@ export function ListaConversas({
   onSelecionar: (c: ResumoConversa) => void;
 }) {
   if (conversas.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nenhuma resposta recebida.</p>;
+    return <p className="text-sm text-muted-foreground">Nenhuma conversa encontrada.</p>;
   }
   const agora = new Date();
   return (
@@ -66,6 +66,14 @@ export function ListaConversas({
                 <span className="tabular-nums">{formatarTelefone(c.telefone)}</span>
               ) : (
                 <Badge variant="outline">sem cadastro</Badge>
+              )}
+              {c.falhou && (
+                <Badge
+                  variant="outline"
+                  className="border-destructive/40 bg-destructive/10 text-destructive"
+                >
+                  ⚠ Falhou
+                </Badge>
               )}
               {c.classificacao && (
                 <Badge variant="outline" className={cn(COR_CLASSIFICACAO[c.classificacao])}>

@@ -6,7 +6,6 @@ vi.mock("server-only", () => ({}));
 import {
   agruparConversas,
   carregarConversas,
-  filtrarPorClassificacao,
   type LinhaConversaEnviada,
   type LinhaConversaRecebida,
 } from "./dados";
@@ -191,39 +190,88 @@ describe("agruparConversas", () => {
     expect(c.classificacao).toBe("confirmou");
   });
 
-  it("enviadas de quem não tem recebida não criam conversa", () => {
-    expect(agruparConversas([], [env({ id: "e1" })])).toEqual([]);
+  it("cliente só com enviadas/agendadas abre conversa (sem classificação)", () => {
+    const [c] = agruparConversas([], [env({ id: "e1", tipo: "lembrete" })]);
+    expect(c).toMatchObject({
+      chave: "c1",
+      clienteId: "c1",
+      telefone: "5511987654321",
+      classificacao: null,
+      naoLidas: 0,
+      ultima: { texto: "Olá", direcao: "enviada" },
+      enviadas: [{ status: "enviada", tipo: "lembrete" }],
+    });
   });
-});
 
-describe("filtrarPorClassificacao", () => {
-  it("filtra conversas pela classificação da última recebida", () => {
-    const todas = agruparConversas(
-      [
-        rec({ id: "r1", cliente_id: "c1", classificacao: "para_ler" }),
-        rec({ id: "r2", cliente_id: "c2", classificacao: "confirmou", clientes: { nome: "Bia" } }),
-      ],
+  it("conversa só de pedido online (sem cliente) agrupa pelo telefone", () => {
+    const r = agruparConversas(
       [],
+      [
+        env({ id: "e1", cliente_id: null, telefone: "5511900001111", clientes: null }),
+        env({ id: "e2", cliente_id: null, telefone: "5511900001111", clientes: null }),
+      ],
     );
-    expect(filtrarPorClassificacao(todas, "confirmou").map((c) => c.chave)).toEqual(["c2"]);
-    expect(filtrarPorClassificacao(todas, null)).toHaveLength(2);
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({ chave: "5511900001111", clienteId: null, nome: null });
   });
 
-  it("'Para ler' exige não lidas na conversa", () => {
-    const todas = agruparConversas(
+  it("só com futuras: aparece e conta para os filtros, mas a prévia usa a mais próxima", () => {
+    const agora = new Date("2026-11-10T12:00:00Z");
+    const [c] = agruparConversas(
+      [],
       [
-        rec({ id: "r1", cliente_id: "c1", classificacao: "para_ler" }),
-        rec({
-          id: "r2",
-          cliente_id: "c2",
-          classificacao: "para_ler",
-          lida_em: "2026-11-10T13:00:00Z",
-          clientes: { nome: "Bia" },
+        env({
+          id: "e1",
+          status: "pendente",
+          tipo: "lembrete",
+          enviada_em: null,
+          agendado_para: "2026-11-12T12:00:00Z",
+          texto: null,
         }),
       ],
-      [],
+      agora,
     );
-    expect(filtrarPorClassificacao(todas, "para_ler").map((c) => c.chave)).toEqual(["c1"]);
+    expect(c.enviadas).toEqual([{ status: "pendente", tipo: "lembrete" }]);
+    expect(c.ultima.texto).toBe("(mensagem automática: Lembrete)");
+  });
+
+  it("futuras não contam para a prévia nem para a ordem quando já houve mensagem", () => {
+    const agora = new Date("2026-11-10T12:00:00Z");
+    const [c] = agruparConversas(
+      [rec({ id: "r1", recebida_em: "2026-11-10T10:00:00Z", texto: "Oi" })],
+      [
+        env({
+          id: "e1",
+          status: "pendente",
+          enviada_em: null,
+          agendado_para: "2026-11-15T12:00:00Z",
+        }),
+      ],
+      agora,
+    );
+    expect(c.ultima).toMatchObject({ texto: "Oi", direcao: "recebida" });
+    expect(c.enviadas).toHaveLength(1);
+  });
+
+  it("falhou: selo quando há falha sem reenvio posterior", () => {
+    const base = { tipo: "lembrete" as const, agendamento_id: "a1", pedido_online_id: null };
+    const [c] = agruparConversas(
+      [],
+      [env({ id: "e1", ...base, status: "falhou", criado_em: "2026-11-10T09:00:00Z" })],
+    );
+    expect(c.falhou).toBe(true);
+  });
+
+  it("falhou: selo some quando há reenvio posterior", () => {
+    const base = { tipo: "lembrete" as const, agendamento_id: "a1", pedido_online_id: null };
+    const [c] = agruparConversas(
+      [],
+      [
+        env({ id: "e1", ...base, status: "falhou", criado_em: "2026-11-10T09:00:00Z" }),
+        env({ id: "e2", ...base, status: "enviada", criado_em: "2026-11-10T10:00:00Z" }),
+      ],
+    );
+    expect(c.falhou).toBe(false);
   });
 });
 
@@ -234,15 +282,30 @@ describe("carregarConversas", () => {
     falso.definirPadrao({ data: null, error: null });
   });
 
-  it("lê recebidas e enviadas e devolve conversas filtradas", async () => {
+  it("lê recebidas e enviadas, inclui quem só tem enviadas e aplica o filtro", async () => {
+    falso.responder("mensagens_recebidas", {
+      data: [rec({ id: "r1" }), rec({ id: "r2", cliente_id: "c2", classificacao: "confirmou" })],
+      error: null,
+    });
+    falso.responder("fila_mensagens", {
+      data: [env({ id: "e1" }), env({ id: "e2", cliente_id: "c3", clientes: { nome: "Carla" } })],
+      error: null,
+    });
+    const todas = await carregarConversas(falso.cliente as never);
+    expect(todas.map((c) => c.chave).sort()).toEqual(["c1", "c2", "c3"]);
+    expect(todas.find((c) => c.chave === "c3")).toMatchObject({ nome: "Carla" });
+    expect(falso.chamadasDe("fila_mensagens", "limit")[0].args).toEqual([2000]);
+    expect(falso.chamadasDe("mensagens_recebidas", "limit")[0].args).toEqual([500]);
+  });
+
+  it("filtra por leitura", async () => {
     falso.responder("mensagens_recebidas", {
       data: [rec({ id: "r1" }), rec({ id: "r2", cliente_id: "c2", classificacao: "confirmou" })],
       error: null,
     });
     falso.responder("fila_mensagens", { data: [env({ id: "e1" })], error: null });
-    const r = await carregarConversas(falso.cliente as never, { classificacao: "para_ler" });
-    expect(r.map((c) => c.chave)).toEqual(["c1"]);
-    expect(r[0].ultima.direcao).toBe("enviada");
+    const r = await carregarConversas(falso.cliente as never, { leitura: "confirmou" });
+    expect(r.map((c) => c.chave)).toEqual(["c2"]);
   });
 
   it("erro do banco lança", async () => {

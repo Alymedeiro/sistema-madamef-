@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listarConversas, marcarConversaLida } from "@/app/(app)/mensagens/actions";
 import type { ResumoConversa } from "@/app/(app)/mensagens/dados";
-import type { ClassificacaoResposta } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
+import type { FiltroConversas } from "./filtro-conversas";
 import { ListaConversas } from "./lista-conversas";
 import { ConteudoConversa } from "./painel-conversa";
 
@@ -12,15 +12,15 @@ import { ConteudoConversa } from "./painel-conversa";
 export const INTERVALO_LISTA_MS = 30_000;
 const INTERVALO_LISTA_ABERTA_MS = 15_000;
 
-/** Aba Respostas: lista de conversas e a conversa selecionada (duas colunas no desktop). */
+/** Tela de Mensagens: lista de conversas e a conversa selecionada (duas colunas no desktop). */
 export function TelaConversas({
   iniciais,
-  classificacao,
+  filtro,
   envioAtivo,
   chaveInicial,
 }: {
   iniciais: ResumoConversa[];
-  classificacao: ClassificacaoResposta | null;
+  filtro: FiltroConversas;
   envioAtivo: boolean;
   chaveInicial: string | null;
 }) {
@@ -47,9 +47,9 @@ export function TelaConversas({
   }, []);
 
   const recarregar = useCallback(async () => {
-    const res = await listarConversas(classificacao);
+    const res = await listarConversas(filtro);
     if (res.ok) setConversas(res.conversas);
-  }, [classificacao]);
+  }, [filtro]);
 
   useEffect(() => {
     const t = setInterval(

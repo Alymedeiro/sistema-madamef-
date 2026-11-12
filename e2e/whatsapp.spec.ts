@@ -41,7 +41,7 @@ async function falhar(p: PromiseLike<{ error: unknown }>) {
   if (error) throw error;
 }
 
-const fila = (page: Page) => page.getByTestId("item-fila").filter({ hasText: textoAvulsa });
+const balao = (page: Page) => page.getByTestId("balao-enviada").filter({ hasText: textoAvulsa });
 
 test.beforeAll(async ({}, testInfo) => {
   test.setTimeout(TIMEOUT_PREPARACAO_MS);
@@ -142,7 +142,7 @@ test.describe("dona", () => {
 });
 
 test.describe("recepção", () => {
-  test("envia avulsa pela ficha, vê Pendente na Fila, cancela e tenta de novo", async ({ browser }) => {
+  test("envia avulsa pela ficha, vê na conversa e cancela", async ({ browser }) => {
     const contexto = await browser.newContext({ storageState: ARQUIVO_ESTADO("recepcao") });
     const page = await contexto.newPage();
     try {
@@ -153,26 +153,17 @@ test.describe("recepção", () => {
       await dialogo.getByRole("button", { name: "Enviar", exact: true }).click();
       await expect(page.getByText("Mensagem enviada para a fila.")).toBeVisible();
 
-      await page.goto(`/mensagens?aba=fila&busca=${encodeURIComponent(fx.cliente.nome)}`);
-      const item = fila(page);
+      await page.goto(`/mensagens?busca=${encodeURIComponent(fx.cliente.nome)}`);
+      await page.getByRole("button", { name: new RegExp(fx.cliente.nome) }).click();
+      const item = balao(page);
       await expect(item).toHaveCount(1);
-      await expect(item).toContainText("Pendente");
-      await expect(item).toContainText("Avulsa");
+      await expect(item).toContainText("Na fila");
 
       await item.getByRole("button", { name: "Cancelar", exact: true }).click();
       await item.getByRole("button", { name: "Confirmar cancelamento" }).click();
       await expect(page.getByText("Mensagem cancelada.")).toBeVisible();
-      await expect(item.filter({ hasText: "Cancelada" })).toHaveCount(1);
-
-      // Tentar de novo cria uma nova pendente (a cancelada fica); cancela de novo para não sair.
-      await item.getByRole("button", { name: "Tentar de novo" }).click();
-      await expect(page.getByText("Mensagem enviada para a fila de novo.")).toBeVisible();
-      const nova = fila(page).filter({ hasText: "Pendente" });
-      await expect(nova).toHaveCount(1);
-      await nova.getByRole("button", { name: "Cancelar", exact: true }).click();
-      await nova.getByRole("button", { name: "Confirmar cancelamento" }).click();
-      await expect(fila(page).filter({ hasText: "Cancelada" })).toHaveCount(2);
-      await expect(fila(page).filter({ hasText: "Pendente" })).toHaveCount(0);
+      await expect(balao(page).filter({ hasText: "Cancelada" })).toHaveCount(1);
+      await expect(balao(page)).toContainText("Cancelada pela equipe");
     } finally {
       await contexto.close();
     }
@@ -216,9 +207,11 @@ test.describe("resposta recebida", () => {
       await expect(page.getByRole("region", { name: "Respostas do WhatsApp" })).toBeVisible();
       await expect(page.getByText(textoResposta)).toHaveCount(0);
 
-      // Continua na aba Respostas, agora como lida.
-      await page.goto("/mensagens?aba=respostas");
-      await expect(page.getByRole("listitem").filter({ hasText: textoResposta })).toContainText("lida em");
+      // Continua em Mensagens, agora sem não lidas.
+      await page.goto(`/mensagens?busca=${encodeURIComponent(fx.cliente.nome)}`);
+      await expect(page.getByRole("listitem").filter({ hasText: textoResposta })).toBeVisible();
+      await page.goto("/mensagens?leitura=nao_lidas");
+      await expect(page.getByRole("listitem").filter({ hasText: textoResposta })).toHaveCount(0);
     } finally {
       await contexto.close();
     }
