@@ -8,6 +8,8 @@ import {
   aniversariantesDaSemana,
   atendidosSemPagamento,
   atendidosSemTermo,
+  carregarCrmInicio,
+  carregarFinanceiroInicio,
   carregarIndicadoresCrm,
   pedidosAguardando,
 } from "./dados";
@@ -211,5 +213,63 @@ describe("carregarIndicadoresCrm", () => {
     const falso = criarSupabaseFalso();
     falso.responder("rpc:crm_indicadores", { data: null, error: { message: "x" } });
     await expect(carregarIndicadoresCrm(falso.cliente as never, "dona")).rejects.toThrow();
+  });
+});
+
+describe("carregarFinanceiroInicio", () => {
+  it("recepção e profissional não recebem valores: nada é consultado", async () => {
+    const falso = criarSupabaseFalso();
+    expect(await carregarFinanceiroInicio(falso.cliente as never, "recepcao", "2026-11-12")).toBeNull();
+    expect(await carregarFinanceiroInicio(falso.cliente as never, "profissional", "2026-11-12")).toBeNull();
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("dona: soma hoje, mês, comparação, ticket e série de 30 dias a partir do fluxo por dia", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder(
+      "rpc:fluxo_caixa",
+      ok([
+        { periodo: "2026-10-05", entradas: 10000, saidas: 0 },
+        { periodo: "2026-11-02", entradas: 30000, saidas: 500 },
+        { periodo: "2026-11-12", entradas: 20000, saidas: 0 },
+      ]),
+    );
+    falso.responder("agendamentos", { data: null, count: 5, error: null } as never);
+    const r = await carregarFinanceiroInicio(falso.cliente as never, "dona", "2026-11-12");
+    expect(falso.chamadasRpc("fluxo_caixa")[0].args[0]).toEqual({
+      p_de: "2026-10-01",
+      p_ate: "2026-11-12",
+      p_agrupar: "dia",
+    });
+    expect(r).toMatchObject({
+      hojeCentavos: 20000,
+      mesCentavos: 50000,
+      variacaoMes: 400,
+      atendidosMes: 5,
+      ticketMedioCentavos: 10000,
+    });
+    expect(r?.serie30).toHaveLength(30);
+    expect(r?.serie30.at(-1)).toEqual({ dia: "2026-11-12", valor: 20000 });
+  });
+});
+
+describe("carregarCrmInicio", () => {
+  it("profissional recebe null sem consulta", async () => {
+    const falso = criarSupabaseFalso();
+    expect(await carregarCrmInicio(falso.cliente as never, "profissional", "2026-11-12")).toBeNull();
+    expect(falso.chamadas).toHaveLength(0);
+  });
+  it("recepção: três números e convertidos null, sem crm_indicadores", async () => {
+    const falso = criarSupabaseFalso();
+    falso.responder("rpc:crm_retornos", ok([{}, {}]));
+    falso.responder("rpc:crm_sumidas", ok([{}]));
+    falso.responder("leads", { data: null, count: 4, error: null } as never);
+    expect(await carregarCrmInicio(falso.cliente as never, "recepcao", "2026-11-12")).toEqual({
+      retornos: 2,
+      sumidas: 1,
+      leadsAbertos: 4,
+      convertidosMes: null,
+    });
+    expect(falso.chamadasRpc("crm_indicadores")).toHaveLength(0);
   });
 });

@@ -1,41 +1,42 @@
 import { carregarAlertasWhatsapp, type AlertasWhatsapp } from "@/app/(app)/mensagens/dados";
-import {
-  AlertaWhatsappDesconectado,
-  CartaoPainel,
-  ListaAniversariantes,
-  IndicadoresCrm,
-  ListaContasVencendo,
-  ListaAtendimentos,
-  ListaEstoqueBaixo,
-  ListaPedidosOnline,
-  ListaRespostasWhatsapp,
-  ListaSemTermo,
-  ResumoFalhasWhatsapp,
-} from "@/features/inicio/cartoes";
+import { carregarContasVencendo } from "@/features/avisos/dados";
 import {
   aguardandoConfirmacao,
   aniversariantesDaSemana,
   atendidosSemPagamento,
   atendidosSemTermo,
+  atendimentosDaSemana,
   atendimentosDoDia,
-  carregarIndicadoresCrm,
-  contasVencendo,
+  carregarCrmInicio,
+  carregarFinanceiroInicio,
   pedidosAguardando,
   produtosComEstoqueBaixo,
 } from "@/features/inicio/dados";
+import { montarAlertas, proximoAtendimento } from "@/features/inicio/indicadores";
 import {
   carregarCartao,
   diasDaSemana,
   primeiroNome,
   saudacaoPorHora,
   somarDias,
-  type Cartao,
 } from "@/features/inicio/painel";
-import { ListaSemPagamento } from "@/features/inicio/sem-pagamento";
+import {
+  AgendaHoje,
+  BlocoCrm,
+  GraficoBarras,
+  LinhaKpis,
+  ListaAlertas,
+  Quadro,
+  VariacaoMes,
+  type DadosKpi,
+} from "@/features/inicio/painel-ui";
+import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Início | Madame Fê Clinic" };
+
+const INICIAIS_SEMANA = ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"];
 
 export default async function InicioPage() {
   const { colaborador } = await exigirPerfil();
@@ -45,10 +46,12 @@ export default async function InicioPage() {
   const gerencia = ehDona || colaborador.perfil === "recepcao";
   const supabase = await createClient();
 
-  // Cada cartão carrega por conta própria: uma falha não apaga o painel.
+  // Cada quadro carrega por conta própria: uma falha não apaga o painel.
   const sem: AlertasWhatsapp = { desconectado: false, semChaves: false, falhas: 0, respostas: [] };
   const [
-    atendimentos,
+    dia,
+    semana,
+    financeiro,
     pendentes,
     semPagamento,
     aniversarios,
@@ -60,160 +63,188 @@ export default async function InicioPage() {
     crm,
   ] = await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
+    carregarCartao(atendimentosDaSemana(supabase, hoje)),
+    carregarCartao(carregarFinanceiroInicio(supabase, colaborador.perfil, hoje)),
     carregarCartao(gerencia ? aguardandoConfirmacao(supabase, hoje, amanha) : Promise.resolve([])),
     carregarCartao(gerencia ? atendidosSemPagamento(supabase, seteDiasAtras, hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? aniversariantesDaSemana(supabase, hoje, fimSemana) : Promise.resolve([])),
     carregarCartao(ehDona ? produtosComEstoqueBaixo(supabase) : Promise.resolve([])),
-    // Últimos 30 dias, contando hoje.
     carregarCartao(ehDona ? atendidosSemTermo(supabase, somarDias(hoje, -29), hoje) : Promise.resolve([])),
     carregarCartao(gerencia ? pedidosAguardando(supabase) : Promise.resolve([])),
-    carregarCartao(ehDona ? contasVencendo(supabase, hoje) : Promise.resolve([])),
+    carregarCartao(ehDona ? carregarContasVencendo(supabase, hoje, 1000) : Promise.resolve([])),
     carregarCartao(gerencia ? carregarAlertasWhatsapp(supabase, agora) : Promise.resolve(sem)),
-    carregarCartao(carregarIndicadoresCrm(supabase, colaborador.perfil)),
+    carregarCartao(carregarCrmInicio(supabase, colaborador.perfil, hoje)),
   ]);
-  const estado = <T,>(c: Cartao<T[]>) => ({
-    falhou: !c.ok,
-    vazio: c.ok && c.dados.length === 0,
-    itens: c.ok ? c.dados : [],
-  });
-  const cAtendimentos = estado(atendimentos);
-  const cPendentes = estado(pendentes);
-  const cSemPagamento = estado(semPagamento);
-  const cAniversarios = estado(aniversarios);
-  const cEstoque = estado(estoque);
-  const cSemTermo = estado(semTermo);
-  const cOnline = estado(online);
-  const cVencendo = estado(vencendo);
-  const cRespostas = estado(whatsapp.ok ? { ok: true, dados: whatsapp.dados.respostas } : { ok: false });
-  const falhasWhatsapp = whatsapp.ok ? whatsapp.dados.falhas : 0;
+
+  const lista = <T,>(c: { ok: true; dados: T[] } | { ok: false }) => (c.ok ? c.dados : []);
+  const zap = whatsapp.ok ? whatsapp.dados : sem;
+  const itensDia = lista(dia);
+  const confirmados = itensDia.filter((a) => a.status === "confirmado").length;
+  const fin = financeiro.ok ? financeiro.dados : null;
+
+  const kpis: DadosKpi[] = [
+    {
+      chave: "atendimentos-hoje",
+      rotulo: "Atendimentos hoje",
+      valor: dia.ok ? String(itensDia.length) : null,
+      detalhe: `${confirmados} confirmados`,
+      href: "/agenda",
+    },
+  ];
+  if (ehDona) {
+    kpis.push(
+      {
+        chave: "faturamento-hoje",
+        rotulo: "Faturamento hoje",
+        valor: fin ? formatarBRL(fin.hojeCentavos) : null,
+        detalhe: "recebido hoje",
+      },
+      {
+        chave: "faturamento-mes",
+        rotulo: "Faturamento do mês",
+        valor: fin ? formatarBRL(fin.mesCentavos) : null,
+        detalhe: fin && <VariacaoMes variacao={fin.variacaoMes} />,
+      },
+      {
+        chave: "ticket-medio",
+        rotulo: "Ticket médio do mês",
+        valor: fin ? (fin.ticketMedioCentavos === null ? "—" : formatarBRL(fin.ticketMedioCentavos)) : null,
+        detalhe: fin && `${fin.atendidosMes} atendidos no mês`,
+      },
+    );
+  }
+  if (gerencia) {
+    kpis.push(
+      {
+        chave: "pedidos-online",
+        rotulo: "Pedidos online",
+        valor: online.ok ? String(online.dados.length) : null,
+        detalhe: "aguardando resposta",
+        href: "/agenda/pedidos",
+      },
+      {
+        chave: "respostas",
+        rotulo: "Respostas para ler",
+        valor: whatsapp.ok ? String(zap.respostas.length) : null,
+        detalhe: "do WhatsApp",
+        href: "/mensagens?aba=respostas",
+      },
+    );
+  }
+
+  const alertas = montarAlertas([
+    {
+      id: "whatsapp",
+      contagem: gerencia && zap.desconectado ? 1 : 0,
+      singular: zap.semChaves ? "Chaves da Z-API não configuradas" : "WhatsApp desconectado",
+      plural: zap.semChaves ? "Chaves da Z-API não configuradas" : "WhatsApp desconectado",
+      href: ehDona ? "/configuracoes#whatsapp" : "/mensagens",
+      semNumero: true,
+    },
+    {
+      id: "falhas",
+      contagem: zap.falhas,
+      singular: "mensagem com falha",
+      plural: "mensagens com falha",
+      href: "/mensagens?aba=fila&status=falhou",
+    },
+    {
+      id: "pendentes",
+      contagem: lista(pendentes).length,
+      singular: "aguardando confirmação",
+      plural: "aguardando confirmação",
+      href: "/agenda",
+    },
+    {
+      id: "sem-pagamento",
+      contagem: lista(semPagamento).length,
+      singular: "atendido sem pagamento",
+      plural: "atendidos sem pagamento",
+      href: "/caixa",
+    },
+    {
+      id: "vencendo",
+      contagem: lista(vencendo).length,
+      singular: "conta vencendo",
+      plural: "contas vencendo",
+      href: "/financeiro",
+    },
+    {
+      id: "estoque",
+      contagem: lista(estoque).length,
+      singular: "produto com estoque baixo",
+      plural: "produtos com estoque baixo",
+      href: "/produtos",
+    },
+    {
+      id: "sem-termo",
+      contagem: lista(semTermo).length,
+      singular: "atendido sem termo",
+      plural: "atendidos sem termo",
+      href: `/clientes/${lista(semTermo)[0]?.clienteId ?? ""}?aba=termos`,
+    },
+  ]);
+  const algumAlertaFalhou = [pendentes, semPagamento, estoque, semTermo, vencendo, whatsapp].some((c) => !c.ok);
+
+  const semanaDados = semana.ok ? semana.dados : [];
+  const proximo = proximoAtendimento(itensDia, agora);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex min-w-0 flex-col gap-6">
       <h1 className="font-script text-4xl text-ouro-escuro">
         {saudacaoPorHora(agora)}, {primeiroNome(colaborador.nome)}
       </h1>
 
-      {gerencia && whatsapp.ok && whatsapp.dados.desconectado && (
-        <AlertaWhatsappDesconectado ehDona={ehDona} semChaves={whatsapp.dados.semChaves} />
-      )}
+      <LinhaKpis itens={kpis} />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {ehDona && crm.ok && crm.dados && <IndicadoresCrm dados={crm.dados} />}
-
-        <CartaoPainel
-          id="atendimentos-t"
-          titulo="Atendimentos de hoje"
-          vazio={cAtendimentos.vazio}
-          falhou={cAtendimentos.falhou}
-          vazioTexto="Nenhum atendimento hoje"
-        >
-          <ListaAtendimentos itens={cAtendimentos.itens} />
-        </CartaoPainel>
-
-        {gerencia && (
-          <>
-            <CartaoPainel
-              id="pedidos-online-t"
-              titulo={
-                cOnline.falhou
-                  ? "Pedidos online aguardando"
-                  : `Pedidos online aguardando (${cOnline.itens.length})`
-              }
-              vazio={cOnline.vazio}
-              falhou={cOnline.falhou}
-              vazioTexto="Nenhum pedido online aguardando resposta"
-            >
-              <ListaPedidosOnline itens={cOnline.itens} agora={agora} />
-            </CartaoPainel>
-
-            <CartaoPainel
-              id="respostas-whatsapp-t"
-              titulo="Respostas do WhatsApp"
-              vazio={cRespostas.vazio}
-              falhou={cRespostas.falhou}
-              vazioTexto="Nenhuma resposta do WhatsApp para ler"
-            >
-              <ListaRespostasWhatsapp itens={cRespostas.itens} />
-            </CartaoPainel>
-
-            <CartaoPainel
-              id="falhas-whatsapp-t"
-              titulo="Mensagens com falha"
-              vazio={whatsapp.ok && falhasWhatsapp === 0}
-              falhou={!whatsapp.ok}
-              vazioTexto="Nenhuma mensagem com falha nos últimos 7 dias"
-            >
-              <ResumoFalhasWhatsapp falhas={falhasWhatsapp} />
-            </CartaoPainel>
-
-            <CartaoPainel
-              id="pendentes-t"
-              titulo="Aguardando confirmação"
-              vazio={cPendentes.vazio}
-              falhou={cPendentes.falhou}
-              vazioTexto="Nenhum atendimento aguardando confirmação"
-            >
-              <ListaAtendimentos itens={cPendentes.itens} comDia hoje={hoje} />
-            </CartaoPainel>
-
-            <CartaoPainel
-              id="sem-pagamento-t"
-              titulo="Atendidos sem pagamento"
-              vazio={cSemPagamento.vazio}
-              falhou={cSemPagamento.falhou}
-              vazioTexto="Nenhum atendimento sem pagamento nos últimos 7 dias"
-            >
-              <ListaSemPagamento itens={cSemPagamento.itens} hoje={hoje} />
-            </CartaoPainel>
-
-            <CartaoPainel
-              id="aniversarios-t"
-              titulo="Aniversariantes da semana"
-              vazio={cAniversarios.vazio}
-              falhou={cAniversarios.falhou}
-              vazioTexto="Nenhum aniversariante nesta semana"
-            >
-              <ListaAniversariantes itens={cAniversarios.itens} />
-            </CartaoPainel>
-          </>
-        )}
-
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
         {ehDona && (
-          <CartaoPainel
-            id="vencendo-t"
-            titulo="Contas vencendo"
-            vazio={cVencendo.vazio}
-            falhou={cVencendo.falhou}
-            vazioTexto="Nenhuma conta vencendo nos próximos 7 dias"
-          >
-            <ListaContasVencendo itens={cVencendo.itens} />
-          </CartaoPainel>
+          <Quadro id="grafico-fat-t" titulo="Faturamento — últimos 30 dias" falhou={!fin}>
+            {fin && (
+              <GraficoBarras
+                pontos={fin.serie30}
+                formatar={formatarBRL}
+                destaque={hoje}
+                rotulos={fin.serie30.map((p, i) => (i % 7 === 0 || i === 29 ? `${p.dia.slice(8, 10)}/${p.dia.slice(5, 7)}` : ""))}
+                titulo="Faturamento por dia"
+                descricao={`Faturamento por dia nos últimos 30 dias, total ${formatarBRL(fin.serie30.reduce((s, p) => s + p.valor, 0))}`}
+              />
+            )}
+          </Quadro>
         )}
-
-        {ehDona && (
-          <CartaoPainel
-            id="estoque-t"
-            titulo="Estoque baixo"
-            vazio={cEstoque.vazio}
-            falhou={cEstoque.falhou}
-            vazioTexto="Nenhum produto com estoque baixo"
-          >
-            <ListaEstoqueBaixo itens={cEstoque.itens} />
-          </CartaoPainel>
-        )}
-
-        {ehDona && (
-          <CartaoPainel
-            id="sem-termo-t"
-            titulo="Atendidos sem termo"
-            vazio={cSemTermo.vazio}
-            falhou={cSemTermo.falhou}
-            vazioTexto="Nenhum atendimento sem termo nos últimos 30 dias"
-          >
-            <ListaSemTermo itens={cSemTermo.itens} />
-          </CartaoPainel>
-        )}
+        <Quadro id="grafico-semana-t" titulo="Atendimentos da semana" falhou={!semana.ok}>
+          <GraficoBarras
+            pontos={semanaDados.map((d) => ({ dia: d.dia, valor: d.quantidade }))}
+            formatar={(n) => `${n} ${n === 1 ? "atendimento" : "atendimentos"}`}
+            destaque={hoje}
+            rotulos={INICIAIS_SEMANA}
+            titulo="Atendimentos por dia da semana"
+            descricao={`Atendimentos de segunda a domingo, total ${semanaDados.reduce((s, d) => s + d.quantidade, 0)}`}
+          />
+        </Quadro>
       </div>
+
+      <div className="grid min-w-0 gap-4 lg:grid-cols-2">
+        <Quadro id="agenda-hoje-t" titulo="Agenda de hoje" falhou={!dia.ok}>
+          <AgendaHoje itens={itensDia} proximoId={proximo?.id ?? null} />
+        </Quadro>
+        <Quadro id="alertas-t" titulo="Alertas">
+          <ListaAlertas alertas={alertas} />
+          {algumAlertaFalhou && (
+            <p role="alert" className="text-sm text-destructive">
+              Alguns alertas não puderam ser carregados. Atualize a página para tentar de novo.
+            </p>
+          )}
+        </Quadro>
+      </div>
+
+      {gerencia && (
+        <Quadro id="crm-t" titulo="CRM" falhou={!crm.ok}>
+          {crm.ok && crm.dados && (
+            <BlocoCrm dados={crm.dados} aniversariantes={aniversarios.ok ? aniversarios.dados : null} />
+          )}
+        </Quadro>
+      )}
     </div>
   );
 }

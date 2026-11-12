@@ -5,7 +5,17 @@ import { combinarDataHora, dataNoFuso } from "@/lib/dominio/tempo";
 import { carregarContasVencendo, type ContaVencendo } from "@/features/avisos/dados";
 import { listarPedidos } from "@/features/pedidos/dados";
 import { createClient } from "@/lib/supabase/server";
-import { agruparPorHorario, estoqueBaixo, type ProdutoEstoque } from "./painel";
+import {
+  atendimentosPorDia,
+  periodosDoMes,
+  semanaSegDom,
+  serieDiaria,
+  somarPeriodo,
+  ticketMedio,
+  variacaoPercentual,
+  type PontoDia,
+} from "./indicadores";
+import { agruparPorHorario, estoqueBaixo, somarDias, type ProdutoEstoque } from "./painel";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
@@ -244,5 +254,109 @@ export async function carregarIndicadoresCrm(
     sumidas: l.sumidas,
     leadsAbertos: l.leads_abertos,
     convertidosMes: l.convertidos_mes,
+  };
+}
+
+export type FinanceiroInicio = {
+  hojeCentavos: number;
+  mesCentavos: number;
+  /** Variação % sobre o mesmo período do mês anterior; null sem base. */
+  variacaoMes: number | null;
+  atendidosMes: number;
+  ticketMedioCentavos: number | null;
+  serie30: PontoDia[];
+};
+
+/**
+ * Faturamento do painel (só dona; qualquer outro perfil recebe null e nada é consultado).
+ * Mesma fonte do Financeiro: `fluxo_caixa` por dia (entradas pela regra de `entradas_financeiro`).
+ */
+export async function carregarFinanceiroInicio(
+  supabase: Supabase,
+  perfil: Perfil,
+  hoje: string,
+): Promise<FinanceiroInicio | null> {
+  if (perfil !== "dona") return null;
+  const { inicioMes, inicioMesAnterior, fimMesAnterior } = periodosDoMes(hoje);
+  const inicio30 = somarDias(hoje, -29);
+  const de = inicio30 < inicioMesAnterior ? inicio30 : inicioMesAnterior;
+
+  const [fluxo, atendidos] = await Promise.all([
+    supabase.rpc("fluxo_caixa", { p_de: de, p_ate: hoje, p_agrupar: "dia" }),
+    supabase
+      .from("agendamentos")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "atendido")
+      .gte("inicio", combinarDataHora(inicioMes, "00:00").toISOString())
+      .lt("inicio", combinarDataHora(proximoDia(hoje), "00:00").toISOString()),
+  ]);
+  falhou("o faturamento", fluxo.error);
+  falhou("os atendimentos do mês", atendidos.error);
+
+  const linhas: PontoDia[] = (fluxo.data ?? []).map((l) => ({
+    dia: String(l.periodo).slice(0, 10),
+    valor: Number(l.entradas ?? 0) || 0,
+  }));
+  const mes = somarPeriodo(linhas, inicioMes, hoje);
+  const anterior = somarPeriodo(linhas, inicioMesAnterior, fimMesAnterior);
+  const qtd = atendidos.count ?? 0;
+  return {
+    hojeCentavos: somarPeriodo(linhas, hoje, hoje),
+    mesCentavos: mes,
+    variacaoMes: variacaoPercentual(mes, anterior),
+    atendidosMes: qtd,
+    ticketMedioCentavos: ticketMedio(mes, qtd),
+    serie30: serieDiaria(linhas, inicio30, hoje),
+  };
+}
+
+export type SemanaAtendimentos = { dia: string; quantidade: number }[];
+
+/** Atendimentos não cancelados de segunda a domingo da semana de `hoje` (o RLS limita a profissional aos seus). */
+export async function atendimentosDaSemana(supabase: Supabase, hoje: string): Promise<SemanaAtendimentos> {
+  const dias = semanaSegDom(hoje);
+  const { data, error } = await supabase
+    .from("agendamentos")
+    .select("inicio")
+    .gte("inicio", combinarDataHora(dias[0], "00:00").toISOString())
+    .lt("inicio", combinarDataHora(proximoDia(dias[6]), "00:00").toISOString())
+    .neq("status", "cancelado");
+  falhou("os atendimentos da semana", error);
+  const qtds = atendimentosPorDia((data ?? []).map((a) => a.inicio), dias);
+  return dias.map((dia, i) => ({ dia, quantidade: qtds[i] }));
+}
+
+export type IndicadoresCrmPainel = {
+  retornos: number;
+  sumidas: number;
+  leadsAbertos: number;
+  /** Só a dona vê; null para a recepção. */
+  convertidosMes: number | null;
+};
+
+/** CRM do painel: dona (4 números) e recepção (3, sem convertidos); profissional recebe null sem consulta. */
+export async function carregarCrmInicio(
+  supabase: Supabase,
+  perfil: Perfil,
+  hoje: string,
+): Promise<IndicadoresCrmPainel | null> {
+  if (perfil === "dona") return carregarIndicadoresCrm(supabase, perfil);
+  if (perfil !== "recepcao") return null;
+  const [retornos, sumidas, leads] = await Promise.all([
+    supabase.rpc("crm_retornos", { p_ate: somarDias(hoje, 7) }),
+    supabase.rpc("crm_sumidas"),
+    supabase
+      .from("leads")
+      .select("id", { count: "exact", head: true })
+      .in("etapa", ["novo", "em_conversa", "orcamento_enviado"]),
+  ]);
+  falhou("os retornos", retornos.error);
+  falhou("as clientes sumidas", sumidas.error);
+  falhou("os leads", leads.error);
+  return {
+    retornos: retornos.data?.length ?? 0,
+    sumidas: sumidas.data?.length ?? 0,
+    leadsAbertos: leads.count ?? 0,
+    convertidosMes: null,
   };
 }
