@@ -93,8 +93,12 @@ async function statusOmni(
       signal: AbortSignal.timeout(10000),
     });
     const corpo = lerJson(await r.text());
-    return r.ok && corpo.connected === true ? "conectado" : "desconectado";
-  } catch {
+    if (r.ok && corpo.connected === true) return "conectado";
+    // Diagnóstico sem valores: só o status HTTP e os nomes dos campos.
+    console.warn("whatsapp: Omni status", r.status, Object.keys(corpo).join(",") || "(vazio)");
+    return "desconectado";
+  } catch (e) {
+    console.warn("whatsapp: Omni status falhou", e instanceof Error ? e.name : "erro");
     return "desconectado";
   }
 }
