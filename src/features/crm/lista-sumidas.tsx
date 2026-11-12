@@ -35,7 +35,10 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
   function alternar(id: string, valor: boolean) {
     setMarcadas((atual) => {
       const novo = new Set(atual);
-      if (valor) novo.add(id);
+      if (valor) {
+        if (novo.size >= LIMITE_LOTE_REATIVACAO) return atual;
+        novo.add(id);
+      }
       else novo.delete(id);
       return novo;
     });
@@ -54,6 +57,7 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
   }
 
   const excedeu = elegiveis.length > LIMITE_LOTE_REATIVACAO;
+  const noLimite = marcadas.size >= LIMITE_LOTE_REATIVACAO;
 
   return (
     <>
@@ -77,6 +81,12 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
         </Button>
       </div>
 
+      {noLimite && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Máximo de {LIMITE_LOTE_REATIVACAO} por envio.
+        </p>
+      )}
+
       <div className="hidden rounded-xl border bg-card md:block">
         <Table>
           <TableHeader>
@@ -93,7 +103,12 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
             {itens.map((s) => (
               <TableRow key={s.clienteId} data-testid="linha-sumida">
                 <TableCell>
-                  <Escolha s={s} marcada={marcadas.has(s.clienteId)} onAlternar={alternar} />
+                  <Escolha
+                    s={s}
+                    marcada={marcadas.has(s.clienteId)}
+                    bloqueada={noLimite}
+                    onAlternar={alternar}
+                  />
                 </TableCell>
                 <TableCell>
                   <LinkCliente s={s} />
@@ -117,7 +132,12 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
             data-testid="cartao-sumida"
             className="flex items-start gap-1 rounded-xl border bg-card p-2 pr-4 text-sm shadow-sm"
           >
-            <Escolha s={s} marcada={marcadas.has(s.clienteId)} onAlternar={alternar} />
+            <Escolha
+                    s={s}
+                    marcada={marcadas.has(s.clienteId)}
+                    bloqueada={noLimite}
+                    onAlternar={alternar}
+                  />
             <div className="flex min-w-0 flex-1 flex-col gap-1 py-2">
               <LinkCliente s={s} />
               <span className="text-xs text-muted-foreground tabular-nums">
@@ -149,17 +169,20 @@ export function ListaSumidas({ itens, modelo }: { itens: Sumida[]; modelo: Model
 function Escolha({
   s,
   marcada,
+  bloqueada,
   onAlternar,
 }: {
   s: Sumida;
   marcada: boolean;
+  /** Seleção cheia: só dá para desmarcar. */
+  bloqueada: boolean;
   onAlternar: (id: string, valor: boolean) => void;
 }) {
   return (
     <label className="inline-flex size-11 cursor-pointer items-center justify-center">
       <Checkbox
         checked={marcada}
-        disabled={s.envio !== "livre"}
+        disabled={s.envio !== "livre" || (bloqueada && !marcada)}
         onCheckedChange={(v) => onAlternar(s.clienteId, v === true)}
         aria-label={`Escolher ${s.nome}`}
       />
@@ -171,7 +194,7 @@ function LinkCliente({ s }: { s: Sumida }) {
   return (
     <Link
       href={`/clientes/${s.clienteId}`}
-      className="font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
     >
       {s.nome}
     </Link>

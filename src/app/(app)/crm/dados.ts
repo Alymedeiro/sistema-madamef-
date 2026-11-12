@@ -16,8 +16,8 @@ type Supabase = Awaited<ReturnType<typeof createClient>>;
 export const DIAS_RETORNO = 7;
 /** Aniversariantes: hoje e os próximos 7 dias. */
 export const DIAS_ANIVERSARIANTES = 7;
-/** Teto de clientes lidas para achar aniversariantes. */
-const LIMITE_CLIENTES = 5000;
+/** Tamanho da página ao ler clientes (o PostgREST corta em 1000 linhas). */
+export const TAMANHO_PAGINA = 1000;
 
 export type Retorno = {
   clienteId: string;
@@ -98,15 +98,27 @@ export async function carregarAniversariantes(
   supabase: Supabase,
   hoje: string,
 ): Promise<Aniversariante[]> {
-  const { data, error } = await supabase
-    .from("clientes")
-    .select("id, nome, whatsapp, aceita_whatsapp_marketing, data_nascimento")
-    .eq("ativo", true)
-    .not("data_nascimento", "is", null)
-    .limit(LIMITE_CLIENTES);
-  falhou("as clientes", error);
+  const clientes: {
+    id: string;
+    nome: string;
+    whatsapp: string | null;
+    aceita_whatsapp_marketing: boolean;
+    data_nascimento: string | null;
+  }[] = [];
+  for (let de = 0; ; de += TAMANHO_PAGINA) {
+    const { data, error } = await supabase
+      .from("clientes")
+      .select("id, nome, whatsapp, aceita_whatsapp_marketing, data_nascimento")
+      .eq("ativo", true)
+      .not("data_nascimento", "is", null)
+      .order("id")
+      .range(de, de + TAMANHO_PAGINA - 1);
+    falhou("as clientes", error);
+    clientes.push(...(data ?? []));
+    if ((data?.length ?? 0) < TAMANHO_PAGINA) break;
+  }
 
-  const lista = aniversariantesEntre(data ?? [], hoje, somarDias(hoje, DIAS_ANIVERSARIANTES));
+  const lista = aniversariantesEntre(clientes, hoje, somarDias(hoje, DIAS_ANIVERSARIANTES));
   if (lista.length === 0) return [];
 
   const { data: fila, error: erroFila } = await supabase
@@ -148,5 +160,5 @@ export async function carregarModeloReativacao(supabase: Supabase): Promise<Mode
     supabase.from("configuracoes_clinica").select("nome").maybeSingle(),
   ]);
   const variacoes = modelo?.variacoes?.length ? modelo.variacoes : [TEXTOS_PADRAO.reativacao];
-  return { variacoes, ativo: modelo?.ativo ?? true, clinica: clinica?.nome ?? "" };
+  return { variacoes, ativo: modelo?.ativo ?? true, clinica: clinica?.nome ?? "Madame Fê Clinic" };
 }

@@ -3,7 +3,7 @@ import { criarSupabaseFalso } from "@/test/supabase-falso";
 
 vi.mock("server-only", () => ({}));
 
-import { carregarAniversariantes, carregarRetornos, carregarSumidas } from "./dados";
+import { carregarAniversariantes, carregarModeloReativacao, carregarRetornos, carregarSumidas } from "./dados";
 
 let falso = criarSupabaseFalso();
 beforeEach(() => {
@@ -121,9 +121,45 @@ describe("carregarAniversariantes", () => {
     expect(r[0].envio).toBe("livre");
   });
 
+  it("pagina as clientes de 1000 em 1000, ordenando por id, até a página incompleta", async () => {
+    const cheia = Array.from({ length: 1000 }, (_, i) => ({
+      id: `c${i}`,
+      nome: "X",
+      whatsapp: null,
+      aceita_whatsapp_marketing: false,
+      data_nascimento: "1990-01-01",
+    }));
+    falso.responder(
+      "clientes",
+      { data: cheia, error: null },
+      {
+        data: [
+          { id: "z1", nome: "Zé", whatsapp: null, aceita_whatsapp_marketing: false, data_nascimento: "1990-11-13" },
+        ],
+        error: null,
+      },
+    );
+    const r = await carregarAniversariantes(falso.cliente as never, "2026-11-12");
+    expect(r.map((x) => x.clienteId)).toEqual(["z1"]);
+    expect(falso.chamadasDe("clientes", "range").map((c) => c.args)).toEqual([
+      [0, 999],
+      [1000, 1999],
+    ]);
+    expect(falso.chamadasDe("clientes", "order")[0].args).toEqual(["id"]);
+  });
+
   it("sem aniversariantes não consulta a fila", async () => {
     falso.responder("clientes", { data: [], error: null });
     expect(await carregarAniversariantes(falso.cliente as never, "2026-11-12")).toEqual([]);
     expect(falso.chamadasDe("fila_mensagens")).toHaveLength(0);
+  });
+});
+
+describe("carregarModeloReativacao", () => {
+  it("cai no nome padrão da clínica se a leitura falhar", async () => {
+    falso.responder("modelos_mensagem", { data: null, error: { message: "x" } });
+    falso.responder("configuracoes_clinica", { data: null, error: { message: "x" } });
+    const m = await carregarModeloReativacao(falso.cliente as never);
+    expect(m.clinica).toBe("Madame Fê Clinic");
   });
 });

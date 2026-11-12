@@ -72,7 +72,7 @@ function LinkCliente({ r }: { r: Retorno }) {
   return (
     <Link
       href={`/clientes/${r.clienteId}`}
-      className="font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
     >
       {r.clienteNome}
     </Link>

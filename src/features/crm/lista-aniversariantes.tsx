@@ -28,7 +28,7 @@ function LinkCliente({ a }: { a: Aniversariante }) {
   return (
     <Link
       href={`/clientes/${a.clienteId}`}
-      className="font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      className="inline-flex min-h-11 items-center font-medium text-ouro-escuro underline-offset-4 hover:underline"
     >
       {a.nome}
     </Link>
