@@ -19,6 +19,9 @@ const MSG_EQUIPE = "Apenas a dona ou a recepção podem enviar mensagens.";
 const ZAP = "5511987654321";
 const ZAP_SEM_9 = "551187654321";
 const DESCONHECIDO = "5521999998888";
+/** Mesmo número desconhecido com e sem o 9 depois do DDD. */
+const SEM_9 = "552188887777";
+const COM_9 = "5521988887777";
 
 const MENU =
   "Oi, Maria! 💕 Sou a assistente virtual da Madame Fé. Escolha uma opção digitando o número:\n\n" +
@@ -567,7 +570,7 @@ describe("conversa com o robô", () => {
       await ligar(c);
       const ag = await agendamentoPendente(c);
       await c.query(
-        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '26 hours'
          where agendamento_id = $1 and tipo = 'confirmacao'`,
         [ag],
       );
@@ -612,7 +615,7 @@ describe("conversa com o robô", () => {
       await ligar(c);
       const ag = await agendamentoPendente(c);
       await c.query(
-        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '26 hours'
          where agendamento_id = $1 and tipo = 'confirmacao'`,
         [ag],
       );
@@ -630,7 +633,7 @@ describe("conversa com o robô", () => {
   async function cenarioDigito(c: PoolClient): Promise<string> {
     const ag = await agendamentoPendente(c);
     await c.query(
-      `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+      `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '26 hours'
        where agendamento_id = $1 and tipo = 'confirmacao'`,
       [ag],
     );
@@ -670,7 +673,7 @@ describe("conversa com o robô", () => {
       await ligar(c);
       const ag = await agendamentoPendente(c);
       await c.query(
-        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '26 hours'
          where agendamento_id = $1 and tipo = 'confirmacao'`,
         [ag],
       );
@@ -709,6 +712,72 @@ describe("conversa com o robô", () => {
       expect(avisos.some((a) => a.startsWith("Robô: não foi possível processar a resposta"))).toBe(true);
       expect(await robo(c)).toEqual([]);
       expect(await sessao(c)).toBeUndefined();
+    });
+  });
+
+  it("confirmação ontem, menu hoje, 'Sim' → confirma e o robô não responde", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await cenarioDigito(c);
+      expect(await conversar(c, "Sim")).toEqual([]);
+      expect(await statusAg(c, ag)).toBe("confirmado");
+    });
+  });
+
+  it("confirmação enviada há 2 h e pendente: 'Oi' sem menu e depois '1' confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await agendamentoPendente(c);
+      await c.query(
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '2 hours'
+         where agendamento_id = $1 and tipo = 'confirmacao'`,
+        [ag],
+      );
+      expect(await conversar(c, "Oi")).toEqual([]);
+      expect(await conversar(c, "0")).toEqual([]);
+      expect(await conversar(c, "1")).toEqual([]);
+      expect(await statusAg(c, ag)).toBe("confirmado");
+      // Confirmado: o robô volta a atender.
+      expect(await conversar(c, "Oi de novo")).toEqual([MENU]);
+    });
+  });
+
+  it("número com e sem o 9: mesma sessão, pausa, pedido de atendimento e retomada", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const [menu] = await conversar(c, "oi", SEM_9);
+      expect(menu.startsWith("Oi! 💕")).toBe(true);
+      // Mesma pessoa, agora com o 9: usa a sessão existente (não manda menu de novo).
+      await recuar(c, "1 minute", SEM_9);
+      expect(await conversar(c, "xyz", COM_9)).toEqual([NAO_ENTENDI]);
+      expect((await c.query("select telefone from robo_sessoes")).rows).toEqual([{ telefone: SEM_9 }]);
+      // Pede a equipe; avulsa da equipe para a forma com o 9 apaga o pedido e pausa.
+      await conversar(c, "4", COM_9);
+      const pedidos = () =>
+        como(c, recepcao, async () =>
+          Number((await c.query("select robo_pedidos_atendimento() as n")).rows[0].n),
+        );
+      expect(await pedidos()).toBe(1);
+      await recuar(c, "1 minute", SEM_9);
+      await c.query("update robo_sessoes set pausado_ate = null");
+      const recepcaoId = (
+        await c.query<{ id: string }>("select id from colaboradores where perfil = 'recepcao' limit 1")
+      ).rows[0].id;
+      await c.query(
+        `insert into fila_mensagens (tipo, telefone, texto, agendado_para, criado_por)
+         values ('avulsa', $1, 'Oi, aqui é a Bia', now(), $2)`,
+        [COM_9, recepcaoId],
+      );
+      expect(await pedidos()).toBe(0);
+      const s = await sessao(c, SEM_9);
+      expect(s.pausado_ate).not.toBeNull();
+      expect((await c.query("select count(*)::int as n from robo_sessoes")).rows[0].n).toBe(1);
+      expect(await conversar(c, "0", SEM_9)).toEqual([]);
+      expect(await conversar(c, "0", COM_9)).toEqual([]);
+      // Retomar pela forma com o 9 libera a sessão sem o 9.
+      await como(c, recepcao, () => c.query("select retomar_robo($1)", [COM_9]));
+      expect((await sessao(c, SEM_9)).pausado_ate).toBeNull();
+      expect(await conversar(c, "0", COM_9)).toHaveLength(1);
     });
   });
 
@@ -799,7 +868,7 @@ describe("salvar_robo", () => {
 });
 
 describe("fila: tipo robo", () => {
-  it("proxima_mensagem devolve o robô com o texto pronto e prioridade; validade de 24 h", async () => {
+  it("proxima_mensagem devolve o robô com o texto pronto e prioridade; validade de 1 h", async () => {
     await emTeste(async (c) => {
       await c.query(
         `update configuracoes_clinica set whatsapp_ativo = true, whatsapp_janela_inicio = '00:00',
@@ -892,6 +961,44 @@ describe("fila: tipo robo", () => {
       expect(await link(dona)).toBe("https://madame.exemplo.com/agendar");
       expect(await link(recepcao)).toBe("https://madame.exemplo.com/agendar");
       expect(await link(prof)).toBeNull();
+    });
+  });
+
+  it("retorno e reativação de cliente desativada → 'Cliente desativada'", async () => {
+    await emTeste(async (c) => {
+      await c.query(
+        `update configuracoes_clinica set whatsapp_ativo = true, whatsapp_janela_inicio = '00:00',
+           whatsapp_janela_fim = '23:59:59.999999'`,
+      );
+      const inativa = (
+        await c.query<{ id: string }>(
+          `insert into clientes (nome, whatsapp, aceite_lgpd_em, aceita_whatsapp_marketing, ativo)
+           values ('Inativa', '5511955554444', now(), true, false) returning id`,
+        )
+      ).rows[0].id;
+      const ids = [];
+      for (const tipo of ["retorno", "reativacao"]) {
+        ids.push(
+          (
+            await c.query<{ id: string }>(
+              `insert into fila_mensagens (tipo, cliente_id, telefone, agendado_para)
+               values ($1, $2, '5511955554444', now() - interval '1 minute') returning id`,
+              [tipo, inativa],
+            )
+          ).rows[0].id,
+        );
+      }
+      await comoServico(c);
+      expect((await c.query("select * from proxima_mensagem()")).rows).toEqual([]);
+      await comoSuper(c);
+      const r = await c.query(
+        "select status::text, cancelada_motivo from fila_mensagens where id = any($1)",
+        [ids],
+      );
+      expect(r.rows).toEqual([
+        { status: "cancelada", cancelada_motivo: "Cliente desativada" },
+        { status: "cancelada", cancelada_motivo: "Cliente desativada" },
+      ]);
     });
   });
 

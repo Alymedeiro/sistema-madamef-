@@ -6,8 +6,9 @@
 --      recepção leem; só a dona altera configuração e opções; sessões só
 --      pelas funções. salvar_robo grava tudo de uma vez (só a dona).
 --   2. Fila: tipo 'robo' com texto pronto (como a avulsa), proxima_mensagem
---      (corpo de 0015) com o robô primeiro na ordem e na validade de 24 h, e
---      reenviar_mensagem (corpo de 0015) copiando o texto do robô.
+--      (corpo de 0015) com o robô primeiro na ordem, também fora da janela de
+--      envio, validade de 1 h, e retorno/reativação de cliente desativada
+--      cancelados; reenviar_mensagem (corpo de 0015) copiando o texto do robô.
 --   3. robo_processar, chamado ao final de registrar_recebida (corpo de 0012;
 --      erro no robô vira WARNING e nunca falha o registro); pausa pela equipe
 --      (gatilho na avulsa com autor), retomar_robo e robo_pedidos_atendimento.
@@ -293,8 +294,17 @@ begin
       and f.status = 'pendente'
       and f.agendado_para <= now();
 
-    -- CRM (0015): retorno e reativação só saem com opt-in de marketing e se a
-    -- cliente ainda não agendou.
+    -- CRM (0015): retorno e reativação só saem para cliente ativa, com opt-in
+    -- de marketing e se ela ainda não agendou.
+    update public.fila_mensagens f
+    set status = 'cancelada', cancelada_motivo = 'Cliente desativada'
+    from public.clientes c
+    where c.id = f.cliente_id
+      and not c.ativo
+      and f.status = 'pendente'
+      and f.tipo in ('retorno', 'reativacao')
+      and f.agendado_para <= now();
+
     update public.fila_mensagens f
     set status = 'cancelada', cancelada_motivo = 'Cliente sem opt-in de marketing'
     from public.clientes c
@@ -527,6 +537,27 @@ $$;
 revoke execute on function public.robo_renderizar(text, text, text, text, text)
   from public, anon, authenticated, service_role;
 
+-- As duas formas de um WhatsApp brasileiro (com e sem o 9 depois do DDD),
+-- como em registrar_recebida: 55DD+8 dígitos ↔ 55DD+9+8 dígitos. Outro
+-- formato → só ele mesmo.
+create function public.robo_telefones(p_telefone text)
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $$
+  select case
+    when p_telefone ~ '^55\d{10}$' then
+      array[p_telefone, left(p_telefone, 4) || '9' || substr(p_telefone, 5)]
+    when p_telefone ~ '^55\d{2}9\d{8}$' then
+      array[p_telefone, left(p_telefone, 4) || substr(p_telefone, 6)]
+    else array[p_telefone]
+  end
+$$;
+
+revoke execute on function public.robo_telefones(text) from public, anon;
+grant execute on function public.robo_telefones(text) to authenticated, service_role;
+
 -- Texto fixo da opção falar_com_equipe.
 create function public.robo_texto_equipe()
 returns text
@@ -595,6 +626,8 @@ declare
   v_sessao public.robo_sessoes;
   v_opcao public.robo_opcoes;
   v_telefone text;
+  v_destino text;
+  v_formas text[];
   v_nome text;
   v_norm text;
   v_horario text;
@@ -624,14 +657,30 @@ begin
     return;
   end if;
 
-  -- Cria ou trava a sessão (duas respostas seguidas são serializadas).
+  -- Sessão: a que já existe com qualquer forma do número (com ou sem o 9;
+  -- a do próprio número primeiro), senão uma nova. Cria ou trava a sessão
+  -- (duas respostas seguidas são serializadas).
+  -- A resposta vai para o número da cliente (ou o que escreveu); a sessão
+  -- pode estar guardada na outra forma.
+  v_destino := v_telefone;
+  v_formas := public.robo_telefones(v_telefone);
+  v_telefone := coalesce(
+    (select s.telefone from public.robo_sessoes s
+     where s.telefone = any (v_formas)
+     order by (s.telefone = v_telefone) desc
+     limit 1),
+    v_telefone
+  );
   insert into public.robo_sessoes as s (telefone, cliente_id)
   values (v_telefone, v_rec.cliente_id)
   on conflict (telefone) do update
     set cliente_id = coalesce(excluded.cliente_id, s.cliente_id)
   returning * into v_sessao;
 
-  if v_sessao.pausado_ate > now() then
+  if exists (
+    select 1 from public.robo_sessoes s
+    where s.telefone = any (v_formas) and s.pausado_ate > now()
+  ) then
     return;
   end if;
 
@@ -675,6 +724,19 @@ begin
         );
       end if;
     end if;
+  elsif exists (
+    -- Confirmação enviada nas últimas 24 h e agendamento ainda pendente: nem
+    -- menu nem "não entendi" (o "1" que vier depois confirma).
+    select 1
+    from public.fila_mensagens f
+    join public.agendamentos a on a.id = f.agendamento_id
+    where f.telefone = any (v_formas)
+      and f.tipo = 'confirmacao'
+      and f.status = 'enviada'
+      and f.enviada_em > now() - interval '24 hours'
+      and a.status = 'pendente'
+  ) then
+    return;
   elsif v_menu
         or v_sessao.menu_enviado_em is null
         or v_sessao.menu_enviado_em < now() - interval '12 hours' then
@@ -698,7 +760,7 @@ begin
   end if;
 
   insert into public.fila_mensagens (tipo, cliente_id, telefone, texto, agendado_para)
-  values ('robo', v_rec.cliente_id, v_telefone, v_resposta, now());
+  values ('robo', v_rec.cliente_id, v_destino, v_resposta, now());
 end;
 $$;
 
@@ -768,9 +830,11 @@ begin
   -- a sessão sem pausa, se a mensagem enviada mais recente entre
   -- {confirmação, robô} é menu ou resposta de opção do robô (nas últimas
   -- 2 h), o dígito é opção do menu: 'para_ler', sem tocar no agendamento
-  -- (robo_processar responde a opção). Nos outros casos vale a
-  -- classificação de sempre.
+  -- (robo_processar responde a opção). Só dígitos: "sim", "confirmo" e
+  -- "confirmar" sempre confirmam. Nos outros casos vale a classificação de
+  -- sempre.
   if v_classificacao in ('confirmou', 'quer_remarcar') and v_agendamento is not null
+     and btrim(v_texto) ~ '^[1-8]\.?$'
      and public.robo_atende_agora() then
     select f.tipo, f.texto, f.enviada_em into v_ultimo_tipo, v_ultimo_texto, v_ultimo_em
     from public.fila_mensagens f
@@ -831,7 +895,8 @@ revoke execute on function public.registrar_recebida(text, text, text)
 grant execute on function public.registrar_recebida(text, text, text) to service_role;
 
 -- Pausa pela equipe: avulsa com autor (enviar_avulsa, enviar_avulsa_lead,
--- reenvio) pausa o robô por 24 h no telefone (cria a sessão se preciso).
+-- reenvio) pausa o robô por 24 h no telefone, com e sem o 9 (cria a sessão
+-- se preciso).
 -- Nunca falha o envio.
 create function public.robo_pausar_pela_equipe()
 returns trigger
@@ -841,11 +906,18 @@ set search_path = ''
 as $$
 begin
   begin
-    insert into public.robo_sessoes as s (telefone, cliente_id, pausado_ate)
-    values (new.telefone, new.cliente_id, now() + interval '24 hours')
-    on conflict (telefone) do update
-      set pausado_ate = greatest(s.pausado_ate, excluded.pausado_ate),
-          cliente_id = coalesce(s.cliente_id, excluded.cliente_id);
+    -- Pausa as sessões do número (com e sem o 9); sem nenhuma, cria.
+    update public.robo_sessoes s
+    set pausado_ate = greatest(s.pausado_ate, now() + interval '24 hours'),
+        cliente_id = coalesce(s.cliente_id, new.cliente_id)
+    where s.telefone = any (public.robo_telefones(new.telefone));
+    if not found then
+      insert into public.robo_sessoes as s (telefone, cliente_id, pausado_ate)
+      values (new.telefone, new.cliente_id, now() + interval '24 hours')
+      on conflict (telefone) do update
+        set pausado_ate = greatest(s.pausado_ate, excluded.pausado_ate),
+            cliente_id = coalesce(s.cliente_id, excluded.cliente_id);
+    end if;
   exception when others then
     raise warning 'Robô: não foi possível pausar o atendimento de %: %', new.telefone, sqlerrm;
   end;
@@ -861,8 +933,8 @@ create trigger fila_mensagens_robo_pausa
   when (new.tipo = 'avulsa' and new.criado_por is not null)
   execute function public.robo_pausar_pela_equipe();
 
--- Retoma o robô no telefone (dona e recepção): limpa a pausa e o pedido de
--- atendimento. Sem sessão → nada.
+-- Retoma o robô no telefone, com e sem o 9 (dona e recepção): limpa a pausa
+-- e o pedido de atendimento. Sem sessão → nada.
 create function public.retomar_robo(p_telefone text)
 returns void
 language plpgsql
@@ -874,7 +946,7 @@ begin
 
   update public.robo_sessoes s
   set pausado_ate = null, pediu_equipe_em = null
-  where s.telefone = p_telefone;
+  where s.telefone = any (public.robo_telefones(p_telefone));
 end;
 $$;
 
@@ -882,7 +954,8 @@ revoke execute on function public.retomar_robo(text) from public, anon, authenti
 grant execute on function public.retomar_robo(text) to authenticated;
 
 -- Quantas pediram atendimento (opção falar_com_equipe) nas últimas 24 h e
--- ainda não receberam avulsa da equipe depois do pedido. Com RLS de quem
+-- ainda não receberam avulsa da equipe (no número com ou sem o 9) depois do
+-- pedido. Com RLS de quem
 -- chama: profissional vê 0.
 create function public.robo_pedidos_atendimento()
 returns int
@@ -895,7 +968,7 @@ as $$
   where s.pediu_equipe_em > now() - interval '24 hours'
     and not exists (
       select 1 from public.fila_mensagens f
-      where f.telefone = s.telefone
+      where f.telefone = any (public.robo_telefones(s.telefone))
         and f.tipo = 'avulsa'
         and f.criado_por is not null
         and f.status <> 'cancelada'

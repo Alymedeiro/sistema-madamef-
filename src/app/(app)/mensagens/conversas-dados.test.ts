@@ -6,6 +6,8 @@ vi.mock("server-only", () => ({}));
 import {
   agruparConversas,
   carregarConversas,
+  chaveTelefone,
+  formasTelefone,
   type LinhaConversaEnviada,
   type LinhaConversaRecebida,
 } from "./dados";
@@ -345,5 +347,40 @@ describe("carregarConversas", () => {
   it("erro do banco lança", async () => {
     falso.responder("mensagens_recebidas", { data: null, error: { message: "boom" } });
     await expect(carregarConversas(falso.cliente as never)).rejects.toThrow("boom");
+  });
+});
+
+describe("número com e sem o 9 (sem cadastro)", () => {
+  it("chaveTelefone e formasTelefone", () => {
+    expect(chaveTelefone("551187654321")).toBe("5511987654321");
+    expect(chaveTelefone("5511987654321")).toBe("5511987654321");
+    expect(chaveTelefone("+1 555")).toBe("+1 555");
+    expect(formasTelefone("551187654321")).toEqual(["551187654321", "5511987654321"]);
+    expect(formasTelefone("5511987654321")).toEqual(["5511987654321", "551187654321"]);
+    expect(formasTelefone("123")).toEqual(["123"]);
+  });
+
+  it("recebida de 12 dígitos e resposta do robô de 13 viram uma conversa só", () => {
+    const r = agruparConversas(
+      [rec({ id: "r1", telefone: "552188887777", cliente_id: null, clientes: null })],
+      [
+        env({
+          id: "e1",
+          telefone: "5521988887777",
+          cliente_id: null,
+          tipo: "robo",
+          texto: "Menu",
+          enviada_em: "2026-11-10T12:05:00Z",
+          agendado_para: "2026-11-10T12:05:00Z",
+        }),
+      ],
+      new Date("2026-11-10T13:00:00Z"),
+    );
+    expect(r).toHaveLength(1);
+    expect(r[0]).toMatchObject({
+      chave: "5521988887777",
+      telefone: "552188887777",
+      ultima: { texto: "Menu", direcao: "enviada" },
+    });
   });
 });

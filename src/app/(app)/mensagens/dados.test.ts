@@ -72,6 +72,41 @@ describe("contarFalhasSemReenvio", () => {
   });
 });
 
+describe("contarFalhasSemReenvio: lead e telefone", () => {
+  const semCliente = { cliente_id: null, agendamento_id: null, pedido_online_id: null };
+  it("reenvio para o mesmo lead apaga a falha; outro lead não", () => {
+    const f = falha({ tipo: "avulsa", ...semCliente, lead_id: "l1" });
+    expect(
+      contarFalhasSemReenvio([
+        f,
+        falha({ tipo: "avulsa", ...semCliente, lead_id: "l1", status: "pendente", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    ).toBe(0);
+    expect(
+      contarFalhasSemReenvio([
+        f,
+        falha({ tipo: "avulsa", ...semCliente, lead_id: "l2", status: "pendente", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    ).toBe(1);
+  });
+
+  it("sem cliente, pedido nem lead: casa pelo telefone (com ou sem o 9)", () => {
+    const f = falha({ tipo: "robo", ...semCliente, telefone: "552188887777" });
+    expect(
+      contarFalhasSemReenvio([
+        f,
+        falha({ tipo: "robo", ...semCliente, telefone: "5521988887777", status: "enviada", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    ).toBe(0);
+    expect(
+      contarFalhasSemReenvio([
+        f,
+        falha({ tipo: "robo", ...semCliente, telefone: "5521911112222", status: "enviada", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    ).toBe(1);
+  });
+});
+
 describe("carregarAlertasWhatsapp", () => {
   it("com o envio desligado não acusa desconexão nem falta de chaves", async () => {
     falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: false }));
@@ -107,6 +142,29 @@ describe("carregarAlertasWhatsapp", () => {
         },
       ]);
     }
+  });
+
+  it("falhas de lead e de número sem cadastro: o reenvio procura por lead_id e telefone e apaga o alerta", async () => {
+    const semCliente = { cliente_id: null, agendamento_id: null, pedido_online_id: null };
+    falso.responder("configuracoes_clinica", ok({ whatsapp_ativo: true }));
+    falso.responder("whatsapp_status", ok({ estado: "conectado" }));
+    falso.responder(
+      "fila_mensagens",
+      ok([
+        falha({ tipo: "avulsa", ...semCliente, lead_id: "l1", telefone: "5511911112222" }),
+        falha({ tipo: "robo", ...semCliente, lead_id: null, telefone: "552188887777" }),
+      ]),
+      ok([
+        falha({ tipo: "avulsa", ...semCliente, lead_id: "l1", status: "pendente", criado_em: "2026-11-10T11:00:00Z" }),
+        falha({ tipo: "robo", ...semCliente, telefone: "5521988887777", status: "enviada", criado_em: "2026-11-10T11:00:00Z" }),
+      ]),
+    );
+    falso.responder("mensagens_recebidas", ok([]));
+    const r = await carregarAlertasWhatsapp(falso.cliente as never);
+    expect(r.falhas).toBe(0);
+    expect(falso.chamadasDe("fila_mensagens", "or")[0].args[0]).toBe(
+      "lead_id.in.(l1),telefone.in.(552188887777,5521988887777)",
+    );
   });
 
   it("conectado não acusa; falhas dos últimos 7 dias; respostas não lidas que pedem atenção", async () => {
