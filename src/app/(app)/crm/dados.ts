@@ -237,13 +237,38 @@ export type OpcoesLead = {
   responsaveis: { id: string; nome: string }[];
 };
 
-/** Serviços e colaboradoras ativos, para os campos do formulário do lead. */
-export async function carregarOpcoesLead(supabase: Supabase): Promise<OpcoesLead> {
+/**
+ * Serviços e colaboradoras ativos, para os campos do formulário do lead. O
+ * serviço/responsável atual de cada lead entra mesmo inativo ("<nome> (inativo)"),
+ * para a edição não apagar o vínculo sem querer.
+ */
+export async function carregarOpcoesLead(supabase: Supabase, leads: Lead[] = []): Promise<OpcoesLead> {
   const [servicos, colaboradores] = await Promise.all([
     supabase.from("servicos").select("id, nome").eq("ativo", true).order("nome"),
     supabase.from("colaboradores").select("id, nome").eq("ativo", true).order("nome"),
   ]);
   falhou("os serviços", servicos.error);
   falhou("a equipe", colaboradores.error);
-  return { servicos: servicos.data ?? [], responsaveis: colaboradores.data ?? [] };
+  const comInativos = (
+    ativos: { id: string; nome: string }[],
+    atuais: { id: string | null; nome: string | null }[],
+  ) => {
+    const lista = [...ativos];
+    for (const a of atuais) {
+      if (a.id && !lista.some((o) => o.id === a.id)) {
+        lista.push({ id: a.id, nome: `${a.nome ?? "—"} (inativo)` });
+      }
+    }
+    return lista;
+  };
+  return {
+    servicos: comInativos(
+      servicos.data ?? [],
+      leads.map((l) => ({ id: l.servicoId, nome: l.servicoNome })),
+    ),
+    responsaveis: comInativos(
+      colaboradores.data ?? [],
+      leads.map((l) => ({ id: l.responsavelId, nome: l.responsavelNome })),
+    ),
+  };
 }

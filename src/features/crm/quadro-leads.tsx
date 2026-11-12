@@ -91,7 +91,7 @@ export function QuadroLeads({ leads, opcoes, hoje }: Props) {
       </div>
 
       {/* Computador: uma coluna por etapa (quebra em linhas, sem rolagem horizontal). */}
-      <div className="hidden gap-4 lg:grid lg:grid-cols-3 2xl:grid-cols-5">
+      <div className="hidden gap-4 lg:grid lg:grid-cols-3 xl:grid-cols-5">
         {ETAPAS_LEAD.map((e) => (
           <section key={e} aria-label={ROTULO_ETAPA_LEAD[e]} className="flex min-w-0 flex-col gap-3">
             <h2 className="font-titulo text-base font-semibold text-ouro-escuro">

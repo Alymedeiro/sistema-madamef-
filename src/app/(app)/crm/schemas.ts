@@ -56,7 +56,7 @@ export type LeadInput = z.input<typeof leadSchema>;
 
 export const LIMITE_MOTIVO_PERDA = 200;
 
-export const moverLeadSchema = z.object({
+const moverLeadBase = z.object({
   id: idSchema,
   etapa: z.enum(ETAPAS_LEAD as [EtapaLead, ...EtapaLead[]], "Etapa inválida."),
   motivo: z
@@ -65,7 +65,15 @@ export const moverLeadSchema = z.object({
     .max(LIMITE_MOTIVO_PERDA, `O motivo pode ter no máximo ${LIMITE_MOTIVO_PERDA} caracteres.`)
     .optional(),
 });
-export type MoverLeadInput = z.input<typeof moverLeadSchema>;
+export type MoverLeadInput = z.input<typeof moverLeadBase>;
+
+/** O motivo só vale para "perdido": nas outras etapas é descartado antes de validar. */
+export const moverLeadSchema = z.preprocess((v) => {
+  if (v && typeof v === "object" && (v as { etapa?: unknown }).etapa !== "perdido") {
+    return { ...(v as object), motivo: undefined };
+  }
+  return v;
+}, moverLeadBase);
 
 export const MENSAGEM_ACEITE_LGPD = "Confirme o aceite da LGPD.";
 

@@ -43,7 +43,8 @@ export default async function CrmPage({ searchParams }: Props) {
   } else if (aba === "aniversariantes") {
     conteudo = <ListaAniversariantes itens={await carregarAniversariantes(supabase, hoje)} hoje={hoje} />;
   } else {
-    const [leads, opcoes] = await Promise.all([carregarLeads(supabase), carregarOpcoesLead(supabase)]);
+    const leads = await carregarLeads(supabase);
+    const opcoes = await carregarOpcoesLead(supabase, leads);
     conteudo = <QuadroLeads leads={leads} opcoes={opcoes} hoje={hoje} />;
   }
 

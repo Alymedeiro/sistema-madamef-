@@ -45,6 +45,12 @@ describe("moverLeadSchema e converterLeadSchema", () => {
     expect(moverLeadSchema.safeParse({ id: ID, etapa: "perdido", motivo: "m".repeat(200) }).success).toBe(true);
   });
 
+  it("fora de perdido o motivo é descartado, mesmo longo demais", () => {
+    const r = moverLeadSchema.safeParse({ id: ID, etapa: "em_conversa", motivo: "m".repeat(500) });
+    expect(r.success).toBe(true);
+    expect(r.data).toEqual({ id: ID, etapa: "em_conversa", motivo: undefined });
+  });
+
   it("converter exige o aceite", () => {
     const r = converterLeadSchema.safeParse({ id: ID, aceiteLgpd: false, aceitaMarketing: true });
     expect(r.error?.issues[0].message).toBe("Confirme o aceite da LGPD.");

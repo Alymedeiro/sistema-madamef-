@@ -203,4 +203,14 @@ describe("carregarOpcoesLead", () => {
       responsaveis: [{ id: "c1", nome: "Bia" }],
     });
   });
+
+  it("inclui o serviço e o responsável atuais do lead mesmo inativos", async () => {
+    falso.responder("servicos", { data: [{ id: "s1", nome: "Botox" }], error: null });
+    falso.responder("colaboradores", { data: [{ id: "c1", nome: "Bia" }], error: null });
+    const lead = { servicoId: "s9", servicoNome: "Peeling", responsavelId: "c9", responsavelNome: "Lia" };
+    const r = await carregarOpcoesLead(falso.cliente as never, [lead as never]);
+    expect(r.servicos).toContainEqual({ id: "s9", nome: "Peeling (inativo)" });
+    expect(r.responsaveis).toContainEqual({ id: "c9", nome: "Lia (inativo)" });
+    expect(r.servicos).toHaveLength(2);
+  });
 });
