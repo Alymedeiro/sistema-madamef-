@@ -38,10 +38,19 @@ type Acoes = {
 export async function enviarResposta(
   d: { clienteId: string; texto: string; respostaId: string; jaLida: boolean },
   acoes: Acoes,
-): Promise<Retorno> {
+): Promise<{ ok: true; lida: boolean } | { ok: false; erro: string }> {
   if (!textoEnviavel(d.texto)) return { ok: false, erro: "Escreva a mensagem." };
   const r = await acoes.enviar({ clienteId: d.clienteId, texto: d.texto });
   if (!r.ok) return r;
-  if (!d.jaLida) await acoes.marcarLida(d.respostaId);
-  return { ok: true };
+  if (d.jaLida) return { ok: true, lida: true };
+  const m = await acoes.marcarLida(d.respostaId);
+  return { ok: true, lida: m.ok };
+}
+
+/** Rolar para o fim só se a usuária já estava a até 80 px dele. */
+export function estaPertoDoFim(
+  e: { scrollTop: number; scrollHeight: number; clientHeight: number },
+  margem = 80,
+): boolean {
+  return e.scrollHeight - e.scrollTop - e.clientHeight <= margem;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { enviarResposta, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
+import { enviarResposta, estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
 
 describe("enviarResposta", () => {
   const base = { clienteId: "c1", texto: "Oi", respostaId: "r1", jaLida: false };
@@ -15,9 +15,22 @@ describe("enviarResposta", () => {
   it("envia e marca a resposta como lida", async () => {
     const enviar = vi.fn(async () => ({ ok: true as const }));
     const marcarLida = vi.fn(async () => ({ ok: true as const }));
-    expect(await enviarResposta(base, { enviar, marcarLida })).toEqual({ ok: true });
+    expect(await enviarResposta(base, { enviar, marcarLida })).toEqual({ ok: true, lida: true });
     expect(enviar).toHaveBeenCalledWith({ clienteId: "c1", texto: "Oi" });
     expect(marcarLida).toHaveBeenCalledWith("r1");
+  });
+
+  it("falha ao marcar lida devolve lida: false (tenta de novo no próximo envio)", async () => {
+    const r = await enviarResposta(base, {
+      enviar: async () => ({ ok: true }),
+      marcarLida: async () => ({ ok: false, erro: "x" }),
+    });
+    expect(r).toEqual({ ok: true, lida: false });
+  });
+
+  it("estaPertoDoFim respeita a margem de 80 px", () => {
+    expect(estaPertoDoFim({ scrollTop: 520, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
+    expect(estaPertoDoFim({ scrollTop: 400, scrollHeight: 1000, clientHeight: 400 })).toBe(false);
   });
 
   it("não marca de novo se já estava lida", async () => {

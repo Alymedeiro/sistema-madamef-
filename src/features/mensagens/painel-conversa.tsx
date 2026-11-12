@@ -11,7 +11,7 @@ import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
 import type { StatusMensagem } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
-import { enviarResposta, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
+import { enviarResposta, estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
 import { SeletorEmoji } from "./seletor-emoji";
 
 /** Recarrega a conversa enquanto o painel está aberto. */
@@ -69,6 +69,9 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
   const listaRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number | null>(null);
   const lidaRef = useRef(r.lidaEm !== null);
+  // Rola ao abrir e após envio próprio; depois só se já estava a ≤ 80 px do fim.
+  const forcarRolagemRef = useRef(true);
+  const pertoDoFimRef = useRef(true);
 
   const carregar = useCallback(async () => {
     const res = await buscarConversa(clienteId);
@@ -94,7 +97,12 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
   const total = itens?.length ?? 0;
   useLayoutEffect(() => {
     const el = listaRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (!el || itens === null) return;
+    if (forcarRolagemRef.current || pertoDoFimRef.current) {
+      el.scrollTop = el.scrollHeight;
+      forcarRolagemRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ultimo, total]);
 
   // Auto-expansível (1 a 5 linhas) e cursor após inserir emoji.
@@ -132,7 +140,8 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
         setErro(res.erro);
         return;
       }
-      lidaRef.current = true;
+      if (res.lida) lidaRef.current = true;
+      forcarRolagemRef.current = true;
       setTexto("");
       setEmojis(false);
       await carregar();
@@ -151,6 +160,9 @@ function Conversa({ r, clienteId, envioAtivo }: { r: Resposta; clienteId: string
 
       <div
         ref={listaRef}
+        onScroll={(e) => {
+          pertoDoFimRef.current = estaPertoDoFim(e.currentTarget);
+        }}
         data-testid="conversa"
         className="flex min-h-0 flex-col gap-1 overflow-y-auto bg-muted/40 p-3"
       >
