@@ -1354,6 +1354,14 @@ export type Database = {
           cliente_id: string | null
           id: string
           id_externo: string
+          legenda: string | null
+          midia_mime: string | null
+          midia_nome: string | null
+          midia_path: string | null
+          midia_status: "pendente" | "salva" | "falhou" | "grande_demais" | null
+          midia_tamanho: number | null
+          midia_tipo: "imagem" | "figurinha" | "video" | "audio" | "documento" | null
+          midia_url_origem: string | null
           lida_em: string | null
           lida_por: string | null
           recebida_em: string
@@ -1366,6 +1374,14 @@ export type Database = {
           cliente_id?: string | null
           id?: string
           id_externo: string
+          legenda?: string | null
+          midia_mime?: string | null
+          midia_nome?: string | null
+          midia_path?: string | null
+          midia_status?: "pendente" | "salva" | "falhou" | "grande_demais" | null
+          midia_tamanho?: number | null
+          midia_tipo?: "imagem" | "figurinha" | "video" | "audio" | "documento" | null
+          midia_url_origem?: string | null
           lida_em?: string | null
           lida_por?: string | null
           recebida_em?: string
@@ -1378,6 +1394,14 @@ export type Database = {
           cliente_id?: string | null
           id?: string
           id_externo?: string
+          legenda?: string | null
+          midia_mime?: string | null
+          midia_nome?: string | null
+          midia_path?: string | null
+          midia_status?: "pendente" | "salva" | "falhou" | "grande_demais" | null
+          midia_tamanho?: number | null
+          midia_tipo?: "imagem" | "figurinha" | "video" | "audio" | "documento" | null
+          midia_url_origem?: string | null
           lida_em?: string | null
           lida_por?: string | null
           recebida_em?: string
@@ -2880,6 +2904,32 @@ export type Database = {
       registrar_recebida: {
         Args: { p_telefone: string; p_texto: string; p_id_externo: string }
         Returns: string
+      }
+      // 0018: mídia recebida (service_role). Texto vazio, 'para_ler', status
+      // 'pendente'; idempotente pelo id externo; o robô roda como sempre.
+      registrar_recebida_midia: {
+        Args: {
+          p_telefone: string
+          p_id_externo: string
+          p_midia_tipo: string
+          p_midia_url_origem: string
+          p_midia_mime?: string | null
+          p_midia_nome?: string | null
+          p_midia_tamanho?: number | null
+          p_legenda?: string | null
+        }
+        Returns: string
+      }
+      // 0018: resultado do download (service_role); salva não volta atrás.
+      gravar_midia_recebida: {
+        Args: {
+          p_id: string
+          p_status: string
+          p_path: string | null
+          p_mime: string | null
+          p_tamanho: number | null
+        }
+        Returns: undefined
       }
       // 0011: só a dona (senão "Acesso não autorizado"). Por profissional e
       // competência, de date_trunc('month', p_de) até p_ate; sem canceladas.
