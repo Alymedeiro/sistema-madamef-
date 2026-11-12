@@ -62,7 +62,7 @@ export default async function MensagensPage({ searchParams }: Props) {
     conteudo = (
       <>
         <FiltrosRespostas classificacao={classificacao} />
-        <ListaRespostas itens={itens} />
+        <ListaRespostas itens={itens} envioAtivo={ativo} />
       </>
     );
   }

@@ -9,6 +9,7 @@ const exigirPerfil = vi.fn(async (...perfis: Perfil[]) => {
 });
 vi.mock("@/lib/sessao", () => ({ exigirPerfil: (...p: Perfil[]) => exigirPerfil(...p) }));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+vi.mock("server-only", () => ({}));
 
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));

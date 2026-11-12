@@ -1,6 +1,11 @@
 import "server-only";
 import { classificarTermoBusca, escaparLike } from "@/lib/dominio/clientes";
-import type { ClassificacaoResposta, StatusMensagem, TipoMensagem } from "@/lib/dominio/whatsapp";
+import {
+  ROTULO_TIPO_MENSAGEM,
+  type ClassificacaoResposta,
+  type StatusMensagem,
+  type TipoMensagem,
+} from "@/lib/dominio/whatsapp";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
@@ -278,6 +283,73 @@ export async function carregarAlertasWhatsapp(
     falhas: contarFalhasSemReenvio([...linhasFalhas, ...reenvios]),
     respostas: ((respostas.data ?? []) as unknown as LinhaResposta[]).map(paraResposta),
   };
+}
+
+export const LIMITE_CONVERSA = 100;
+
+export type ItemConversa = {
+  id: string;
+  direcao: "recebida" | "enviada";
+  texto: string;
+  quando: string;
+  status?: StatusMensagem;
+  tipo?: TipoMensagem;
+};
+
+type LinhaRecebida = { id: string; texto: string; recebida_em: string };
+type LinhaEnviada = {
+  id: string;
+  texto: string | null;
+  status: StatusMensagem;
+  tipo: TipoMensagem;
+  enviada_em: string | null;
+  agendado_para: string;
+};
+
+/** Junta recebidas e enviadas, ordena por horário (estável) e fica com as últimas 100. */
+export function montarConversa(recebidas: LinhaRecebida[], enviadas: LinhaEnviada[]): ItemConversa[] {
+  const itens: ItemConversa[] = [
+    ...recebidas.map((r) => ({
+      id: r.id,
+      direcao: "recebida" as const,
+      texto: r.texto,
+      quando: r.recebida_em,
+    })),
+    ...enviadas.map((e) => ({
+      id: e.id,
+      direcao: "enviada" as const,
+      texto: e.texto ?? `(mensagem automática: ${ROTULO_TIPO_MENSAGEM[e.tipo]})`,
+      quando: e.enviada_em ?? e.agendado_para,
+      status: e.status,
+      tipo: e.tipo,
+    })),
+  ];
+  itens.sort((a, b) => new Date(a.quando).getTime() - new Date(b.quando).getTime());
+  return itens.slice(-LIMITE_CONVERSA);
+}
+
+/** Conversa com a cliente: o que ela mandou e o que a clínica enviou (últimas 100). */
+export async function carregarConversa(supabase: Supabase, clienteId: string): Promise<ItemConversa[]> {
+  const [recebidas, enviadas] = await Promise.all([
+    supabase
+      .from("mensagens_recebidas")
+      .select("id, texto, recebida_em")
+      .eq("cliente_id", clienteId)
+      .order("recebida_em", { ascending: false })
+      .limit(LIMITE_CONVERSA),
+    supabase
+      .from("fila_mensagens")
+      .select("id, texto, status, tipo, enviada_em, agendado_para")
+      .eq("cliente_id", clienteId)
+      .order("agendado_para", { ascending: false })
+      .limit(LIMITE_CONVERSA),
+  ]);
+  falhou("as mensagens recebidas", recebidas.error);
+  falhou("as mensagens enviadas", enviadas.error);
+  return montarConversa(
+    (recebidas.data ?? []) as unknown as LinhaRecebida[],
+    (enviadas.data ?? []) as unknown as LinhaEnviada[],
+  );
 }
 
 /** Envio automático ligado? (pedidos online: decide entre a fila e o botão manual). */
