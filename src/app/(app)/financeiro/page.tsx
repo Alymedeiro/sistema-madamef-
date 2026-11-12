@@ -45,9 +45,11 @@ export default async function FinanceiroPage({
     >
   >;
 }) {
-  const { colaborador } = await exigirPerfil(...perfisComAcesso("financeiro"));
+  const [{ colaborador }, sp] = await Promise.all([
+    exigirPerfil(...perfisComAcesso("financeiro")),
+    searchParams,
+  ]);
   const ehDona = colaborador.perfil === "dona";
-  const sp = await searchParams;
   // Recepção: só o Caixa do dia, sem cabeçalho, período, cartões nem outras abas.
   const aba = abaDoFinanceiro(colaborador.perfil, primeiro(sp.aba));
 

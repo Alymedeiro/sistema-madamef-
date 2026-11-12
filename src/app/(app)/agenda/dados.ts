@@ -58,15 +58,16 @@ export async function carregarAgenda(data: string, visao: Visao): Promise<DadosA
 
   // Situação da ficha (alerta e pendência) das clientes do período: só indicadores.
   const clienteIds = [...new Set((agendamentos.data ?? []).map((a) => a.cliente_id))];
-  const situacao = clienteIds.length
-    ? await supabase.rpc("situacao_ficha", { p_clientes: clienteIds })
-    : { data: [], error: null };
-
   // Atendimentos do período cujo serviço exige termo ainda não assinado (só o indicador).
   const agendamentoIds = (agendamentos.data ?? []).map((a) => a.id);
-  const termos = agendamentoIds.length
-    ? await supabase.rpc("agendamentos_com_termo_pendente", { p_ids: agendamentoIds })
-    : { data: [] as string[], error: null };
+  const [situacao, termos] = await Promise.all([
+    clienteIds.length
+      ? supabase.rpc("situacao_ficha", { p_clientes: clienteIds })
+      : Promise.resolve({ data: [], error: null }),
+    agendamentoIds.length
+      ? supabase.rpc("agendamentos_com_termo_pendente", { p_ids: agendamentoIds })
+      : Promise.resolve({ data: [] as string[], error: null }),
+  ]);
 
   for (const r of [termos, situacao, colaboradores, vinculos, servicos, jornadas, bloqueios, agendamentos, config, semPagamento, pedidos]) {
     if (r.error) throw new Error(`Falha ao carregar a agenda: ${r.error.message}`);

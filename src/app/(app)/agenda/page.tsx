@@ -10,8 +10,11 @@ type Props = {
 };
 
 export default async function AgendaPage({ searchParams }: Props) {
-  const { colaborador } = await exigirPerfil("dona", "recepcao", "profissional");
-  const { data, visao, prof } = parametrosAgenda(await searchParams);
+  const [{ colaborador }, busca] = await Promise.all([
+    exigirPerfil("dona", "recepcao", "profissional"),
+    searchParams,
+  ]);
+  const { data, visao, prof } = parametrosAgenda(busca);
   const dados = await carregarAgenda(data, visao);
 
   return (

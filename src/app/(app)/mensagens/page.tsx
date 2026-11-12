@@ -13,19 +13,24 @@ type Props = {
 };
 
 export default async function MensagensPage({ searchParams }: Props) {
-  await exigirPerfil(...perfisComAcesso("mensagens"));
-  const busca = await searchParams;
+  const [, busca, supabase] = await Promise.all([
+    exigirPerfil(...perfisComAcesso("mensagens")),
+    searchParams,
+    createClient(),
+  ]);
   // Links antigos (?aba=fila / ?aba=respostas) abrem a mesma tela: `aba` é ignorada.
   const filtro = lerFiltro(busca);
   const conversa = Array.isArray(busca.conversa)
     ? busca.conversa[0]
     : busca.conversa;
 
-  const supabase = await createClient();
   // Falha ao ler a configuração não derruba a tela: só esconde o aviso.
-  const ativo = await envioWhatsappAtivo(supabase).catch(() => true);
+  const [ativo, primeira] = await Promise.all([
+    envioWhatsappAtivo(supabase).catch(() => true),
+    carregarConversas(supabase, filtro),
+  ]);
   let filtroTela = filtro;
-  let conversas = await carregarConversas(supabase, filtro);
+  let conversas = primeira;
   // ?conversa= de uma conversa arquivada: abre no filtro "Arquivadas".
   if (conversa && !conversas.some((c) => c.chave === conversa)) {
     const arquivadas = await carregarConversas(supabase, {
