@@ -1,8 +1,10 @@
 import Link from "next/link";
 import type { TipoModelo } from "./schemas";
+import { SecaoRobo } from "@/features/whatsapp/secao-robo";
 import { SecaoWhatsapp } from "@/features/whatsapp/secao-whatsapp";
 import { FormularioConfiguracoes } from "@/features/configuracoes/formulario-configuracoes";
 import { horarioDoBanco } from "@/lib/dominio/intervalos";
+import { ROBO_PADRAO } from "@/lib/dominio/robo";
 import { ROTULO_TIPO_MENSAGEM } from "@/lib/dominio/whatsapp";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { exigirPerfil } from "@/lib/sessao";
@@ -22,14 +24,31 @@ export default async function ConfiguracoesPage() {
     .maybeSingle();
   if (error) throw new Error(`Falha ao carregar as configurações: ${error.message}`);
 
-  const [{ data: modelos, error: erroModelos }, { data: status }] = await Promise.all([
+  const [
+    { data: modelos, error: erroModelos },
+    { data: status },
+    { data: robo, error: erroRobo },
+    { data: opcoesRobo, error: erroOpcoes },
+  ] = await Promise.all([
     supabase.from("modelos_mensagem").select("tipo, variacoes, ativo"),
     supabase.from("whatsapp_status").select("estado").maybeSingle(),
+    supabase
+      .from("robo_config")
+      .select("ativo, quando, boas_vindas, nao_entendi, rodape_opcao, link_agendamento")
+      .maybeSingle(),
+    supabase
+      .from("robo_opcoes")
+      .select("numero, rotulo, tipo, resposta, ativo")
+      .order("numero"),
   ]);
   if (erroModelos) throw new Error(`Falha ao carregar os modelos: ${erroModelos.message}`);
+  if (erroRobo) throw new Error(`Falha ao carregar o robô: ${erroRobo.message}`);
+  if (erroOpcoes) throw new Error(`Falha ao carregar as opções do robô: ${erroOpcoes.message}`);
   const ordem = Object.keys(ROTULO_TIPO_MENSAGEM);
   const modelosOrdenados = (modelos ?? [])
-    .filter((m): m is typeof m & { tipo: TipoModelo } => m.tipo !== "avulsa")
+    .filter(
+      (m): m is typeof m & { tipo: TipoModelo } => m.tipo !== "avulsa" && m.tipo !== "robo",
+    )
     .sort((a, b) => ordem.indexOf(a.tipo) - ordem.indexOf(b.tipo));
 
   return (
@@ -81,7 +100,23 @@ export default async function ConfiguracoesPage() {
         estado={status?.estado ?? "sem_chaves"}
         clinica={data?.nome ?? "Madame Fê Clinic"}
         modelos={modelosOrdenados}
-      />
+      >
+        <SecaoRobo
+          inicial={{
+            ativo: robo?.ativo ?? false,
+            quando: robo?.quando ?? "sempre",
+            boasVindas: robo?.boas_vindas ?? ROBO_PADRAO.boasVindas,
+            naoEntendi: robo?.nao_entendi ?? ROBO_PADRAO.naoEntendi,
+            rodapeOpcao: robo?.rodape_opcao ?? ROBO_PADRAO.rodapeOpcao,
+            linkAgendamento: robo?.link_agendamento ?? "",
+            opcoes: opcoesRobo ?? [],
+          }}
+          clinica={data?.nome ?? "Madame Fê Clinic"}
+          endereco={data?.endereco ?? ""}
+          horario={data?.horario_funcionamento ?? {}}
+          siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
+        />
+      </SecaoWhatsapp>
     </div>
   );
 }

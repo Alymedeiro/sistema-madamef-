@@ -13,7 +13,9 @@ import {
   carregarConversa,
   carregarConversaPorTelefone,
   carregarConversas,
+  carregarPausaRobo,
   type ItemConversa,
+  type PausaRobo,
   type ResumoConversa,
 } from "./dados";
 import {
@@ -191,4 +193,50 @@ export async function listarConversas(
   } catch {
     return { ok: false, erro: ERRO_INESPERADO };
   }
+}
+
+const telefoneRoboSchema = z.string().regex(/^55\d{10,11}$/, "Telefone inválido.");
+
+/** Pausa do robô na conversa (cabeçalho do painel). */
+export async function buscarPausaRobo(conversa: {
+  clienteId: string | null;
+  telefone: string;
+}): Promise<{ ok: true; pausa: PausaRobo | null } | { ok: false; erro: string }> {
+  await exigirPerfil(...perfisComAcesso("mensagens"));
+
+  const cliente = conversa.clienteId === null ? null : idSchema.safeParse(conversa.clienteId);
+  if (cliente && !cliente.success) return { ok: false, erro: cliente.error.issues[0].message };
+  if (!/^\d{8,15}$/.test(conversa.telefone)) return { ok: false, erro: "Telefone inválido." };
+
+  try {
+    const supabase = await createClient();
+    return {
+      ok: true,
+      pausa: await carregarPausaRobo(supabase, {
+        clienteId: cliente?.data ?? null,
+        telefone: conversa.telefone,
+      }),
+    };
+  } catch {
+    return { ok: false, erro: ERRO_INESPERADO };
+  }
+}
+
+/** Retoma o robô na conversa (limpa a pausa e o pedido de atendimento). */
+export async function retomarRobo(telefone: string): Promise<Resultado> {
+  await exigirPerfil(...perfisComAcesso("mensagens"));
+
+  const parsed = telefoneRoboSchema.safeParse(telefone);
+  if (!parsed.success) return falha(parsed.error.issues[0].message);
+
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("retomar_robo", { p_telefone: parsed.data });
+    if (error) return falha(mensagemErroBanco(error));
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidar();
+  return OK;
 }

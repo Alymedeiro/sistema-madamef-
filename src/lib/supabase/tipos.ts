@@ -2251,6 +2251,111 @@ export type Database = {
         }
         Relationships: []
       }
+      // 0017: linha única; dona e recepção leem; só a dona altera.
+      robo_config: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          boas_vindas: string
+          linha_unica: boolean
+          link_agendamento: string | null
+          nao_entendi: string
+          quando: "sempre" | "fora_do_horario"
+          rodape_opcao: string
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          boas_vindas?: string
+          linha_unica?: boolean
+          link_agendamento?: string | null
+          nao_entendi?: string
+          quando?: "sempre" | "fora_do_horario"
+          rodape_opcao?: string
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          boas_vindas?: string
+          linha_unica?: boolean
+          link_agendamento?: string | null
+          nao_entendi?: string
+          quando?: "sempre" | "fora_do_horario"
+          rodape_opcao?: string
+        }
+        Relationships: []
+      }
+      // 0017: numero 1–8 único; resposta obrigatória no tipo texto. Dona e
+      // recepção leem; só a dona escreve.
+      robo_opcoes: {
+        Row: {
+          ativo: boolean
+          atualizado_em: string
+          id: string
+          numero: number
+          resposta: string | null
+          rotulo: string
+          tipo: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Insert: {
+          ativo?: boolean
+          atualizado_em?: string
+          id?: string
+          numero: number
+          resposta?: string | null
+          rotulo: string
+          tipo: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Update: {
+          ativo?: boolean
+          atualizado_em?: string
+          id?: string
+          numero?: number
+          resposta?: string | null
+          rotulo?: string
+          tipo?: "texto" | "agendar_online" | "falar_com_equipe"
+        }
+        Relationships: []
+      }
+      // 0017: uma por telefone; dona e recepção leem; escrita só pelas funções.
+      robo_sessoes: {
+        Row: {
+          atualizado_em: string
+          cliente_id: string | null
+          menu_enviado_em: string | null
+          nao_entendi_em: string | null
+          pausado_ate: string | null
+          pediu_equipe_em: string | null
+          telefone: string
+        }
+        Insert: {
+          atualizado_em?: string
+          cliente_id?: string | null
+          menu_enviado_em?: string | null
+          nao_entendi_em?: string | null
+          pausado_ate?: string | null
+          pediu_equipe_em?: string | null
+          telefone: string
+        }
+        Update: {
+          atualizado_em?: string
+          cliente_id?: string | null
+          menu_enviado_em?: string | null
+          nao_entendi_em?: string | null
+          pausado_ate?: string | null
+          pediu_equipe_em?: string | null
+          telefone?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "robo_sessoes_cliente_id_fkey"
+            columns: ["cliente_id"]
+            isOneToOne: false
+            referencedRelation: "clientes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       // 0012: linha única; dona e recepção leem; escrita só por
       // gravar_status_whatsapp (service_role).
       whatsapp_status: {
@@ -2701,6 +2806,28 @@ export type Database = {
       // 0012: dona/recepção; só falhou/cancelada (senão "Só é possível
       // reenviar mensagens com falha ou canceladas."); nova pendente agora.
       reenviar_mensagem: { Args: { p_id: string }; Returns: string }
+      // 0017: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
+      // mensagens."); limpa pausado_ate e pediu_equipe_em da sessão.
+      retomar_robo: { Args: { p_telefone: string }; Returns: undefined }
+      // 0017: pediram atendimento nas últimas 24 h sem avulsa da equipe
+      // depois (RLS de quem chama: profissional vê 0).
+      robo_pedidos_atendimento: { Args: never; Returns: number }
+      // 0017: horario_funcionamento por extenso ("seg a sex 09:00 às 18:00").
+      robo_texto_horario: { Args: { p_horario: Json }; Returns: string }
+      // 0017: só a dona (senão "Apenas a dona pode alterar o robô."); grava a
+      // configuração e substitui as opções.
+      salvar_robo: {
+        Args: {
+          p_ativo: boolean
+          p_quando: string
+          p_boas_vindas: string
+          p_nao_entendi: string
+          p_rodape_opcao: string
+          p_link_agendamento: string | null
+          p_opcoes: Json
+        }
+        Returns: undefined
+      }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
       registrar_acesso: {
@@ -2841,6 +2968,7 @@ export type Database = {
         | "avulsa"
         | "retorno"
         | "reativacao"
+        | "robo"
       tipo_movimento_estoque:
         | "entrada"
         | "ajuste"
@@ -3018,6 +3146,7 @@ export const Constants = {
         "avulsa",
         "retorno",
         "reativacao",
+        "robo",
       ],
       tipo_movimento_estoque: [
         "entrada",

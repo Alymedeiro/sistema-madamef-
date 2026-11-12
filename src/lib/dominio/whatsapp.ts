@@ -15,6 +15,7 @@ export const ROTULO_TIPO_MENSAGEM: Record<TipoMensagem, string> = {
   avulsa: "Avulsa",
   retorno: "Retorno",
   reativacao: "Reativação",
+  robo: "Robô",
 };
 
 export const ROTULO_STATUS_MENSAGEM: Record<StatusMensagem, string> = {
@@ -40,8 +41,11 @@ export const VARIAVEIS_MENSAGEM = [
   "clinica",
 ] as const;
 
-/** Iguais aos inseridos em supabase/migrations/0012_whatsapp.sql e 0015_crm.sql. */
-export const TEXTOS_PADRAO: Record<Exclude<TipoMensagem, "avulsa">, string> = {
+/**
+ * Iguais aos inseridos em supabase/migrations/0012_whatsapp.sql e 0015_crm.sql.
+ * Avulsa e robô não têm modelo: o texto já vem pronto.
+ */
+export const TEXTOS_PADRAO: Record<Exclude<TipoMensagem, "avulsa" | "robo">, string> = {
   confirmacao:
     "Oi, {nome}! Passando para confirmar seu horário de {servico} com {profissional} em {data} às {hora}. Responda 1 para confirmar ou 2 para remarcar. {clinica}",
   lembrete:
@@ -137,6 +141,11 @@ export function podeEnviar(
       return { ok: false, motivo: "Agendamento não foi atendido" };
   }
   return { ok: true };
+}
+
+/** Avulsa e robô vêm com o texto pronto na fila; os outros tipos são renderizados no envio. */
+export function temTextoPronto(tipo: TipoMensagem): boolean {
+  return tipo === "avulsa" || tipo === "robo";
 }
 
 export function classificarResposta(texto: string): ClassificacaoResposta {

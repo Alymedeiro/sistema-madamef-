@@ -561,3 +561,38 @@ export async function envioWhatsappAtivo(supabase: Supabase): Promise<boolean> {
   falhou("a configuração do WhatsApp", error);
   return data?.whatsapp_ativo ?? false;
 }
+
+export type PausaRobo = { telefone: string; pausadoAte: string };
+
+/**
+ * Pausa do robô de atendimento na conversa (0017): a sessão da cliente (pelo
+ * cliente_id) ou do número sem cadastro, se `pausado_ate` ainda não passou.
+ * Com mais de uma sessão (WhatsApp com e sem o 9), vale a pausa mais longa.
+ */
+export async function carregarPausaRobo(
+  supabase: Supabase,
+  conversa: { clienteId: string | null; telefone: string },
+  agora: Date = new Date(),
+): Promise<PausaRobo | null> {
+  const base = supabase.from("robo_sessoes").select("telefone, pausado_ate");
+  const consulta = conversa.clienteId
+    ? base.eq("cliente_id", conversa.clienteId)
+    : base.eq("telefone", conversa.telefone);
+  const { data, error } = await consulta.gt("pausado_ate", agora.toISOString());
+  falhou("a pausa do robô", error);
+  const linhas = (data ?? []) as { telefone: string; pausado_ate: string | null }[];
+  const maior = linhas
+    .filter((l): l is { telefone: string; pausado_ate: string } => l.pausado_ate !== null)
+    .sort((a, b) => instante(b.pausado_ate) - instante(a.pausado_ate))[0];
+  return maior ? { telefone: maior.telefone, pausadoAte: maior.pausado_ate } : null;
+}
+
+/**
+ * Alerta do Início: quantas pediram atendimento ao robô nas últimas 24 h e
+ * ainda não receberam mensagem da equipe (robo_pedidos_atendimento, 0017).
+ */
+export async function contarPedidosAtendimento(supabase: Supabase): Promise<number> {
+  const { data, error } = await supabase.rpc("robo_pedidos_atendimento");
+  falhou("os pedidos de atendimento", error);
+  return typeof data === "number" ? data : 0;
+}

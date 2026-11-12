@@ -11,13 +11,16 @@ import {
 } from "react";
 import Link from "next/link";
 import { ArrowLeft, Ban, Check, Clock, Send, Smile, TriangleAlert } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   buscarConversa,
   buscarConversaSemCadastro,
+  buscarPausaRobo,
   enviarWhatsApp,
+  retomarRobo,
 } from "@/app/(app)/mensagens/actions";
-import type { ItemConversa, ResumoConversa } from "@/app/(app)/mensagens/dados";
+import type { ItemConversa, PausaRobo, ResumoConversa } from "@/app/(app)/mensagens/dados";
 import { LIMITE_TEXTO_AVULSA } from "@/app/(app)/mensagens/schemas";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
@@ -56,6 +59,8 @@ export function ConteudoConversa({
   const [erro, setErro] = useState<string | null>(null);
   const [emojis, setEmojis] = useState(false);
   const [enviando, iniciar] = useTransition();
+  const [pausa, setPausa] = useState<PausaRobo | null>(null);
+  const [retomando, iniciarRetomada] = useTransition();
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const cursorRef = useRef<number | null>(null);
@@ -64,9 +69,12 @@ export function ConteudoConversa({
   const pertoDoFimRef = useRef(true);
 
   const carregar = useCallback(async () => {
-    const res = clienteId
-      ? await buscarConversa(clienteId)
-      : await buscarConversaSemCadastro(telefone);
+    const [res, robo] = await Promise.all([
+      clienteId ? buscarConversa(clienteId) : buscarConversaSemCadastro(telefone),
+      buscarPausaRobo({ clienteId, telefone }),
+    ]);
+    // A pausa do robô é um detalhe do cabeçalho: erro aqui não atrapalha a conversa.
+    if (robo.ok) setPausa(robo.pausa);
     if (res.ok) {
       setItens(res.itens);
       setErroCarga(null);
@@ -136,6 +144,20 @@ export function ConteudoConversa({
     });
   }
 
+  function retomar() {
+    if (!pausa) return;
+    iniciarRetomada(async () => {
+      const r = await retomarRobo(pausa.telefone);
+      if (!r.ok) {
+        toast.error(r.erro);
+        return;
+      }
+      toast.success("Robô retomado nesta conversa.");
+      setPausa(null);
+      await carregar();
+    });
+  }
+
   const agora = new Date();
   let diaAnterior = "";
 
@@ -155,6 +177,20 @@ export function ConteudoConversa({
         <div className="min-w-0 flex-1">
           <h2 className="truncate font-medium">{conversa.nome ?? "Número sem cadastro"}</h2>
           <p className="text-sm text-muted-foreground tabular-nums">{formatarTelefone(telefone)}</p>
+          {pausa ? (
+            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" role="status">
+              <span>Robô pausado até {horaNoFuso(pausa.pausadoAte)}</span>
+              <Button
+                type="button"
+                variant="link"
+                className="h-auto min-h-11 px-0 text-xs text-ouro-escuro sm:min-h-0"
+                disabled={retomando}
+                onClick={retomar}
+              >
+                {retomando ? "Retomando..." : "Retomar robô"}
+              </Button>
+            </p>
+          ) : null}
         </div>
         {clienteId ? (
           <Link
@@ -299,6 +335,11 @@ function Balao({ m }: { m: ItemConversa }) {
           : "self-start bg-card text-card-foreground",
       )}
     >
+      {m.tipo === "robo" && (
+        <p className="mb-1 text-xs font-medium text-neutral-600">
+          <span aria-hidden>🤖 </span>Robô
+        </p>
+      )}
       <p className="break-words whitespace-pre-line">{m.texto}</p>
       <p
         className={cn(

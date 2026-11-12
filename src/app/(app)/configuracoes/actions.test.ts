@@ -13,7 +13,7 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { salvarConfiguracoes, salvarConfigWhatsapp, salvarModelo } from "./actions";
+import { salvarConfiguracoes, salvarConfigWhatsapp, salvarModelo, salvarRobo } from "./actions";
 
 const config = { ativo: true, janelaInicio: "09:00", janelaFim: "19:00", limitePorHora: 20 };
 
@@ -133,5 +133,59 @@ describe("salvarConfiguracoes: dias para cliente sumida", () => {
     expect(falso.chamadasDe("configuracoes_clinica", "upsert")[0].args[0]).toMatchObject({
       dias_cliente_sumida: 90,
     });
+  });
+});
+
+describe("salvarRobo", () => {
+  const robo = {
+    ativo: true,
+    quando: "fora_do_horario" as const,
+    boasVindas: "Oi, {nome}!",
+    naoEntendi: "Hein?",
+    rodapeOpcao: " Digite 0 ",
+    linkAgendamento: "",
+    opcoes: [
+      { numero: 2, rotulo: "Equipe", tipo: "falar_com_equipe" as const, resposta: null, ativo: true },
+      { numero: 1, rotulo: "Preços", tipo: "texto" as const, resposta: "R$ 10", ativo: false },
+    ],
+  };
+
+  it("recepção e profissional são negadas sem tocar no banco", async () => {
+    for (const p of ["recepcao", "profissional"] as const) {
+      perfilAtual = p;
+      await expect(salvarRobo(robo)).rejects.toThrow("REDIRECT:/inicio");
+    }
+    expect(falso.chamadas).toHaveLength(0);
+    expect(exigirPerfil).toHaveBeenCalledWith("dona");
+  });
+
+  it("dados inválidos não tocam no banco", async () => {
+    const r = await salvarRobo({ ...robo, opcoes: [robo.opcoes[0], { ...robo.opcoes[1], numero: 2 }] });
+    expect(r).toEqual({ ok: false, erro: "Cada opção precisa de um número diferente." });
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("chama salvar_robo com os campos aparados e as opções em ordem", async () => {
+    expect(await salvarRobo(robo)).toEqual({ ok: true });
+    expect(falso.chamadasRpc("salvar_robo")[0].args[0]).toEqual({
+      p_ativo: true,
+      p_quando: "fora_do_horario",
+      p_boas_vindas: "Oi, {nome}!",
+      p_nao_entendi: "Hein?",
+      p_rodape_opcao: "Digite 0",
+      p_link_agendamento: null,
+      p_opcoes: [
+        { numero: 1, rotulo: "Preços", tipo: "texto", resposta: "R$ 10", ativo: false },
+        { numero: 2, rotulo: "Equipe", tipo: "falar_com_equipe", resposta: null, ativo: true },
+      ],
+    });
+  });
+
+  it("erro P0001 do banco vira a mensagem", async () => {
+    falso.responder("rpc:salvar_robo", {
+      data: null,
+      error: { code: "P0001", message: "Apenas a dona pode alterar o robô." },
+    });
+    expect(await salvarRobo(robo)).toEqual({ ok: false, erro: "Apenas a dona pode alterar o robô." });
   });
 });

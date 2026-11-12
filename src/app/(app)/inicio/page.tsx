@@ -1,4 +1,8 @@
-import { carregarAlertasWhatsapp, type AlertasWhatsapp } from "@/app/(app)/mensagens/dados";
+import {
+  carregarAlertasWhatsapp,
+  contarPedidosAtendimento,
+  type AlertasWhatsapp,
+} from "@/app/(app)/mensagens/dados";
 import { carregarContasVencendo } from "@/features/avisos/dados";
 import {
   aguardandoConfirmacao,
@@ -61,6 +65,7 @@ export default async function InicioPage() {
     vencendo,
     whatsapp,
     crm,
+    pedidosEquipe,
   ] = await Promise.all([
     carregarCartao(atendimentosDoDia(supabase, hoje)),
     carregarCartao(atendimentosDaSemana(supabase, hoje)),
@@ -74,6 +79,7 @@ export default async function InicioPage() {
     carregarCartao(ehDona ? carregarContasVencendo(supabase, hoje, 1000) : Promise.resolve([])),
     carregarCartao(gerencia ? carregarAlertasWhatsapp(supabase, agora) : Promise.resolve(sem)),
     carregarCartao(carregarCrmInicio(supabase, colaborador.perfil, hoje)),
+    carregarCartao(gerencia ? contarPedidosAtendimento(supabase) : Promise.resolve(0)),
   ]);
 
   const lista = <T,>(c: { ok: true; dados: T[] } | { ok: false }) => (c.ok ? c.dados : []);
@@ -134,6 +140,13 @@ export default async function InicioPage() {
 
   const alertas = montarAlertas([
     {
+      id: "robo-equipe",
+      contagem: pedidosEquipe.ok ? pedidosEquipe.dados : 0,
+      singular: "pediu atendimento",
+      plural: "pediram atendimento",
+      href: "/mensagens?aba=respostas",
+    },
+    {
       id: "whatsapp",
       contagem: gerencia && zap.desconectado ? 1 : 0,
       singular: zap.semChaves ? "Chaves da Z-API não configuradas" : "WhatsApp desconectado",
@@ -184,7 +197,15 @@ export default async function InicioPage() {
       href: `/clientes/${lista(semTermo)[0]?.clienteId ?? ""}?aba=termos`,
     },
   ]);
-  const algumAlertaFalhou = [pendentes, semPagamento, estoque, semTermo, vencendo, whatsapp].some((c) => !c.ok);
+  const algumAlertaFalhou = [
+    pendentes,
+    semPagamento,
+    estoque,
+    semTermo,
+    vencendo,
+    whatsapp,
+    pedidosEquipe,
+  ].some((c) => !c.ok);
 
   const semanaDados = semana.ok ? semana.dados : [];
   const proximo = proximoAtendimento(itensDia, agora);

@@ -5,6 +5,8 @@ import {
   dadosDaMensagem,
   podeEnviar,
   renderizarMensagem,
+  ROTULO_TIPO_MENSAGEM,
+  temTextoPronto,
   TEXTOS_PADRAO,
 } from "./whatsapp";
 
@@ -80,6 +82,15 @@ describe("podeEnviar", () => {
   it("outros sempre ok", () => {
     for (const t of ["aniversario", "pedido_aprovado", "pedido_recusado", "avulsa"] as const)
       expect(podeEnviar(t, null, null, agora)).toEqual({ ok: true });
+  });
+});
+
+describe("temTextoPronto e rótulo do robô", () => {
+  it("avulsa e robô têm texto pronto", () => {
+    expect(temTextoPronto("avulsa")).toBe(true);
+    expect(temTextoPronto("robo")).toBe(true);
+    expect(temTextoPronto("confirmacao")).toBe(false);
+    expect(ROTULO_TIPO_MENSAGEM.robo).toBe("Robô");
   });
 });
 

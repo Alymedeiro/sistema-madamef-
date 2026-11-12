@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { configuracoesSchema, horarioFuncionamentoSchema, modeloSchema, TIPOS_MODELO } from "./schemas";
+import {
+  configuracoesSchema,
+  horarioFuncionamentoSchema,
+  modeloSchema,
+  roboConfigSchema,
+  TIPOS_MODELO,
+} from "./schemas";
 
 const fechado = { "0": [], "1": [], "2": [], "3": [], "4": [], "5": [], "6": [] };
 const util = [{ inicio: "09:00", fim: "19:00" }];
@@ -151,5 +157,73 @@ describe("TIPOS_MODELO e modeloSchema", () => {
     const ok = { variacoes: ["Oi"], ativo: true };
     expect(modeloSchema.safeParse({ ...ok, tipo: "lembrete" }).success).toBe(true);
     expect(modeloSchema.safeParse({ ...ok, tipo: "avulsa" }).success).toBe(false);
+  });
+});
+
+describe("roboConfigSchema", () => {
+  const opcao = (numero: number, extra: Record<string, unknown> = {}) => ({
+    numero,
+    rotulo: `Opção ${numero}`,
+    tipo: "falar_com_equipe" as const,
+    resposta: null,
+    ativo: true,
+    ...extra,
+  });
+  const base = {
+    ativo: true,
+    quando: "sempre" as const,
+    boasVindas: " Oi, {nome}! ",
+    naoEntendi: "Hein?",
+    rodapeOpcao: "",
+    linkAgendamento: "",
+    opcoes: [opcao(1)],
+  };
+
+  it("aceita, apara e transforma link vazio em null", () => {
+    const r = roboConfigSchema.parse(base);
+    expect(r.boasVindas).toBe("Oi, {nome}!");
+    expect(r.linkAgendamento).toBeNull();
+  });
+
+  it("até 8 opções; a 9ª é recusada", () => {
+    const oito = Array.from({ length: 8 }, (_, i) => opcao(i + 1));
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: oito }).success).toBe(true);
+    const nove = [...oito, opcao(8)];
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: nove }).success).toBe(false);
+  });
+
+  it("números únicos e de 1 a 8", () => {
+    const r = roboConfigSchema.safeParse({ ...base, opcoes: [opcao(1), opcao(1)] });
+    expect(r.success).toBe(false);
+    expect(r.error?.issues[0].message).toBe("Cada opção precisa de um número diferente.");
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: [opcao(9)] }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: [opcao(0)] }).success).toBe(false);
+  });
+
+  it("resposta obrigatória no tipo texto; nos outros tipos vira null", () => {
+    const sem = roboConfigSchema.safeParse({ ...base, opcoes: [opcao(1, { tipo: "texto", resposta: "  " })] });
+    expect(sem.success).toBe(false);
+    expect(sem.error?.issues[0].message).toBe("Escreva a resposta desta opção.");
+    const com = roboConfigSchema.parse({ ...base, opcoes: [opcao(1, { tipo: "texto", resposta: " Oi " })] });
+    expect(com.opcoes[0].resposta).toBe("Oi");
+    const link = roboConfigSchema.parse({
+      ...base,
+      opcoes: [opcao(1, { tipo: "agendar_online", resposta: "sobrou" })],
+    });
+    expect(link.opcoes[0].resposta).toBeNull();
+  });
+
+  it("rótulo 1–60, textos obrigatórios, link http(s) e quando válido", () => {
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: [opcao(1, { rotulo: " " })] }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, opcoes: [opcao(1, { rotulo: "x".repeat(61) })] }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, boasVindas: "  " }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, naoEntendi: "x".repeat(1001) }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, linkAgendamento: "x.com" }).success).toBe(false);
+    expect(roboConfigSchema.safeParse({ ...base, quando: "nunca" }).success).toBe(false);
+  });
+
+  it("TIPOS_MODELO não inclui avulsa nem robo", () => {
+    expect(TIPOS_MODELO).not.toContain("robo");
+    expect(TIPOS_MODELO).not.toContain("avulsa");
   });
 });

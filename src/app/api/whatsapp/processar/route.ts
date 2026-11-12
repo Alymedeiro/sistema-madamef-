@@ -1,4 +1,9 @@
-import { dadosDaMensagem, podeEnviar, renderizarMensagem } from "@/lib/dominio/whatsapp";
+import {
+  dadosDaMensagem,
+  podeEnviar,
+  renderizarMensagem,
+  temTextoPronto,
+} from "@/lib/dominio/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Database } from "@/lib/supabase/tipos";
 import { tokenConfere } from "@/lib/whatsapp/token";
@@ -75,10 +80,9 @@ export async function POST(req: Request) {
   const linha = proxima.data?.[0];
   if (!linha) return json({ enviado: false, motivo: "fila_vazia" });
 
-  const texto =
-    linha.tipo === "avulsa"
-      ? (linha.texto ?? "").trim()
-      : renderizarMensagem(linha.variacoes ?? [], dadosDaMensagem(linha));
+  const texto = temTextoPronto(linha.tipo)
+    ? (linha.texto ?? "").trim()
+    : renderizarMensagem(linha.variacoes ?? [], dadosDaMensagem(linha));
 
   const condicao = podeEnviar(
     linha.tipo,
