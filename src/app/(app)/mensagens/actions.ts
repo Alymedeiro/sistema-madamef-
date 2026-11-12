@@ -7,6 +7,7 @@ import { ERRO_INESPERADO, falha, OK, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
+import { carregarConversa, type ItemConversa } from "./dados";
 import {
   cancelamentoSchema,
   envioSchema,
@@ -85,6 +86,23 @@ export async function reenviarMensagem(id: string): Promise<Resultado> {
 
   revalidar();
   return OK;
+}
+
+/** Conversa com a cliente (painel "Responder" e recarregamento a cada 15 s). */
+export async function buscarConversa(
+  clienteId: string,
+): Promise<{ ok: true; itens: ItemConversa[] } | { ok: false; erro: string }> {
+  await exigirPerfil(...perfisComAcesso("mensagens"));
+
+  const parsed = idSchema.safeParse(clienteId);
+  if (!parsed.success) return { ok: false, erro: parsed.error.issues[0].message };
+
+  try {
+    const supabase = await createClient();
+    return { ok: true, itens: await carregarConversa(supabase, parsed.data) };
+  } catch {
+    return { ok: false, erro: ERRO_INESPERADO };
+  }
 }
 
 export async function marcarRespostaLida(id: string): Promise<Resultado> {

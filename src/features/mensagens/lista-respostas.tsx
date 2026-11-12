@@ -12,6 +12,7 @@ import { formatarTelefone } from "@/lib/dominio/telefone";
 import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
 import { ROTULO_CLASSIFICACAO, type ClassificacaoResposta } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
+import { BotaoResponder } from "./painel-conversa";
 
 const COR_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
   para_ler: "border-sky-300 bg-sky-50 text-sky-900",
@@ -46,7 +47,7 @@ export function FiltrosRespostas({ classificacao }: { classificacao: Classificac
   );
 }
 
-export function ListaRespostas({ itens }: { itens: Resposta[] }) {
+export function ListaRespostas({ itens, envioAtivo }: { itens: Resposta[]; envioAtivo: boolean }) {
   if (itens.length === 0) {
     return <p className="text-sm text-muted-foreground">Nenhuma resposta recebida.</p>;
   }
@@ -54,7 +55,7 @@ export function ListaRespostas({ itens }: { itens: Resposta[] }) {
     <ul className="flex flex-col gap-3">
       {itens.map((r) => (
         <li key={r.id} className="rounded-xl border bg-card p-4 shadow-sm">
-          <ItemResposta r={r} />
+          <ItemResposta r={r} envioAtivo={envioAtivo} />
         </li>
       ))}
     </ul>
@@ -62,7 +63,7 @@ export function ListaRespostas({ itens }: { itens: Resposta[] }) {
 }
 
 /** Uma resposta: quem, quando, classificação, texto e ações (também no Início). */
-export function ItemResposta({ r }: { r: Resposta }) {
+export function ItemResposta({ r, envioAtivo }: { r: Resposta; envioAtivo?: boolean }) {
   const lida = r.lidaEm !== null;
   return (
     <div className={cn("flex flex-col gap-2 text-sm sm:flex-row sm:items-start", lida && "opacity-75")}>
@@ -89,7 +90,7 @@ export function ItemResposta({ r }: { r: Resposta }) {
             Ver agendamento
           </Link>
         )}
-        {!r.agendamentoInicio && r.clienteId && (
+        {r.clienteId && (!r.agendamentoInicio || envioAtivo !== undefined) && (
           <Link
             href={`/clientes/${r.clienteId}`}
             className="inline-flex min-h-11 items-center px-2 font-medium text-ouro-escuro underline-offset-4 hover:underline"
@@ -97,6 +98,7 @@ export function ItemResposta({ r }: { r: Resposta }) {
             Abrir ficha
           </Link>
         )}
+        {envioAtivo !== undefined && <BotaoResponder r={r} envioAtivo={envioAtivo} />}
         {!lida && <BotaoMarcarLida id={r.id} />}
       </div>
     </div>
