@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { enviarResposta, estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
+import {
+  enviarResposta,
+  estaPertoDoFim,
+  inserirNoCursor,
+  rotuloDia,
+  rotuloHorarioConversa,
+  textoEnviavel,
+} from "./conversa";
 
 describe("enviarResposta", () => {
   const base = { clienteId: "c1", texto: "Oi", respostaId: "r1", jaLida: false };
@@ -35,7 +42,10 @@ describe("enviarResposta", () => {
 
   it("não marca de novo se já estava lida", async () => {
     const marcarLida = vi.fn();
-    await enviarResposta({ ...base, jaLida: true }, { enviar: async () => ({ ok: true }), marcarLida });
+    await enviarResposta(
+      { ...base, jaLida: true },
+      { enviar: async () => ({ ok: true }), marcarLida },
+    );
     expect(marcarLida).not.toHaveBeenCalled();
   });
 
@@ -97,5 +107,21 @@ describe("textoEnviavel", () => {
     expect(textoEnviavel("   \n ")).toBe(false);
     expect(textoEnviavel("")).toBe(false);
     expect(textoEnviavel(" Oi ")).toBe(true);
+  });
+});
+
+describe("rotuloHorarioConversa", () => {
+  const agora = new Date("2026-11-12T15:00:00Z"); // 12:00 em São Paulo
+  it("hoje mostra HH:mm", () => {
+    expect(rotuloHorarioConversa("2026-11-12T13:30:00Z", agora)).toBe("10:30");
+  });
+  it("ontem e datas antigas", () => {
+    expect(rotuloHorarioConversa("2026-11-11T20:00:00Z", agora)).toBe("Ontem");
+    expect(rotuloHorarioConversa("2026-11-05T20:00:00Z", agora)).toBe("05/11");
+  });
+  it("a virada do dia é em São Paulo, não em UTC", () => {
+    const tarde = new Date("2026-11-13T01:00:00Z"); // 22:00 de 12/11 em SP
+    expect(rotuloHorarioConversa("2026-11-13T00:30:00Z", tarde)).toBe("21:30");
+    expect(rotuloHorarioConversa("2026-11-12T02:00:00Z", tarde)).toBe("Ontem"); // 23:00 de 11/11
   });
 });

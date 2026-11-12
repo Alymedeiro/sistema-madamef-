@@ -12,9 +12,8 @@ import { formatarTelefone } from "@/lib/dominio/telefone";
 import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
 import { ROTULO_CLASSIFICACAO, type ClassificacaoResposta } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
-import { BotaoResponder } from "./painel-conversa";
 
-const COR_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
+export const COR_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
   para_ler: "border-sky-300 bg-sky-50 text-sky-900",
   quer_remarcar: "border-amber-300 bg-amber-50 text-amber-900",
   confirmou: "border-emerald-300 bg-emerald-50 text-emerald-900",
@@ -27,13 +26,24 @@ const FILTROS: { valor: ClassificacaoResposta | null; rotulo: string }[] = [
   { valor: "confirmou", rotulo: ROTULO_CLASSIFICACAO.confirmou },
 ];
 
-export function FiltrosRespostas({ classificacao }: { classificacao: ClassificacaoResposta | null }) {
+export function FiltrosRespostas({
+  classificacao,
+}: {
+  classificacao: ClassificacaoResposta | null;
+}) {
   return (
-    <nav aria-label="Filtrar respostas" className="flex flex-wrap gap-1 rounded-lg bg-muted p-1 sm:w-fit">
+    <nav
+      aria-label="Filtrar respostas"
+      className="flex flex-wrap gap-1 rounded-lg bg-muted p-1 sm:w-fit"
+    >
       {FILTROS.map((f) => (
         <Link
           key={f.rotulo}
-          href={f.valor ? `/mensagens?aba=respostas&classificacao=${f.valor}` : "/mensagens?aba=respostas"}
+          href={
+            f.valor
+              ? `/mensagens?aba=respostas&classificacao=${f.valor}`
+              : "/mensagens?aba=respostas"
+          }
           aria-current={f.valor === classificacao ? "page" : undefined}
           className={cn(
             "inline-flex min-h-11 flex-1 items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground sm:flex-none",
@@ -47,26 +57,13 @@ export function FiltrosRespostas({ classificacao }: { classificacao: Classificac
   );
 }
 
-export function ListaRespostas({ itens, envioAtivo }: { itens: Resposta[]; envioAtivo: boolean }) {
-  if (itens.length === 0) {
-    return <p className="text-sm text-muted-foreground">Nenhuma resposta recebida.</p>;
-  }
-  return (
-    <ul className="flex flex-col gap-3">
-      {itens.map((r) => (
-        <li key={r.id} className="rounded-xl border bg-card p-4 shadow-sm">
-          <ItemResposta r={r} envioAtivo={envioAtivo} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** Uma resposta: quem, quando, classificação, texto e ações (também no Início). */
-export function ItemResposta({ r, envioAtivo }: { r: Resposta; envioAtivo?: boolean }) {
+/** Uma resposta: quem, quando, classificação, texto e ações (cartão do Início). */
+export function ItemResposta({ r }: { r: Resposta }) {
   const lida = r.lidaEm !== null;
   return (
-    <div className={cn("flex flex-col gap-2 text-sm sm:flex-row sm:items-start", lida && "opacity-75")}>
+    <div
+      className={cn("flex flex-col gap-2 text-sm sm:flex-row sm:items-start", lida && "opacity-75")}
+    >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{r.clienteNome ?? "Número sem cadastro"}</span>
@@ -90,7 +87,7 @@ export function ItemResposta({ r, envioAtivo }: { r: Resposta; envioAtivo?: bool
             Ver agendamento
           </Link>
         )}
-        {r.clienteId && (!r.agendamentoInicio || envioAtivo !== undefined) && (
+        {r.clienteId && !r.agendamentoInicio && (
           <Link
             href={`/clientes/${r.clienteId}`}
             className="inline-flex min-h-11 items-center px-2 font-medium text-ouro-escuro underline-offset-4 hover:underline"
@@ -98,7 +95,6 @@ export function ItemResposta({ r, envioAtivo }: { r: Resposta; envioAtivo?: bool
             Abrir ficha
           </Link>
         )}
-        {envioAtivo !== undefined && <BotaoResponder r={r} envioAtivo={envioAtivo} />}
         {!lida && <BotaoMarcarLida id={r.id} />}
       </div>
     </div>
