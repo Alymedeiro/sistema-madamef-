@@ -14,7 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { enviarWhatsApp } from "@/app/(app)/mensagens/actions";
-import { LIMITE_TEXTO_AVULSA, MENSAGEM_TEXTO_VAZIO } from "@/app/(app)/mensagens/schemas";
+import {
+  LIMITE_TEXTO_AVULSA,
+  MENSAGEM_TEXTO_VAZIO,
+} from "@/app/(app)/mensagens/schemas";
 
 type Props = {
   clienteId: string;
@@ -42,7 +45,12 @@ export function BotaoEnviarWhatsapp({
   const [aberto, setAberto] = useState(false);
   return (
     <>
-      <Button type="button" variant={variante} size={tamanho} onClick={() => setAberto(true)}>
+      <Button
+        type="button"
+        variant={variante}
+        size={tamanho}
+        onClick={() => setAberto(true)}
+      >
         <MessageCircle aria-hidden />
         Enviar WhatsApp
       </Button>
@@ -100,7 +108,8 @@ function FormularioEnvio({
       <DialogHeader>
         <DialogTitle>Enviar WhatsApp</DialogTitle>
         <DialogDescription>
-          Para {clienteNome}. A mensagem entra na fila e sai pelo número da clínica.
+          Para {clienteNome}. A mensagem entra na fila e sai pelo número da
+          clínica.
         </DialogDescription>
       </DialogHeader>
       <form
@@ -135,7 +144,12 @@ function FormularioEnvio({
           </p>
         )}
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onFechar} disabled={pendente}>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onFechar}
+            disabled={pendente}
+          >
             Cancelar
           </Button>
           <Button type="submit" disabled={pendente}>

@@ -72,8 +72,17 @@ export function TelaConversas({
       pendentesRef.current += 1;
       if (!desfazendoArquivar)
         setConversas((l) => l.filter((c) => !saem.has(c.chave)));
-      const res = await desarquivarConversas(chaves);
-      pendentesRef.current -= 1;
+      let res: Awaited<ReturnType<typeof desarquivarConversas>>;
+      try {
+        res = await desarquivarConversas(chaves);
+      } catch {
+        res = {
+          ok: false,
+          erro: "Não foi possível desarquivar. Tente de novo.",
+        };
+      } finally {
+        pendentesRef.current -= 1;
+      }
       if (!res.ok) {
         toast.error(res.erro);
         if (!desfazendoArquivar) setConversas(anteriores);
@@ -97,23 +106,32 @@ export function TelaConversas({
       pendentesRef.current += 1;
       setConversas((l) => l.filter((c) => !saem.has(c.chave)));
       if (aberta && saem.has(aberta.chave)) selecionar(null);
-      const res = await arquivarConversas(chaves);
-      if (!res.ok) {
+      let res: Awaited<ReturnType<typeof arquivarConversas>>;
+      try {
+        res = await arquivarConversas(chaves);
+        if (res.ok) {
+          // Recebidas não lidas passam a lidas, para o alerta do Início não ficar aceso.
+          const ids = doGrupo
+            .flatMap((c) => c.idsNaoLidos)
+            .filter((id) => !marcadasRef.current.has(id));
+          ids.forEach((id) => marcadasRef.current.add(id));
+          if (ids.length > 0) {
+            const lidas = await marcarConversaLida(ids).catch(() => ({
+              ok: false,
+            }));
+            if (!lidas.ok) ids.forEach((id) => marcadasRef.current.delete(id));
+          }
+        }
+      } catch {
+        res = { ok: false, erro: "Não foi possível arquivar. Tente de novo." };
+      } finally {
         pendentesRef.current -= 1;
+      }
+      if (!res.ok) {
         toast.error(res.erro);
         setConversas(anteriores);
         return;
       }
-      // Recebidas não lidas passam a lidas, para o alerta do Início não ficar aceso.
-      const ids = doGrupo
-        .flatMap((c) => c.idsNaoLidos)
-        .filter((id) => !marcadasRef.current.has(id));
-      ids.forEach((id) => marcadasRef.current.add(id));
-      if (ids.length > 0) {
-        const lidas = await marcarConversaLida(ids);
-        if (!lidas.ok) ids.forEach((id) => marcadasRef.current.delete(id));
-      }
-      pendentesRef.current -= 1;
       toast.success(
         chaves.length === 1
           ? "Conversa arquivada"

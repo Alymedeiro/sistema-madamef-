@@ -63,9 +63,22 @@ describe("conversas arquivadas", () => {
       expect(await falha(c, "select desarquivar_conversas($1)", [["a"]])).toMatchObject({
         message: MSG_EQUIPE,
       });
-      expect(await falha(c, "insert into conversas_arquivadas (chave) values ('a')", [], "42501"))
-        .toBeTruthy();
+      await falha(c, "insert into conversas_arquivadas (chave) values ('a')", [], "42501");
       expect((await c.query("select 1 from conversas_arquivadas")).rowCount).toBe(0);
+    }));
+
+  it("escrita direta é negada até para a recepção", () =>
+    comoUsuario(recepcao, async (c) => {
+      await arquivar(c, ["a"]);
+      await falha(
+        c,
+        "insert into conversas_arquivadas (chave, arquivada_em) values ('b', now() + interval '1 year')",
+        [],
+        "42501",
+      );
+      await falha(c, "update conversas_arquivadas set arquivada_em = now() + interval '1 year'", [], "42501");
+      await falha(c, "delete from conversas_arquivadas", [], "42501");
+      expect((await c.query("select 1 from conversas_arquivadas")).rowCount).toBe(1);
     }));
 
   it("anônimo não executa as funções", () =>
@@ -91,9 +104,11 @@ describe("conversas arquivadas", () => {
   it("arquivar de novo atualiza arquivada_em", () =>
     comoUsuario(recepcao, async (c) => {
       await arquivar(c, ["a"]);
+      await c.query("reset role");
       await c.query(
         "update conversas_arquivadas set arquivada_em = now() - interval '1 day' where chave = 'a'",
       );
+      await c.query("set local role authenticated");
       await arquivar(c, ["a"]);
       const r = await c.query<{ recente: boolean }>(
         "select arquivada_em > now() - interval '1 minute' as recente from conversas_arquivadas where chave = 'a'",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, MoreHorizontal } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,7 +30,15 @@ export function ListaConversas({
 }) {
   const [selecionando, setSelecionando] = useState(false);
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
-  const [menu, setMenu] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ chave: string; acima: boolean } | null>(
+    null,
+  );
+  const botaoMenuRef = useRef<HTMLButtonElement | null>(null);
+
+  function fecharMenu(focar: boolean) {
+    setMenu(null);
+    if (focar) botaoMenuRef.current?.focus();
+  }
 
   // Menu "⋯": fecha ao clicar fora ou com Esc.
   useEffect(() => {
@@ -43,7 +51,7 @@ export function ListaConversas({
         setMenu(null);
     };
     const esc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setMenu(null);
+      if (e.key === "Escape") fecharMenu(true);
     };
     document.addEventListener("pointerdown", fora);
     document.addEventListener("keydown", esc);
@@ -131,9 +139,12 @@ export function ListaConversas({
   return (
     <div className="flex flex-col gap-3">
       {barra}
-      <ul className="flex flex-col divide-y overflow-hidden rounded-xl border bg-card shadow-sm">
+      <ul className="flex flex-col divide-y rounded-xl border bg-card shadow-sm">
         {conversas.map((c) => (
-          <li key={c.chave} className="relative flex items-stretch">
+          <li
+            key={c.chave}
+            className="relative flex items-stretch first:rounded-t-xl last:rounded-b-xl"
+          >
             {selecionando && (
               <label className="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center pl-2">
                 <Checkbox
@@ -150,7 +161,7 @@ export function ListaConversas({
               }
               aria-current={c.chave === selecionada ? "true" : undefined}
               className={cn(
-                "flex min-h-16 min-w-0 flex-1 flex-col gap-1 px-4 py-3 text-left text-sm hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
+                "flex min-h-16 min-w-0 flex-1 flex-col gap-1 rounded-[inherit] px-4 py-3 text-left text-sm hover:bg-muted/60 focus-visible:bg-muted/60 focus-visible:outline-none",
                 c.chave === selecionada && "bg-muted",
               )}
             >
@@ -221,17 +232,27 @@ export function ListaConversas({
                   size="icon"
                   aria-label="Mais ações"
                   aria-haspopup="menu"
-                  aria-expanded={menu === c.chave}
-                  onClick={() =>
-                    setMenu((m) => (m === c.chave ? null : c.chave))
-                  }
+                  aria-expanded={menu?.chave === c.chave}
+                  onClick={(e) => {
+                    if (menu?.chave === c.chave) return fecharMenu(true);
+                    botaoMenuRef.current = e.currentTarget;
+                    // Linha na metade de baixo da tela: o menu abre para cima.
+                    const { top } = e.currentTarget.getBoundingClientRect();
+                    setMenu({
+                      chave: c.chave,
+                      acima: top > window.innerHeight / 2,
+                    });
+                  }}
                 >
                   <MoreHorizontal aria-hidden />
                 </Button>
-                {menu === c.chave && (
+                {menu?.chave === c.chave && (
                   <div
                     role="menu"
-                    className="absolute top-12 right-1 z-20 min-w-48 rounded-md border bg-card p-1 shadow-md"
+                    className={cn(
+                      "absolute right-1 z-20 min-w-48 rounded-md border bg-card p-1 shadow-md",
+                      menu.acima ? "bottom-12" : "top-12",
+                    )}
                   >
                     <button
                       type="button"
@@ -239,7 +260,7 @@ export function ListaConversas({
                       autoFocus
                       className="flex min-h-11 w-full items-center gap-2 rounded-sm px-3 text-left text-sm hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
                       onClick={() => {
-                        setMenu(null);
+                        fecharMenu(true);
                         acao([c.chave]);
                       }}
                     >

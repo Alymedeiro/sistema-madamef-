@@ -11,9 +11,9 @@
 -- dados.ts): o cliente_id como texto quando há cliente; senão o telefone
 -- normalizado por chaveTelefone (55DD + 8 dígitos vira 55DD + 9 + 8 dígitos).
 --
--- Escrita pelas funções arquivar_conversas / desarquivar_conversas (dona e
--- recepção); a RLS também libera select/insert/delete a elas e update só de
--- arquivada_em. Profissional e anônimo não veem nem alteram nada.
+-- Escrita só pelas funções arquivar_conversas / desarquivar_conversas (dona e
+-- recepção); select direto liberado a elas pela RLS. Profissional e anônimo não
+-- veem nem alteram nada.
 --
 -- Dependências: 0001_base (colaboradores, perfil_atual, colaborador_atual_id),
 -- 0012_whatsapp (exigir_equipe_whatsapp).
@@ -30,25 +30,13 @@ create index conversas_arquivadas_por_idx on public.conversas_arquivadas (arquiv
 
 alter table public.conversas_arquivadas enable row level security;
 
+-- Só leitura direta: a escrita passa pelas funções (arquivada_em sempre = now(),
+-- nunca no futuro).
 revoke all on public.conversas_arquivadas from anon, authenticated;
-grant select, insert, delete on public.conversas_arquivadas to authenticated;
-grant update (arquivada_em) on public.conversas_arquivadas to authenticated;
+grant select on public.conversas_arquivadas to authenticated;
 
 create policy conversas_arquivadas_select on public.conversas_arquivadas
   for select to authenticated
-  using ((select public.perfil_atual()) in ('dona', 'recepcao'));
-
-create policy conversas_arquivadas_insert on public.conversas_arquivadas
-  for insert to authenticated
-  with check ((select public.perfil_atual()) in ('dona', 'recepcao'));
-
-create policy conversas_arquivadas_update on public.conversas_arquivadas
-  for update to authenticated
-  using ((select public.perfil_atual()) in ('dona', 'recepcao'))
-  with check ((select public.perfil_atual()) in ('dona', 'recepcao'));
-
-create policy conversas_arquivadas_delete on public.conversas_arquivadas
-  for delete to authenticated
   using ((select public.perfil_atual()) in ('dona', 'recepcao'));
 
 -- Arquiva (ou arquiva de novo: regrava arquivada_em = agora). 1 a 200 chaves

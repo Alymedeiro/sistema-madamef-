@@ -10,7 +10,10 @@ import { marcarRespostaLida } from "@/app/(app)/mensagens/actions";
 import type { Resposta } from "@/app/(app)/mensagens/dados";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { dataNoFuso, formatarNoFuso } from "@/lib/dominio/tempo";
-import { ROTULO_CLASSIFICACAO, type ClassificacaoResposta } from "@/lib/dominio/whatsapp";
+import {
+  ROTULO_CLASSIFICACAO,
+  type ClassificacaoResposta,
+} from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
 
 export const COR_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
@@ -24,19 +27,31 @@ export function ItemResposta({ r }: { r: Resposta }) {
   const lida = r.lidaEm !== null;
   return (
     <div
-      className={cn("flex flex-col gap-2 text-sm sm:flex-row sm:items-start", lida && "opacity-75")}
+      className={cn(
+        "flex flex-col gap-2 text-sm sm:flex-row sm:items-start",
+        lida && "opacity-75",
+      )}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium">{r.clienteNome ?? "Número sem cadastro"}</span>
-          <span className="text-muted-foreground tabular-nums">{formatarTelefone(r.telefone)}</span>
-          <Badge variant="outline" className={cn(COR_CLASSIFICACAO[r.classificacao])}>
+          <span className="font-medium">
+            {r.clienteNome ?? "Número sem cadastro"}
+          </span>
+          <span className="text-muted-foreground tabular-nums">
+            {formatarTelefone(r.telefone)}
+          </span>
+          <Badge
+            variant="outline"
+            className={cn(COR_CLASSIFICACAO[r.classificacao])}
+          >
             {ROTULO_CLASSIFICACAO[r.classificacao]}
           </Badge>
         </div>
         <span className="text-xs text-muted-foreground tabular-nums">
           Recebida em {formatarNoFuso(r.recebidaEm, "dd/MM 'às' HH:mm")}
-          {lida && r.lidaEm ? ` · lida em ${formatarNoFuso(r.lidaEm, "dd/MM 'às' HH:mm")}` : ""}
+          {lida && r.lidaEm
+            ? ` · lida em ${formatarNoFuso(r.lidaEm, "dd/MM 'às' HH:mm")}`
+            : ""}
         </span>
         <p className="break-words whitespace-pre-line">{r.texto}</p>
       </div>

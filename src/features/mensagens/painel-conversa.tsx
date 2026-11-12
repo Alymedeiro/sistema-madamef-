@@ -33,11 +33,18 @@ import {
   reenviarMensagem,
   retomarRobo,
 } from "@/app/(app)/mensagens/actions";
-import type { ItemConversa, PausaRobo, ResumoConversa } from "@/app/(app)/mensagens/dados";
+import type {
+  ItemConversa,
+  PausaRobo,
+  ResumoConversa,
+} from "@/app/(app)/mensagens/dados";
 import { LIMITE_TEXTO_AVULSA } from "@/app/(app)/mensagens/schemas";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
-import { ROTULO_TIPO_MENSAGEM, type StatusMensagem } from "@/lib/dominio/whatsapp";
+import {
+  ROTULO_TIPO_MENSAGEM,
+  type StatusMensagem,
+} from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
 import {
   cancelarDoBalao,
@@ -54,7 +61,10 @@ import { SeletorEmoji } from "./seletor-emoji";
 export const INTERVALO_CONVERSA_MS = 15_000;
 const CONTADOR_A_PARTIR_DE = 900;
 
-const STATUS_ENVIADA: Record<StatusMensagem, { rotulo: string; Icone: typeof Check }> = {
+const STATUS_ENVIADA: Record<
+  StatusMensagem,
+  { rotulo: string; Icone: typeof Check }
+> = {
   pendente: { rotulo: "Na fila", Icone: Clock },
   enviando: { rotulo: "Na fila", Icone: Clock },
   enviada: { rotulo: "Enviada", Icone: Check },
@@ -91,7 +101,9 @@ export function ConteudoConversa({
 
   const carregar = useCallback(async () => {
     const [res, robo] = await Promise.all([
-      clienteId ? buscarConversa(clienteId) : buscarConversaSemCadastro(telefone),
+      clienteId
+        ? buscarConversa(clienteId)
+        : buscarConversaSemCadastro(telefone),
       buscarPausaRobo({ clienteId, telefone }),
     ]);
     // A pausa do robô é um detalhe do cabeçalho: erro aqui não atrapalha a conversa.
@@ -197,16 +209,23 @@ export function ConteudoConversa({
         </Button>
         <div className="min-w-0 flex-1">
           <h2 className="flex items-center gap-2 font-medium">
-            <span className="truncate">{conversa.nome ?? "Número sem cadastro"}</span>
+            <span className="truncate">
+              {conversa.nome ?? "Número sem cadastro"}
+            </span>
             {leadId && !clienteId ? (
               <Badge variant="outline" className="shrink-0">
                 lead
               </Badge>
             ) : null}
           </h2>
-          <p className="text-sm text-muted-foreground tabular-nums">{formatarTelefone(telefone)}</p>
+          <p className="text-sm text-muted-foreground tabular-nums">
+            {formatarTelefone(telefone)}
+          </p>
           {pausa ? (
-            <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" role="status">
+            <p
+              className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground"
+              role="status"
+            >
               <span>Robô pausado até {horaNoFuso(pausa.pausadoAte)}</span>
               <Button
                 type="button"
@@ -254,7 +273,9 @@ export function ConteudoConversa({
           </p>
         )}
         {itens?.length === 0 && (
-          <p className="text-sm text-muted-foreground">Nenhuma mensagem ainda.</p>
+          <p className="text-sm text-muted-foreground">
+            Nenhuma mensagem ainda.
+          </p>
         )}
         {itens?.map((m) => {
           const dia = rotuloDia(m.quando, agora);
@@ -290,7 +311,12 @@ export function ConteudoConversa({
               {erro}
             </p>
           )}
-          {emojis && <SeletorEmoji onEscolher={inserirEmoji} onFechar={() => setEmojis(false)} />}
+          {emojis && (
+            <SeletorEmoji
+              onEscolher={inserirEmoji}
+              onFechar={() => setEmojis(false)}
+            />
+          )}
           <div className="flex items-end gap-2">
             <Button
               type="button"
@@ -316,7 +342,11 @@ export function ConteudoConversa({
                 placeholder="Escreva a mensagem"
                 onChange={(e) => setTexto(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.nativeEvent.isComposing
+                  ) {
                     e.preventDefault();
                     enviar();
                   }
@@ -341,7 +371,8 @@ export function ConteudoConversa({
           )}
           {!envioAtivo && (
             <p className="text-xs text-muted-foreground">
-              O envio está desligado em Configurações → WhatsApp; a mensagem fica na fila.
+              O envio está desligado em Configurações → WhatsApp; a mensagem
+              fica na fila.
             </p>
           )}
         </form>
@@ -364,7 +395,13 @@ export function ConteudoConversa({
   );
 }
 
-function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise<void> }) {
+function Balao({
+  m,
+  onAtualizar,
+}: {
+  m: ItemConversa;
+  onAtualizar: () => Promise<void>;
+}) {
   const [pendente, iniciar] = useTransition();
   const [confirmando, setConfirmando] = useState(false);
   const enviada = m.direcao === "enviada";
@@ -411,7 +448,10 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
       ) : (
         m.tipo &&
         m.tipo !== "avulsa" && (
-          <Badge variant="outline" className="mb-1 border-neutral-400/60 bg-white/60 text-neutral-800">
+          <Badge
+            variant="outline"
+            className="mb-1 border-neutral-400/60 bg-white/60 text-neutral-800"
+          >
             {ROTULO_TIPO_MENSAGEM[m.tipo]}
           </Badge>
         )
@@ -421,7 +461,9 @@ function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise
         <p className="mt-1 text-xs text-destructive">Erro: {m.erro}</p>
       )}
       {m.status === "cancelada" && m.canceladaMotivo && (
-        <p className="mt-1 text-xs text-neutral-600">Motivo: {m.canceladaMotivo}</p>
+        <p className="mt-1 text-xs text-neutral-600">
+          Motivo: {m.canceladaMotivo}
+        </p>
       )}
       <p
         className={cn(
