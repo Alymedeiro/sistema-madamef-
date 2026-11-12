@@ -5,7 +5,6 @@ vi.mock("server-only", () => ({}));
 
 import {
   carregarAlertasWhatsapp,
-  carregarFila,
   carregarRespostas,
   contarFalhasSemReenvio,
   type LinhaChave,
@@ -183,68 +182,6 @@ describe("carregarAlertasWhatsapp", () => {
     await expect(carregarAlertasWhatsapp(falso.cliente as never)).rejects.toThrow(
       "Falha ao carregar o estado do WhatsApp",
     );
-  });
-});
-
-describe("carregarFila", () => {
-  const linha = {
-    id: "f1",
-    tipo: "avulsa",
-    status: "pendente",
-    telefone: "5511987654321",
-    texto: "Oi",
-    agendado_para: "2026-11-11T12:00:00Z",
-    enviada_em: null,
-    criado_em: "2026-11-11T12:00:00Z",
-    tentativas: 0,
-    erro: null,
-    cancelada_motivo: null,
-    cliente_id: "c1",
-    agendamento_id: null,
-    clientes: { nome: "Ana" },
-  };
-
-  it("200 mais recentes, com filtros de status e tipo", async () => {
-    falso.responder("fila_mensagens", ok([linha]));
-    const r = await carregarFila(falso.cliente as never, { status: "pendente", tipo: "avulsa" });
-    expect(falso.chamadasDe("fila_mensagens", "eq").map((c) => c.args)).toEqual([
-      ["status", "pendente"],
-      ["tipo", "avulsa"],
-    ]);
-    expect(falso.chamadasDe("fila_mensagens", "order")[0].args).toEqual(["criado_em", { ascending: false }]);
-    expect(falso.chamadasDe("fila_mensagens", "limit")[0].args).toEqual([200]);
-    expect(r[0]).toMatchObject({ id: "f1", clienteNome: "Ana", agendadoPara: "2026-11-11T12:00:00Z" });
-  });
-
-  it("avulsa para lead: sem cliente, com o nome do lead", async () => {
-    falso.responder(
-      "fila_mensagens",
-      ok([{ ...linha, cliente_id: null, clientes: null, lead_id: "l1", leads: { nome: "Lia Lead" } }]),
-    );
-    const r = await carregarFila(falso.cliente as never);
-    expect(r[0]).toMatchObject({ clienteId: null, clienteNome: null, leadId: "l1", leadNome: "Lia Lead" });
-    expect(String(falso.chamadasDe("fila_mensagens", "select")[0].args[0])).toContain("leads(nome)");
-  });
-
-  it("busca por nome filtra pelas clientes encontradas; sem nenhuma, nem consulta a fila", async () => {
-    falso.responder("clientes", ok([{ id: "c1" }, { id: "c2" }]));
-    falso.responder("fila_mensagens", ok([]));
-    await carregarFila(falso.cliente as never, { busca: "Ána" });
-    expect(falso.chamadasDe("clientes", "ilike")[0].args).toEqual(["nome_busca", "%ana%"]);
-    expect(falso.chamadasDe("fila_mensagens", "in")[0].args).toEqual(["cliente_id", ["c1", "c2"]]);
-
-    falso = criarSupabaseFalso();
-    falso.responder("clientes", ok([]));
-    expect(await carregarFila(falso.cliente as never, { busca: "Zelda" })).toEqual([]);
-    expect(falso.chamadasDe("fila_mensagens")).toHaveLength(0);
-  });
-
-  it("busca por número filtra o telefone (com e sem 55)", async () => {
-    falso.responder("fila_mensagens", ok([]));
-    await carregarFila(falso.cliente as never, { busca: "5511987654321" });
-    expect(falso.chamadasDe("fila_mensagens", "or")[0].args).toEqual([
-      "telefone.like.*5511987654321*,telefone.like.*11987654321*",
-    ]);
   });
 });
 

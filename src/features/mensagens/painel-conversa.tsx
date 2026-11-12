@@ -10,23 +10,44 @@ import {
   useTransition,
 } from "react";
 import Link from "next/link";
-import { ArrowLeft, Ban, Check, Clock, Send, Smile, TriangleAlert } from "lucide-react";
+import {
+  ArrowLeft,
+  Ban,
+  Check,
+  Clock,
+  RotateCcw,
+  Send,
+  Smile,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   buscarConversa,
   buscarConversaSemCadastro,
   buscarPausaRobo,
+  cancelarMensagem,
   enviarWhatsApp,
+  reenviarMensagem,
   retomarRobo,
 } from "@/app/(app)/mensagens/actions";
 import type { ItemConversa, PausaRobo, ResumoConversa } from "@/app/(app)/mensagens/dados";
 import { LIMITE_TEXTO_AVULSA } from "@/app/(app)/mensagens/schemas";
 import { formatarTelefone } from "@/lib/dominio/telefone";
 import { horaNoFuso } from "@/lib/dominio/tempo";
-import type { StatusMensagem } from "@/lib/dominio/whatsapp";
+import { ROTULO_TIPO_MENSAGEM, type StatusMensagem } from "@/lib/dominio/whatsapp";
 import { cn } from "@/lib/utils";
-import { estaPertoDoFim, inserirNoCursor, rotuloDia, textoEnviavel } from "./conversa";
+import {
+  cancelarDoBalao,
+  estaPertoDoFim,
+  inserirNoCursor,
+  reenviarDoBalao,
+  rotuloAgendada,
+  rotuloDia,
+  textoEnviavel,
+} from "./conversa";
 import { SeletorEmoji } from "./seletor-emoji";
 
 /** Recarrega a conversa enquanto o painel está aberto. */
@@ -51,7 +72,7 @@ export function ConteudoConversa({
   envioAtivo: boolean;
   onVoltar: () => void;
 }) {
-  const { clienteId, telefone } = conversa;
+  const { clienteId, leadId, telefone } = conversa;
   const id = useId();
   const [itens, setItens] = useState<ItemConversa[] | null>(null);
   const [erroCarga, setErroCarga] = useState<string | null>(null);
@@ -175,7 +196,14 @@ export function ConteudoConversa({
           <ArrowLeft aria-hidden />
         </Button>
         <div className="min-w-0 flex-1">
-          <h2 className="truncate font-medium">{conversa.nome ?? "Número sem cadastro"}</h2>
+          <h2 className="flex items-center gap-2 font-medium">
+            <span className="truncate">{conversa.nome ?? "Número sem cadastro"}</span>
+            {leadId && !clienteId ? (
+              <Badge variant="outline" className="shrink-0">
+                lead
+              </Badge>
+            ) : null}
+          </h2>
           <p className="text-sm text-muted-foreground tabular-nums">{formatarTelefone(telefone)}</p>
           {pausa ? (
             <p className="flex flex-wrap items-center gap-x-2 text-xs text-muted-foreground" role="status">
@@ -198,6 +226,13 @@ export function ConteudoConversa({
             className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
           >
             Abrir ficha
+          </Link>
+        ) : leadId ? (
+          <Link
+            href="/crm?aba=leads"
+            className="inline-flex min-h-11 shrink-0 items-center px-2 text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
+          >
+            Abrir lead
           </Link>
         ) : null}
       </header>
@@ -232,7 +267,7 @@ export function ConteudoConversa({
                   {dia}
                 </div>
               )}
-              <Balao m={m} />
+              <Balao m={m} onAtualizar={carregar} />
             </div>
           );
         })}
@@ -310,6 +345,13 @@ export function ConteudoConversa({
             </p>
           )}
         </form>
+      ) : leadId ? (
+        <div className="flex flex-col items-start gap-2 border-t bg-card p-3 text-sm">
+          <p>Lead: para responder, use o WhatsApp do lead no CRM.</p>
+          <Button asChild variant="outline">
+            <Link href="/crm?aba=leads">Abrir leads no CRM</Link>
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-col items-start gap-2 border-t bg-card p-3 text-sm">
           <p>Cadastre a cliente para responder.</p>
@@ -322,9 +364,36 @@ export function ConteudoConversa({
   );
 }
 
-function Balao({ m }: { m: ItemConversa }) {
+function Balao({ m, onAtualizar }: { m: ItemConversa; onAtualizar: () => Promise<void> }) {
+  const [pendente, iniciar] = useTransition();
+  const [confirmando, setConfirmando] = useState(false);
   const enviada = m.direcao === "enviada";
+  const agendada = enviada ? rotuloAgendada(m) : null;
   const status = enviada && m.status ? STATUS_ENVIADA[m.status] : null;
+
+  function cancelar() {
+    if (!confirmando) {
+      setConfirmando(true);
+      return;
+    }
+    iniciar(async () => {
+      const r = await cancelarDoBalao(m.id, { cancelar: cancelarMensagem });
+      setConfirmando(false);
+      if (!r.ok) toast.error(r.erro);
+      else toast.success("Mensagem cancelada.");
+      await onAtualizar();
+    });
+  }
+
+  function reenviar() {
+    iniciar(async () => {
+      const r = await reenviarDoBalao(m.id, { reenviar: reenviarMensagem });
+      if (!r.ok) toast.error(r.erro);
+      else toast.success("Mensagem enviada para a fila de novo.");
+      await onAtualizar();
+    });
+  }
+
   return (
     <div
       data-testid={enviada ? "balao-enviada" : "balao-recebida"}
@@ -335,26 +404,88 @@ function Balao({ m }: { m: ItemConversa }) {
           : "self-start bg-card text-card-foreground",
       )}
     >
-      {m.tipo === "robo" && (
+      {m.tipo === "robo" ? (
         <p className="mb-1 text-xs font-medium text-neutral-600">
           <span aria-hidden>🤖 </span>Robô
         </p>
+      ) : (
+        m.tipo &&
+        m.tipo !== "avulsa" && (
+          <Badge variant="outline" className="mb-1 border-neutral-400/60 bg-white/60 text-neutral-800">
+            {ROTULO_TIPO_MENSAGEM[m.tipo]}
+          </Badge>
+        )
       )}
       <p className="break-words whitespace-pre-line">{m.texto}</p>
+      {m.status === "falhou" && m.erro && (
+        <p className="mt-1 text-xs text-destructive">Erro: {m.erro}</p>
+      )}
+      {m.status === "cancelada" && m.canceladaMotivo && (
+        <p className="mt-1 text-xs text-neutral-600">Motivo: {m.canceladaMotivo}</p>
+      )}
       <p
         className={cn(
-          "mt-1 flex items-center justify-end gap-1 text-xs tabular-nums",
+          "mt-1 flex flex-wrap items-center justify-end gap-x-2 gap-y-1 text-xs tabular-nums",
           enviada ? "text-neutral-600" : "text-muted-foreground",
         )}
       >
-        <span>{horaNoFuso(m.quando)}</span>
-        {status && (
+        {agendada ? (
+          <span className="inline-flex items-center gap-1">
+            <Clock className="size-3.5" aria-hidden />
+            {agendada}
+          </span>
+        ) : (
+          <span>{horaNoFuso(m.quando)}</span>
+        )}
+        {status && !agendada && (
           <span className="inline-flex items-center gap-1">
             <status.Icone className="size-3.5" aria-hidden />
             {status.rotulo}
           </span>
         )}
       </p>
+      {m.status === "pendente" && (
+        <div className="mt-2 flex flex-wrap justify-end gap-2">
+          {confirmando && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              disabled={pendente}
+              onClick={() => setConfirmando(false)}
+            >
+              Voltar
+            </Button>
+          )}
+          <Button
+            type="button"
+            variant="destructive"
+            size="sm"
+            className="min-h-11"
+            disabled={pendente}
+            onClick={cancelar}
+          >
+            <X aria-hidden />
+            {confirmando ? "Confirmar cancelamento" : "Cancelar"}
+          </Button>
+        </div>
+      )}
+      {m.status === "falhou" && (
+        <div className="mt-2 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-11"
+            disabled={pendente}
+            onClick={reenviar}
+          >
+            <RotateCcw aria-hidden />
+            Tentar de novo
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

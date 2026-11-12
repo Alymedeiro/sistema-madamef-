@@ -1,42 +1,20 @@
 import "server-only";
-import { classificarTermoBusca, escaparLike } from "@/lib/dominio/clientes";
 import {
   ROTULO_TIPO_MENSAGEM,
   type ClassificacaoResposta,
   type StatusMensagem,
   type TipoMensagem,
 } from "@/lib/dominio/whatsapp";
+import { filtrarConversas, type FiltroConversas } from "@/features/mensagens/filtro-conversas";
 import type { createClient } from "@/lib/supabase/server";
 
 type Supabase = Awaited<ReturnType<typeof createClient>>;
 
-export const LIMITE_FILA = 200;
 export const LIMITE_RESPOSTAS = 200;
 /** Respostas não lidas no cartão do Início. */
 export const LIMITE_RESPOSTAS_INICIO = 10;
 /** O cartão "Mensagens com falha" conta as falhas desta janela. */
 export const DIAS_FALHAS = 7;
-
-export type ItemFila = {
-  id: string;
-  tipo: TipoMensagem;
-  status: StatusMensagem;
-  telefone: string;
-  /** Nulo até o envio (o texto é montado na hora), exceto na avulsa. */
-  texto: string | null;
-  agendadoPara: string;
-  enviadaEm: string | null;
-  criadoEm: string;
-  tentativas: number;
-  erro: string | null;
-  canceladaMotivo: string | null;
-  clienteId: string | null;
-  clienteNome: string | null;
-  agendamentoId: string | null;
-  /** Avulsa para lead: sem cliente, com o nome do lead. */
-  leadId: string | null;
-  leadNome: string | null;
-};
 
 export type Resposta = {
   id: string;
@@ -52,8 +30,6 @@ export type Resposta = {
   agendamentoInicio: string | null;
 };
 
-export type FiltroFila = { status?: StatusMensagem; tipo?: TipoMensagem; busca?: string };
-
 export type AlertasWhatsapp = {
   /** Envio ligado e estado ≠ conectado (inclui sem chaves). */
   desconectado: boolean;
@@ -65,82 +41,6 @@ export type AlertasWhatsapp = {
 
 function falhou(onde: string, error: { message: string } | null) {
   if (error) throw new Error(`Falha ao carregar ${onde}: ${error.message}`);
-}
-
-const SELECT_FILA =
-  "id, tipo, status, telefone, texto, agendado_para, enviada_em, criado_em, tentativas, erro, cancelada_motivo, cliente_id, agendamento_id, lead_id, clientes(nome), leads(nome)";
-
-type LinhaFila = {
-  id: string;
-  tipo: TipoMensagem;
-  status: StatusMensagem;
-  telefone: string;
-  texto: string | null;
-  agendado_para: string;
-  enviada_em: string | null;
-  criado_em: string;
-  tentativas: number;
-  erro: string | null;
-  cancelada_motivo: string | null;
-  cliente_id: string | null;
-  agendamento_id: string | null;
-  lead_id: string | null;
-  clientes: { nome: string } | null;
-  leads: { nome: string } | null;
-};
-
-/**
- * As 200 mensagens mais recentes da fila, com filtros por status, tipo e
- * cliente (nome sem acento ou pedaço do telefone).
- */
-export async function carregarFila(
-  supabase: Supabase,
-  filtro: FiltroFila = {},
-): Promise<ItemFila[]> {
-  const termo = classificarTermoBusca(filtro.busca ?? "");
-  let clientesIds: string[] | null = null;
-  if (termo.tipo === "nome") {
-    const { data, error } = await supabase
-      .from("clientes")
-      .select("id")
-      .ilike("nome_busca", `%${escaparLike(termo.texto)}%`)
-      .limit(LIMITE_FILA);
-    falhou("as clientes da busca", error);
-    clientesIds = (data ?? []).map((c) => c.id);
-    if (clientesIds.length === 0) return [];
-  }
-
-  let consulta = supabase.from("fila_mensagens").select(SELECT_FILA);
-  if (filtro.status) consulta = consulta.eq("status", filtro.status);
-  if (filtro.tipo) consulta = consulta.eq("tipo", filtro.tipo);
-  if (clientesIds) consulta = consulta.in("cliente_id", clientesIds);
-  if (termo.tipo === "numero") {
-    // Só dígitos: o filtro `or` não precisa de escape.
-    consulta = consulta.or(termo.digitos.map((d) => `telefone.like.*${d}*`).join(","));
-  }
-
-  const { data, error } = await consulta
-    .order("criado_em", { ascending: false })
-    .limit(LIMITE_FILA);
-  falhou("a fila de mensagens", error);
-  return ((data ?? []) as unknown as LinhaFila[]).map((l) => ({
-    id: l.id,
-    tipo: l.tipo,
-    status: l.status,
-    telefone: l.telefone,
-    texto: l.texto,
-    agendadoPara: l.agendado_para,
-    enviadaEm: l.enviada_em,
-    criadoEm: l.criado_em,
-    tentativas: l.tentativas,
-    erro: l.erro,
-    canceladaMotivo: l.cancelada_motivo,
-    clienteId: l.cliente_id,
-    clienteNome: l.clientes?.nome ?? null,
-    agendamentoId: l.agendamento_id,
-    leadId: l.lead_id,
-    leadNome: l.leads?.nome ?? null,
-  }));
 }
 
 const SELECT_RESPOSTA =
@@ -308,6 +208,9 @@ export type ItemConversa = {
   quando: string;
   status?: StatusMensagem;
   tipo?: TipoMensagem;
+  /** Só enviadas: motivo da falha / do cancelamento (para o balão). */
+  erro?: string | null;
+  canceladaMotivo?: string | null;
 };
 
 type LinhaRecebida = { id: string; texto: string; recebida_em: string };
@@ -318,6 +221,8 @@ type LinhaEnviada = {
   tipo: TipoMensagem;
   enviada_em: string | null;
   agendado_para: string;
+  erro?: string | null;
+  cancelada_motivo?: string | null;
 };
 
 /** Junta recebidas e enviadas, ordena por horário (estável) e fica com as últimas 100. */
@@ -339,13 +244,15 @@ export function montarConversa(
       quando: e.enviada_em ?? e.agendado_para,
       status: e.status,
       tipo: e.tipo,
+      erro: e.erro ?? null,
+      canceladaMotivo: e.cancelada_motivo ?? null,
     })),
   ];
   itens.sort((a, b) => new Date(a.quando).getTime() - new Date(b.quando).getTime());
   return itens.slice(-LIMITE_CONVERSA);
 }
 
-/** Conversa com a cliente: o que ela mandou e o que a clínica enviou (últimas 100). */
+/** Conversa com a cliente: o que ela mandou e tudo o que a clínica enviou ou agendou (últimas 100). */
 export async function carregarConversa(
   supabase: Supabase,
   clienteId: string,
@@ -359,7 +266,7 @@ export async function carregarConversa(
       .limit(LIMITE_CONVERSA),
     supabase
       .from("fila_mensagens")
-      .select("id, texto, status, tipo, enviada_em, agendado_para")
+      .select("id, texto, status, tipo, enviada_em, agendado_para, erro, cancelada_motivo")
       .eq("cliente_id", clienteId)
       .order("agendado_para", { ascending: false })
       .limit(LIMITE_CONVERSA),
@@ -372,19 +279,30 @@ export async function carregarConversa(
   );
 }
 
-export const LIMITE_CONVERSAS_RECEBIDAS = 500;
+/** Conversas mostradas na tela (as mais recentes, depois dos filtros). */
+export const LIMITE_CONVERSAS = 500;
+/** Recebidas lidas para montar a lista (as mais recentes). */
+export const LIMITE_RECEBIDAS = 500;
+/** Mensagens da clínica lidas para montar a lista (as de agendamento mais recente). */
+export const LIMITE_ENVIADAS = 2000;
 
 export type ResumoConversa = {
   /** `cliente_id` quando houver; senão o telefone (conversa "sem cadastro"). */
   chave: string;
   clienteId: string | null;
+  /** Conversa de lead (sem cliente): mensagens avulsas enviadas pelo CRM. */
+  leadId: string | null;
   nome: string | null;
   telefone: string;
   ultima: { texto: string; quando: string; direcao: "recebida" | "enviada" };
   naoLidas: number;
   idsNaoLidos: string[];
-  /** Classificação da última recebida. */
+  /** Classificação da última recebida (nulo se a cliente nunca respondeu). */
   classificacao: ClassificacaoResposta | null;
+  /** Há mensagem `falhou` sem reenvio posterior. */
+  falhou: boolean;
+  /** Status e tipo de cada mensagem da clínica (futuras incluídas), para os filtros. */
+  enviadas: { status: StatusMensagem; tipo: TipoMensagem }[];
 };
 
 export type LinhaConversaRecebida = {
@@ -407,120 +325,142 @@ export type LinhaConversaEnviada = {
   enviada_em: string | null;
   agendado_para: string;
   cliente_id: string | null;
+  agendamento_id?: string | null;
+  pedido_online_id?: string | null;
+  criado_em?: string;
+  lead_id?: string | null;
+  clientes?: { nome: string } | null;
+  leads?: { nome: string } | null;
 };
 
 const instante = (v: string) => new Date(v).getTime();
 
 /**
- * Uma conversa por cliente (ou por telefone, sem cadastro): última mensagem
- * (recebida ou enviada, ignorando canceladas e com falha), não lidas e
- * classificação da última recebida. Enviadas sem recebida não abrem conversa.
+ * Uma conversa por cliente (ou por telefone, sem cadastro), com recebidas e/ou
+ * mensagens da clínica. A prévia e a ordem usam só o que já saiu (enviadas, ou
+ * pendentes com horário vencido; canceladas, com falha e futuras não contam),
+ * exceto numa conversa sem recebidas e sem nada que já saiu: aí vale a mais
+ * recente de qualquer status. Futuras contam para os filtros de status/tipo.
  */
 export function agruparConversas(
   recebidas: LinhaConversaRecebida[],
   enviadas: LinhaConversaEnviada[],
   agora: Date = new Date(),
 ): ResumoConversa[] {
-  const grupos = new Map<string, LinhaConversaRecebida[]>();
+  const recebidasPor = new Map<string, LinhaConversaRecebida[]>();
   for (const r of recebidas) {
     const chave = r.cliente_id ?? r.telefone;
-    grupos.set(chave, [...(grupos.get(chave) ?? []), r]);
+    recebidasPor.set(chave, [...(recebidasPor.get(chave) ?? []), r]);
   }
-
   const enviadasPor = new Map<string, LinhaConversaEnviada[]>();
   for (const e of enviadas) {
-    // Só o que já saiu: enviada, ou pendente/enviando já no horário (lembretes futuros não contam).
-    const jaSaiu =
-      e.status === "enviada" ||
-      ((e.status === "pendente" || e.status === "enviando") &&
-        instante(e.agendado_para) <= agora.getTime());
-    if (!jaSaiu) continue;
     const chave = e.cliente_id ?? e.telefone;
-    if (!grupos.has(chave)) continue;
     enviadasPor.set(chave, [...(enviadasPor.get(chave) ?? []), e]);
   }
 
+  const quandoEnviada = (e: LinhaConversaEnviada) => e.enviada_em ?? e.agendado_para;
+  const textoEnviada = (e: LinhaConversaEnviada) =>
+    e.texto ?? `(mensagem automática: ${ROTULO_TIPO_MENSAGEM[e.tipo]})`;
+  const jaSaiu = (e: LinhaConversaEnviada) =>
+    e.status === "enviada" ||
+    ((e.status === "pendente" || e.status === "enviando") &&
+      instante(e.agendado_para) <= agora.getTime());
+
   const conversas: ResumoConversa[] = [];
-  for (const [chave, lista] of grupos) {
-    const recentes = [...lista].sort((a, b) => instante(b.recebida_em) - instante(a.recebida_em));
+  for (const chave of new Set([...recebidasPor.keys(), ...enviadasPor.keys()])) {
+    const recentes = [...(recebidasPor.get(chave) ?? [])].sort(
+      (a, b) => instante(b.recebida_em) - instante(a.recebida_em),
+    );
+    const doGrupo = enviadasPor.get(chave) ?? [];
+    const porData = (lista: LinhaConversaEnviada[]) =>
+      [...lista].sort((a, b) => instante(quandoEnviada(b)) - instante(quandoEnviada(a)))[0];
     const ultimaRecebida = recentes[0];
-    const ultimaEnviada = (enviadasPor.get(chave) ?? [])
-      .map((e) => ({ e, quando: e.enviada_em ?? e.agendado_para }))
-      .sort((a, b) => instante(b.quando) - instante(a.quando))[0];
+    const ultimaSaida = porData(doGrupo.filter(jaSaiu));
+    const candidataSemRecebida = ultimaRecebida ? undefined : (ultimaSaida ?? porData(doGrupo));
 
     const ultima: ResumoConversa["ultima"] =
-      ultimaEnviada && instante(ultimaEnviada.quando) > instante(ultimaRecebida.recebida_em)
+      ultimaSaida &&
+      (!ultimaRecebida || instante(quandoEnviada(ultimaSaida)) > instante(ultimaRecebida.recebida_em))
         ? {
-            texto:
-              ultimaEnviada.e.texto ??
-              `(mensagem automática: ${ROTULO_TIPO_MENSAGEM[ultimaEnviada.e.tipo]})`,
-            quando: ultimaEnviada.quando,
+            texto: textoEnviada(ultimaSaida),
+            quando: quandoEnviada(ultimaSaida),
             direcao: "enviada",
           }
-        : { texto: ultimaRecebida.texto, quando: ultimaRecebida.recebida_em, direcao: "recebida" };
+        : ultimaRecebida
+          ? { texto: ultimaRecebida.texto, quando: ultimaRecebida.recebida_em, direcao: "recebida" }
+          : {
+              texto: textoEnviada(candidataSemRecebida!),
+              quando: quandoEnviada(candidataSemRecebida!),
+              direcao: "enviada",
+            };
 
     const naoLidas = recentes.filter((r) => r.lida_em === null);
+    const clienteId = ultimaRecebida?.cliente_id ?? doGrupo.find((e) => e.cliente_id)?.cliente_id ?? null;
     conversas.push({
       chave,
-      clienteId: ultimaRecebida.cliente_id,
-      nome: recentes.find((r) => r.clientes)?.clientes?.nome ?? null,
-      telefone: ultimaRecebida.telefone,
+      clienteId,
+      leadId: clienteId ? null : (doGrupo.find((e) => e.lead_id)?.lead_id ?? null),
+      nome:
+        recentes.find((r) => r.clientes)?.clientes?.nome ??
+        doGrupo.find((e) => e.clientes)?.clientes?.nome ??
+        (clienteId ? null : (doGrupo.find((e) => e.leads)?.leads?.nome ?? null)),
+      telefone: ultimaRecebida?.telefone ?? porData(doGrupo).telefone,
       ultima,
       naoLidas: naoLidas.length,
       idsNaoLidos: naoLidas.map((r) => r.id),
-      classificacao: ultimaRecebida.classificacao,
+      classificacao: ultimaRecebida?.classificacao ?? null,
+      falhou:
+        contarFalhasSemReenvio(
+          doGrupo.map((e) => ({
+            status: e.status,
+            tipo: e.tipo,
+            cliente_id: e.cliente_id,
+            agendamento_id: e.agendamento_id ?? null,
+            pedido_online_id: e.pedido_online_id ?? null,
+            criado_em: e.criado_em ?? e.agendado_para,
+          })),
+        ) > 0,
+      enviadas: doGrupo.map((e) => ({ status: e.status, tipo: e.tipo })),
     });
   }
   return conversas.sort((a, b) => instante(b.ultima.quando) - instante(a.ultima.quando));
 }
 
-/** Filtro das abas: classificação da última recebida da conversa. */
-export function filtrarPorClassificacao(
-  conversas: ResumoConversa[],
-  classificacao: ClassificacaoResposta | null | undefined,
-): ResumoConversa[] {
-  if (!classificacao) return conversas;
-  // "Para ler": só conversas com não lidas classificadas para_ler.
-  if (classificacao === "para_ler") {
-    return conversas.filter((c) => c.classificacao === "para_ler" && c.naoLidas > 0);
-  }
-  return conversas.filter((c) => c.classificacao === classificacao);
-}
-
-/** Conversas da aba Respostas, a mais recente primeiro (lê até 500 recebidas). */
+/**
+ * Conversas da tela de Mensagens, a mais recente primeiro: lê as últimas 500
+ * recebidas e as últimas 2000 mensagens da clínica, agrupa, filtra e fica com
+ * até 500 conversas.
+ */
 export async function carregarConversas(
   supabase: Supabase,
-  filtro: { classificacao?: ClassificacaoResposta } = {},
+  filtro: FiltroConversas = {},
 ): Promise<ResumoConversa[]> {
-  const { data, error } = await supabase
-    .from("mensagens_recebidas")
-    .select("id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, clientes(nome)")
-    .order("recebida_em", { ascending: false })
-    .limit(LIMITE_CONVERSAS_RECEBIDAS);
-  falhou("as respostas do WhatsApp", error);
-  const recebidas = (data ?? []) as unknown as LinhaConversaRecebida[];
-  if (recebidas.length === 0) return [];
-
-  const clientes = [...new Set(recebidas.map((r) => r.cliente_id).filter((x): x is string => !!x))];
-  const telefones = [...new Set(recebidas.filter((r) => !r.cliente_id).map((r) => r.telefone))];
-  const filtros = [
-    clientes.length > 0 ? `cliente_id.in.(${clientes.join(",")})` : null,
-    telefones.length > 0 ? `telefone.in.(${telefones.join(",")})` : null,
-  ].filter((f): f is string => f !== null);
-
-  const enviadas = await supabase
-    .from("fila_mensagens")
-    .select("id, telefone, texto, status, tipo, enviada_em, agendado_para, cliente_id")
-    .in("status", ["pendente", "enviando", "enviada"])
-    .or(filtros.join(","))
-    .order("agendado_para", { ascending: false })
-    .limit(1000);
+  const [recebidas, enviadas] = await Promise.all([
+    supabase
+      .from("mensagens_recebidas")
+      .select(
+        "id, telefone, texto, recebida_em, classificacao, lida_em, cliente_id, clientes(nome)",
+      )
+      .order("recebida_em", { ascending: false })
+      .limit(LIMITE_RECEBIDAS),
+    supabase
+      .from("fila_mensagens")
+      .select(
+        "id, telefone, texto, status, tipo, enviada_em, agendado_para, cliente_id, agendamento_id, pedido_online_id, criado_em, lead_id, clientes(nome), leads(nome)",
+      )
+      .order("agendado_para", { ascending: false })
+      .limit(LIMITE_ENVIADAS),
+  ]);
+  falhou("as respostas do WhatsApp", recebidas.error);
   falhou("as mensagens enviadas", enviadas.error);
 
-  return filtrarPorClassificacao(
-    agruparConversas(recebidas, (enviadas.data ?? []) as unknown as LinhaConversaEnviada[]),
-    filtro.classificacao,
-  );
+  return filtrarConversas(
+    agruparConversas(
+      (recebidas.data ?? []) as unknown as LinhaConversaRecebida[],
+      (enviadas.data ?? []) as unknown as LinhaConversaEnviada[],
+    ),
+    filtro,
+  ).slice(0, LIMITE_CONVERSAS);
 }
 
 /** Conversa de um número sem cadastro: recebidas e enviadas pelo telefone. */
@@ -538,7 +478,7 @@ export async function carregarConversaPorTelefone(
       .limit(LIMITE_CONVERSA),
     supabase
       .from("fila_mensagens")
-      .select("id, texto, status, tipo, enviada_em, agendado_para")
+      .select("id, texto, status, tipo, enviada_em, agendado_para, erro, cancelada_motivo")
       .eq("telefone", telefone)
       .is("cliente_id", null)
       .order("agendado_para", { ascending: false })

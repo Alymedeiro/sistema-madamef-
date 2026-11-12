@@ -19,44 +19,6 @@ export const COR_CLASSIFICACAO: Record<ClassificacaoResposta, string> = {
   confirmou: "border-emerald-300 bg-emerald-50 text-emerald-900",
 };
 
-const FILTROS: { valor: ClassificacaoResposta | null; rotulo: string }[] = [
-  { valor: null, rotulo: "Todas" },
-  { valor: "para_ler", rotulo: ROTULO_CLASSIFICACAO.para_ler },
-  { valor: "quer_remarcar", rotulo: ROTULO_CLASSIFICACAO.quer_remarcar },
-  { valor: "confirmou", rotulo: ROTULO_CLASSIFICACAO.confirmou },
-];
-
-export function FiltrosRespostas({
-  classificacao,
-}: {
-  classificacao: ClassificacaoResposta | null;
-}) {
-  return (
-    <nav
-      aria-label="Filtrar respostas"
-      className="flex flex-wrap gap-1 rounded-lg bg-muted p-1 sm:w-fit"
-    >
-      {FILTROS.map((f) => (
-        <Link
-          key={f.rotulo}
-          href={
-            f.valor
-              ? `/mensagens?aba=respostas&classificacao=${f.valor}`
-              : "/mensagens?aba=respostas"
-          }
-          aria-current={f.valor === classificacao ? "page" : undefined}
-          className={cn(
-            "inline-flex min-h-11 flex-1 items-center justify-center rounded-md px-4 text-sm font-medium text-muted-foreground sm:flex-none",
-            f.valor === classificacao && "bg-card text-foreground shadow-sm",
-          )}
-        >
-          {f.rotulo}
-        </Link>
-      ))}
-    </nav>
-  );
-}
-
 /** Uma resposta: quem, quando, classificação, texto e ações (cartão do Início). */
 export function ItemResposta({ r }: { r: Resposta }) {
   const lida = r.lidaEm !== null;

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { ROTULO_CLASSIFICACAO, type ClassificacaoResposta } from "@/lib/dominio/whatsapp";
+import { lerFiltro, type FiltroConversas } from "@/features/mensagens/filtro-conversas";
 import { perfisComAcesso } from "@/lib/dominio/permissoes";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, falha, OK, type Resultado } from "@/lib/resultado";
@@ -174,21 +174,17 @@ export async function buscarConversaSemCadastro(
   }
 }
 
-/** Lista de conversas para o recarregamento periódico da aba Respostas. */
+/** Lista de conversas para o recarregamento periódico (o filtro é saneado como o da URL). */
 export async function listarConversas(
-  classificacao: ClassificacaoResposta | null,
+  filtro: FiltroConversas,
 ): Promise<{ ok: true; conversas: ResumoConversa[] } | { ok: false; erro: string }> {
   await exigirPerfil(...perfisComAcesso("mensagens"));
-
-  if (classificacao !== null && !Object.hasOwn(ROTULO_CLASSIFICACAO, classificacao)) {
-    return { ok: false, erro: "Filtro inválido." };
-  }
 
   try {
     const supabase = await createClient();
     return {
       ok: true,
-      conversas: await carregarConversas(supabase, classificacao ? { classificacao } : {}),
+      conversas: await carregarConversas(supabase, lerFiltro({ ...filtro })),
     };
   } catch {
     return { ok: false, erro: ERRO_INESPERADO };

@@ -240,7 +240,7 @@ export function ListaRespostasWhatsapp({ itens }: { itens: Resposta[] }) {
         ))}
       </ul>
       <Link
-        href="/mensagens?aba=respostas"
+        href="/mensagens?leitura=nao_lidas"
         className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
       >
         Ver respostas
@@ -258,10 +258,10 @@ export function ResumoFalhasWhatsapp({ falhas }: { falhas: number }) {
           : `${falhas} mensagens falharam nos últimos 7 dias.`}
       </p>
       <Link
-        href="/mensagens?aba=fila&status=falhou"
+        href="/mensagens?status=falhou"
         className="inline-flex min-h-11 items-center self-start font-medium text-ouro-escuro underline-offset-4 hover:underline"
       >
-        Ver na fila
+        Ver mensagens com falha
       </Link>
     </div>
   );
