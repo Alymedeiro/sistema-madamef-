@@ -31,7 +31,7 @@ describe("Início: WhatsApp", () => {
   it("falhas levam à fila filtrada", () => {
     const html = renderToStaticMarkup(<ResumoFalhasWhatsapp falhas={2} />);
     expect(html).toContain("2 mensagens falharam nos últimos 7 dias.");
-    expect(html).toContain('href="/mensagens?aba=fila&amp;status=falhou"');
+    expect(html).toContain('href="/mensagens?status=falhou"');
     expect(renderToStaticMarkup(<ResumoFalhasWhatsapp falhas={1} />)).toContain("1 mensagem falhou");
   });
 

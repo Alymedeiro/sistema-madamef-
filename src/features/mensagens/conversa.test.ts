@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  cancelarDoBalao,
   enviarResposta,
   estaPertoDoFim,
   inserirNoCursor,
+  reenviarDoBalao,
+  rotuloAgendada,
   rotuloDia,
   rotuloHorarioConversa,
   textoEnviavel,
@@ -123,5 +126,34 @@ describe("rotuloHorarioConversa", () => {
     const tarde = new Date("2026-11-13T01:00:00Z"); // 22:00 de 12/11 em SP
     expect(rotuloHorarioConversa("2026-11-13T00:30:00Z", tarde)).toBe("21:30");
     expect(rotuloHorarioConversa("2026-11-12T02:00:00Z", tarde)).toBe("Ontem"); // 23:00 de 11/11
+  });
+});
+
+describe("ações do balão", () => {
+  it("Cancelar chama cancelarMensagem com o id e o motivo da equipe", async () => {
+    const cancelar = vi.fn(async () => ({ ok: true as const }));
+    const r = await cancelarDoBalao("m1", { cancelar });
+    expect(cancelar).toHaveBeenCalledWith({ id: "m1", motivo: "Cancelada pela equipe" });
+    expect(r).toEqual({ ok: true });
+  });
+
+  it("Tentar de novo chama reenviarMensagem com o id e repassa o erro", async () => {
+    const reenviar = vi.fn(async () => ({ ok: false as const, erro: "Sem WhatsApp." }));
+    expect(await reenviarDoBalao("m2", { reenviar })).toEqual({ ok: false, erro: "Sem WhatsApp." });
+    expect(reenviar).toHaveBeenCalledWith("m2");
+  });
+});
+
+describe("rotuloAgendada", () => {
+  const agora = new Date("2026-11-10T12:00:00Z");
+  it("pendente no futuro mostra a data e a hora de São Paulo", () => {
+    expect(rotuloAgendada({ status: "pendente", quando: "2026-11-12T17:30:00Z" }, agora)).toBe(
+      "Agendada para 12/11 14:30",
+    );
+  });
+  it("já vencida, enviada ou de outro status não é agendada", () => {
+    expect(rotuloAgendada({ status: "pendente", quando: "2026-11-10T11:00:00Z" }, agora)).toBeNull();
+    expect(rotuloAgendada({ status: "enviada", quando: "2026-11-12T17:30:00Z" }, agora)).toBeNull();
+    expect(rotuloAgendada({ quando: "2026-11-12T17:30:00Z" }, agora)).toBeNull();
   });
 });

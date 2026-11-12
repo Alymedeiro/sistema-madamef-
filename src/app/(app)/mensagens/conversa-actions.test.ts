@@ -14,7 +14,12 @@ vi.mock("server-only", () => ({}));
 let falso = criarSupabaseFalso();
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => falso.cliente }));
 
-import { buscarConversa, buscarConversaSemCadastro, marcarConversaLida } from "./actions";
+import {
+  buscarConversa,
+  buscarConversaSemCadastro,
+  listarConversas,
+  marcarConversaLida,
+} from "./actions";
 
 const CLIENTE = "00000000-0000-4000-8000-0000000000c1";
 
@@ -96,5 +101,35 @@ describe("buscarConversaSemCadastro", () => {
     perfilAtual = "recepcao";
     expect((await buscarConversaSemCadastro("abc")).ok).toBe(false);
     expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("listarConversas", () => {
+  it("profissional é negada, sem tocar no banco", async () => {
+    perfilAtual = "profissional";
+    await expect(listarConversas({})).rejects.toThrow("REDIRECT");
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("lista conversas (inclusive só de enviadas) e ignora filtro inválido", async () => {
+    falso.responder("mensagens_recebidas", { data: [], error: null });
+    falso.responder("fila_mensagens", {
+      data: [
+        {
+          id: "e1",
+          telefone: "5511987654321",
+          texto: "Oi",
+          status: "enviada",
+          tipo: "avulsa",
+          enviada_em: "2026-11-10T13:00:00Z",
+          agendado_para: "2026-11-10T13:00:00Z",
+          cliente_id: "c1",
+          clientes: { nome: "Ana" },
+        },
+      ],
+      error: null,
+    });
+    const r = await listarConversas({ status: "nao-existe" as never });
+    expect(r.ok && r.conversas.map((c) => c.chave)).toEqual(["c1"]);
   });
 });

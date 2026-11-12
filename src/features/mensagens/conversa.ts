@@ -62,3 +62,30 @@ export function rotuloHorarioConversa(quando: Date | string, agora: Date = new D
   if (dia === "Ontem") return dia;
   return formatarNoFuso(quando, "dd/MM");
 }
+
+/** Motivo gravado quando a equipe cancela pelo balão. */
+export const MOTIVO_CANCELAMENTO_EQUIPE = "Cancelada pela equipe";
+
+type AcoesBalao = {
+  cancelar: (d: { id: string; motivo: string }) => Promise<Retorno>;
+  reenviar: (id: string) => Promise<Retorno>;
+};
+
+/** "Cancelar" do balão de uma mensagem pendente. */
+export function cancelarDoBalao(id: string, acoes: Pick<AcoesBalao, "cancelar">) {
+  return acoes.cancelar({ id, motivo: MOTIVO_CANCELAMENTO_EQUIPE });
+}
+
+/** "Tentar de novo" do balão de uma mensagem com falha. */
+export function reenviarDoBalao(id: string, acoes: Pick<AcoesBalao, "reenviar">) {
+  return acoes.reenviar(id);
+}
+
+/** "Agendada para dd/MM HH:mm" quando a mensagem pendente ainda não chegou na hora; senão nulo. */
+export function rotuloAgendada(
+  m: { status?: string; quando: string },
+  agora: Date = new Date(),
+): string | null {
+  if (m.status !== "pendente" || new Date(m.quando).getTime() <= agora.getTime()) return null;
+  return `Agendada para ${formatarNoFuso(m.quando, "dd/MM HH:mm")}`;
+}
