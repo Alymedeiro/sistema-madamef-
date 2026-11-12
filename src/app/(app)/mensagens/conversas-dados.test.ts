@@ -101,6 +101,51 @@ describe("agruparConversas", () => {
     expect(c.ultima.direcao).toBe("recebida");
   });
 
+  it("pendente com horário futuro não vira a última nem ordena; vencida ou enviada sim", () => {
+    const agora = new Date("2026-11-10T14:00:00Z");
+    const recs = [rec({ id: "r1", recebida_em: "2026-11-10T10:00:00Z" })];
+    const [a] = agruparConversas(
+      recs,
+      [
+        env({
+          id: "e1",
+          status: "pendente",
+          enviada_em: null,
+          agendado_para: "2026-11-11T09:00:00Z",
+        }),
+      ],
+      agora,
+    );
+    expect(a.ultima.direcao).toBe("recebida");
+    const [b] = agruparConversas(
+      recs,
+      [
+        env({
+          id: "e2",
+          status: "enviando",
+          enviada_em: null,
+          agendado_para: "2026-11-10T13:00:00Z",
+        }),
+      ],
+      agora,
+    );
+    expect(b.ultima.direcao).toBe("enviada");
+    const outra = rec({ id: "r9", cliente_id: "c2", recebida_em: "2026-11-10T12:00:00Z" });
+    const r = agruparConversas(
+      [...recs, outra],
+      [
+        env({
+          id: "e3",
+          status: "pendente",
+          enviada_em: null,
+          agendado_para: "2026-11-12T09:00:00Z",
+        }),
+      ],
+      agora,
+    );
+    expect(r.map((c) => c.chave)).toEqual(["c2", "c1"]);
+  });
+
   it("telefone sem cliente vira conversa separada, com chave = telefone", () => {
     const r = agruparConversas(
       [
@@ -162,6 +207,23 @@ describe("filtrarPorClassificacao", () => {
     );
     expect(filtrarPorClassificacao(todas, "confirmou").map((c) => c.chave)).toEqual(["c2"]);
     expect(filtrarPorClassificacao(todas, null)).toHaveLength(2);
+  });
+
+  it("'Para ler' exige não lidas na conversa", () => {
+    const todas = agruparConversas(
+      [
+        rec({ id: "r1", cliente_id: "c1", classificacao: "para_ler" }),
+        rec({
+          id: "r2",
+          cliente_id: "c2",
+          classificacao: "para_ler",
+          lida_em: "2026-11-10T13:00:00Z",
+          clientes: { nome: "Bia" },
+        }),
+      ],
+      [],
+    );
+    expect(filtrarPorClassificacao(todas, "para_ler").map((c) => c.chave)).toEqual(["c1"]);
   });
 });
 

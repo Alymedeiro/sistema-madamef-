@@ -79,7 +79,8 @@ export function TelaConversas({
       );
       setAberta((a) => (a && a.chave === chaveAtual ? { ...a, naoLidas: 0, idsNaoLidos: [] } : a));
     });
-  }, [chaveAtual, idsNaoLidos]);
+    // `conversas` muda a cada recarga: uma marcação que falhou é refeita na próxima.
+  }, [chaveAtual, idsNaoLidos, conversas]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)] lg:items-start">

@@ -412,6 +412,7 @@ const instante = (v: string) => new Date(v).getTime();
 export function agruparConversas(
   recebidas: LinhaConversaRecebida[],
   enviadas: LinhaConversaEnviada[],
+  agora: Date = new Date(),
 ): ResumoConversa[] {
   const grupos = new Map<string, LinhaConversaRecebida[]>();
   for (const r of recebidas) {
@@ -421,7 +422,12 @@ export function agruparConversas(
 
   const enviadasPor = new Map<string, LinhaConversaEnviada[]>();
   for (const e of enviadas) {
-    if (e.status === "falhou" || e.status === "cancelada") continue;
+    // Só o que já saiu: enviada, ou pendente/enviando já no horário (lembretes futuros não contam).
+    const jaSaiu =
+      e.status === "enviada" ||
+      ((e.status === "pendente" || e.status === "enviando") &&
+        instante(e.agendado_para) <= agora.getTime());
+    if (!jaSaiu) continue;
     const chave = e.cliente_id ?? e.telefone;
     if (!grupos.has(chave)) continue;
     enviadasPor.set(chave, [...(enviadasPor.get(chave) ?? []), e]);
@@ -466,7 +472,12 @@ export function filtrarPorClassificacao(
   conversas: ResumoConversa[],
   classificacao: ClassificacaoResposta | null | undefined,
 ): ResumoConversa[] {
-  return classificacao ? conversas.filter((c) => c.classificacao === classificacao) : conversas;
+  if (!classificacao) return conversas;
+  // "Para ler": só conversas com não lidas classificadas para_ler.
+  if (classificacao === "para_ler") {
+    return conversas.filter((c) => c.classificacao === "para_ler" && c.naoLidas > 0);
+  }
+  return conversas.filter((c) => c.classificacao === classificacao);
 }
 
 /** Conversas da aba Respostas, a mais recente primeiro (lê até 500 recebidas). */

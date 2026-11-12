@@ -178,7 +178,7 @@ export async function listarConversas(
 ): Promise<{ ok: true; conversas: ResumoConversa[] } | { ok: false; erro: string }> {
   await exigirPerfil(...perfisComAcesso("mensagens"));
 
-  if (classificacao !== null && !(classificacao in ROTULO_CLASSIFICACAO)) {
+  if (classificacao !== null && !Object.hasOwn(ROTULO_CLASSIFICACAO, classificacao)) {
     return { ok: false, erro: "Filtro inválido." };
   }
 

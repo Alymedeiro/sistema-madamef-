@@ -28,7 +28,7 @@ function valorDe<T extends string>(
   rotulos: Record<T, string>,
   v: string | undefined,
 ): T | undefined {
-  return v && v in rotulos ? (v as T) : undefined;
+  return v && Object.hasOwn(rotulos, v) ? (v as T) : undefined;
 }
 
 const ABAS = [
