@@ -98,8 +98,9 @@ export function VariacaoMes({ variacao }: { variacao: number | null }) {
 const rotuloDia = (dia: string) => `${dia.slice(8, 10)}/${dia.slice(5, 7)}`;
 
 /**
- * Barras em SVG próprio. O desenho é decorativo para leitores de tela
- * (aria-hidden); os valores vão na tabela descritiva `sr-only`.
+ * Barras em SVG próprio (esticado à largura, sem texto dentro para não deformar).
+ * O desenho tem `role="img"` com a descrição; os valores exatos vão na tabela
+ * `sr-only` e os rótulos do eixo, em HTML (aria-hidden), logo abaixo do desenho.
  */
 export function GraficoBarras({
   pontos,
@@ -119,7 +120,7 @@ export function GraficoBarras({
   descricao: string;
 }) {
   const largura = 300;
-  const altura = 120;
+  const altura = 106;
   const base = 100;
   const max = Math.max(1, ...pontos.map((p) => p.valor));
   const passo = largura / pontos.length;
@@ -130,7 +131,7 @@ export function GraficoBarras({
         viewBox={`0 0 ${largura} ${altura}`}
         role="img"
         aria-label={descricao}
-        className="h-40 w-full"
+        className="h-36 w-full"
         preserveAspectRatio="none"
       >
         <title>{titulo}</title>
@@ -143,15 +144,19 @@ export function GraficoBarras({
             <g key={p.dia}>
               <title>{`${rotuloDia(p.dia)}: ${formatar(p.valor)}`}</title>
               <rect x={x} y={base - h} width={barra} height={h} rx="1.5" className={hoje ? "fill-ouro-escuro" : "fill-ouro/60"} />
-              {rotulos[i] && (
-                <text x={x + barra / 2} y={altura - 6} textAnchor="middle" fontSize="9" className="fill-muted-foreground">
-                  {rotulos[i]}
-                </text>
-              )}
             </g>
           );
         })}
       </svg>
+      <div aria-hidden className="-mt-1 flex h-4 text-[10px] text-muted-foreground">
+        {pontos.map((p, i) => (
+          <span key={p.dia} className="relative min-w-0 flex-1">
+            {rotulos[i] && (
+              <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">{rotulos[i]}</span>
+            )}
+          </span>
+        ))}
+      </div>
       <table className="sr-only">
         <caption>{titulo}</caption>
         <thead>
