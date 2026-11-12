@@ -126,3 +126,12 @@ export function respostaOpcao(
       : renderizarRobo(opcao.resposta ?? "", dados);
   return rodape.trim() ? `${corpo}\n\n${renderizarRobo(rodape, dados)}` : corpo;
 }
+
+/**
+ * Link que o robô manda na opção agendar_online, com a regra do banco:
+ * robo_config.link_agendamento (aparado; vazio = nenhum) ou, sem ele, o
+ * link do site (robo_link_site: whatsapp_relogio.url + /agendar).
+ */
+export function linkAgendamentoEfetivo(link: string | null, linkSite: string | null): string | null {
+  return link?.trim() || linkSite || null;
+}

@@ -214,9 +214,12 @@ alter table public.fila_mensagens
   add constraint fila_mensagens_robo_texto_check
   check (tipo <> 'robo' or texto is not null);
 
--- proxima_mensagem: corpo de 0015 (mesma assinatura e grants) com o robô
--- primeiro na ordem de envio e na validade de 24 h. O texto do robô já vem
--- pronto (como a avulsa).
+-- proxima_mensagem: corpo de 0015 (mesma assinatura e grants) com o robô:
+-- sai primeiro, sai também fora da janela de envio (só ele; ritmo de 1/min,
+-- limite por hora e whatsapp_ativo continuam valendo; fora da janela as
+-- limpezas dos outros tipos esperam a janela) e vale 1 h (vencido →
+-- 'Mensagem perdeu a validade'). O texto do robô já vem pronto (como a
+-- avulsa).
 create or replace function public.proxima_mensagem()
 returns table (
   id uuid,
@@ -238,6 +241,7 @@ as $$
 declare
   v_cfg public.configuracoes_clinica;
   v_hora time;
+  v_fora_janela boolean;
   v_id uuid;
 begin
   -- Serializa as execuções do relógio (a outra espera e depois vê o envio).
@@ -248,10 +252,10 @@ begin
     return;
   end if;
 
+  -- Fora da janela só sai o robô (a cliente acabou de escrever); ritmo e
+  -- limite por hora valem para todos.
   v_hora := (now() at time zone 'America/Sao_Paulo')::time;
-  if v_hora < v_cfg.whatsapp_janela_inicio or v_hora >= v_cfg.whatsapp_janela_fim then
-    return;
-  end if;
+  v_fora_janela := v_hora < v_cfg.whatsapp_janela_inicio or v_hora >= v_cfg.whatsapp_janela_fim;
 
   update public.fila_mensagens f
   set status = 'falhou', tentativas = f.tentativas + 1,
@@ -273,47 +277,57 @@ begin
     return;
   end if;
 
-  update public.fila_mensagens f
-  set status = 'cancelada', cancelada_motivo = 'Modelo desativado'
-  from public.modelos_mensagem m
-  where m.tipo = f.tipo
-    and not m.ativo
-    and f.status = 'pendente'
-    and f.agendado_para <= now();
-
-  -- CRM (0015): retorno e reativação só saem com opt-in de marketing e se a
-  -- cliente ainda não agendou.
-  update public.fila_mensagens f
-  set status = 'cancelada', cancelada_motivo = 'Cliente sem opt-in de marketing'
-  from public.clientes c
-  where c.id = f.cliente_id
-    and not c.aceita_whatsapp_marketing
-    and f.status = 'pendente'
-    and f.tipo in ('retorno', 'reativacao')
-    and f.agendado_para <= now();
-
-  update public.fila_mensagens f
-  set status = 'cancelada', cancelada_motivo = 'Cliente já agendou'
-  where f.status = 'pendente'
-    and f.tipo in ('retorno', 'reativacao')
-    and f.agendado_para <= now()
-    and public.cliente_tem_agendamento_futuro(f.cliente_id);
-
-  -- Envio desligado (ou parado) por dias: pós-atendimento, aniversário,
-  -- respostas de pedido, retorno, reativação e robô com mais de 24 h de
-  -- atraso não fazem mais sentido.
+  -- Robô (0017): resposta com mais de 1 h de atraso não faz mais sentido.
   update public.fila_mensagens f
   set status = 'cancelada', cancelada_motivo = 'Mensagem perdeu a validade'
   where f.status = 'pendente'
-    and f.tipo in ('pos_atendimento', 'aniversario', 'pedido_aprovado', 'pedido_recusado',
-                   'retorno', 'reativacao', 'robo')
-    and f.agendado_para < now() - interval '24 hours';
+    and f.tipo = 'robo'
+    and f.agendado_para < now() - interval '1 hour';
+
+  if not v_fora_janela then
+    update public.fila_mensagens f
+    set status = 'cancelada', cancelada_motivo = 'Modelo desativado'
+    from public.modelos_mensagem m
+    where m.tipo = f.tipo
+      and not m.ativo
+      and f.status = 'pendente'
+      and f.agendado_para <= now();
+
+    -- CRM (0015): retorno e reativação só saem com opt-in de marketing e se a
+    -- cliente ainda não agendou.
+    update public.fila_mensagens f
+    set status = 'cancelada', cancelada_motivo = 'Cliente sem opt-in de marketing'
+    from public.clientes c
+    where c.id = f.cliente_id
+      and not c.aceita_whatsapp_marketing
+      and f.status = 'pendente'
+      and f.tipo in ('retorno', 'reativacao')
+      and f.agendado_para <= now();
+
+    update public.fila_mensagens f
+    set status = 'cancelada', cancelada_motivo = 'Cliente já agendou'
+    where f.status = 'pendente'
+      and f.tipo in ('retorno', 'reativacao')
+      and f.agendado_para <= now()
+      and public.cliente_tem_agendamento_futuro(f.cliente_id);
+
+    -- Envio desligado (ou parado) por dias: pós-atendimento, aniversário,
+    -- respostas de pedido, retorno e reativação com mais de 24 h de atraso não
+    -- fazem mais sentido.
+    update public.fila_mensagens f
+    set status = 'cancelada', cancelada_motivo = 'Mensagem perdeu a validade'
+    where f.status = 'pendente'
+      and f.tipo in ('pos_atendimento', 'aniversario', 'pedido_aprovado', 'pedido_recusado',
+                     'retorno', 'reativacao')
+      and f.agendado_para < now() - interval '24 hours';
+  end if;
 
   select f.id into v_id
   from public.fila_mensagens f
   where f.status = 'pendente'
     and f.agendado_para <= now()
     and (f.proxima_tentativa_em is null or f.proxima_tentativa_em <= now())
+    and (not v_fora_janela or f.tipo = 'robo')
   -- Robô (0017) primeiro: a cliente está esperando a resposta.
   order by (f.tipo = 'robo') desc, f.agendado_para, f.criado_em, f.id
   limit 1
@@ -513,6 +527,59 @@ $$;
 revoke execute on function public.robo_renderizar(text, text, text, text, text)
   from public, anon, authenticated, service_role;
 
+-- Texto fixo da opção falar_com_equipe.
+create function public.robo_texto_equipe()
+returns text
+language sql
+immutable
+set search_path = ''
+as $$
+  select 'Certo! Já avisei a equipe, em breve alguém te responde. 💕'::text
+$$;
+
+revoke execute on function public.robo_texto_equipe() from public, anon, authenticated, service_role;
+
+-- Link de agendamento do site: whatsapp_relogio.url + '/agendar' (nulo sem
+-- URL). Dona e recepção (prévia em Configurações); o token não sai daqui.
+create function public.robo_link_site()
+returns text
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+begin
+  if public.perfil_atual() is null or public.perfil_atual() not in ('dona', 'recepcao') then
+    return null;
+  end if;
+  return (select rtrim(r.url, '/') || '/agendar' from public.whatsapp_relogio r);
+end;
+$$;
+
+revoke execute on function public.robo_link_site() from public, anon, authenticated;
+grant execute on function public.robo_link_site() to authenticated;
+
+-- O robô responderia agora? Ativo, WhatsApp ligado e, em 'fora_do_horario',
+-- fora do horário de funcionamento (regra 1).
+create function public.robo_atende_agora()
+returns boolean
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select coalesce((
+    select r.ativo and cc.whatsapp_ativo
+       and not (r.quando = 'fora_do_horario'
+                and public.robo_dentro_do_horario(cc.horario_funcionamento, now()))
+    from public.robo_config r
+    cross join (select * from public.configuracoes_clinica limit 1) cc
+    where r.linha_unica
+  ), false)
+$$;
+
+revoke execute on function public.robo_atende_agora() from public, anon, authenticated, service_role;
+
 -- Processa uma resposta recebida (regras no cabeçalho). Interna: chamada só
 -- por registrar_recebida.
 create function public.robo_processar(p_recebida uuid)
@@ -535,20 +602,11 @@ declare
   v_resposta text;
   v_menu boolean := false;
 begin
+  if not public.robo_atende_agora() then
+    return;
+  end if;
   select * into v_cfg from public.robo_config r where r.linha_unica;
-  if not found or not v_cfg.ativo then
-    return;
-  end if;
-
   select * into v_cc from public.configuracoes_clinica limit 1;
-  if not found or not v_cc.whatsapp_ativo then
-    return;
-  end if;
-
-  if v_cfg.quando = 'fora_do_horario'
-     and public.robo_dentro_do_horario(v_cc.horario_funcionamento, now()) then
-    return;
-  end if;
 
   select * into v_rec from public.mensagens_recebidas r where r.id = p_recebida;
   if not found then
@@ -593,7 +651,7 @@ begin
 
   if v_opcao.id is not null then
     if v_opcao.tipo = 'falar_com_equipe' then
-      v_resposta := 'Certo! Já avisei a equipe, em breve alguém te responde. 💕';
+      v_resposta := public.robo_texto_equipe();
       update public.robo_sessoes s
       set pausado_ate = now() + interval '24 hours', pediu_equipe_em = now()
       where s.telefone = v_telefone;
@@ -664,6 +722,8 @@ declare
   v_status public.status_agendamento;
   v_cliente uuid;
   v_ultimo_tipo public.tipo_mensagem;
+  v_ultimo_texto text;
+  v_ultimo_em timestamptz;
   v_id uuid;
 begin
   if p_id_externo is null or btrim(p_id_externo) = '' then
@@ -704,25 +764,30 @@ begin
   end if;
 
   -- Robô (0017): o dígito responde ao que saiu por último para o telefone.
-  -- Se a mensagem enviada mais recente entre {confirmação, robô} é do robô
-  -- (nas últimas 2 h), o dígito é opção do menu: 'para_ler', sem tocar no
-  -- agendamento (robo_processar responde a opção). Sem nenhuma das duas, ou
-  -- com a confirmação mais recente, vale a classificação de sempre.
-  if v_classificacao in ('confirmou', 'quer_remarcar') and v_agendamento is not null then
-    select f.tipo into v_ultimo_tipo
+  -- Com o robô atendendo agora (ativo, WhatsApp ligado, dentro do 'quando') e
+  -- a sessão sem pausa, se a mensagem enviada mais recente entre
+  -- {confirmação, robô} é menu ou resposta de opção do robô (nas últimas
+  -- 2 h), o dígito é opção do menu: 'para_ler', sem tocar no agendamento
+  -- (robo_processar responde a opção). Nos outros casos vale a
+  -- classificação de sempre.
+  if v_classificacao in ('confirmou', 'quer_remarcar') and v_agendamento is not null
+     and public.robo_atende_agora() then
+    select f.tipo, f.texto, f.enviada_em into v_ultimo_tipo, v_ultimo_texto, v_ultimo_em
     from public.fila_mensagens f
     where f.telefone in (v_telefone, v_alternativo)
       and f.status = 'enviada'
       and f.tipo in ('confirmacao', 'robo')
     order by f.enviada_em desc, f.id
     limit 1;
-    if v_ultimo_tipo = 'robo' and exists (
-      select 1 from public.fila_mensagens f
-      where f.telefone in (v_telefone, v_alternativo)
-        and f.status = 'enviada'
-        and f.tipo = 'robo'
-        and f.enviada_em > now() - interval '2 hours'
-    ) then
+    if v_ultimo_tipo = 'robo'
+       and v_ultimo_em > now() - interval '2 hours'
+       -- Menu ou resposta de opção; a de "falar com a equipe" não abre menu.
+       and v_ultimo_texto is distinct from public.robo_texto_equipe()
+       and not exists (
+         select 1 from public.robo_sessoes rs
+         where rs.telefone in (v_telefone, v_alternativo)
+           and rs.pausado_ate > now()
+       ) then
       v_classificacao := 'para_ler';
     end if;
   end if;

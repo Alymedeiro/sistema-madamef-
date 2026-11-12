@@ -626,6 +626,92 @@ describe("conversa com o robô", () => {
     });
   });
 
+  /** Confirmação enviada ontem e menu do robô enviado há 1 min (prepara o cenário do dígito). */
+  async function cenarioDigito(c: PoolClient): Promise<string> {
+    const ag = await agendamentoPendente(c);
+    await c.query(
+      `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+       where agendamento_id = $1 and tipo = 'confirmacao'`,
+      [ag],
+    );
+    await conversar(c, "bom dia");
+    await c.query(
+      "update fila_mensagens set status = 'enviada', enviada_em = now() - interval '1 minute' where tipo = 'robo'",
+    );
+    return ag;
+  }
+
+  async function statusAg(c: PoolClient, id: string) {
+    return (await c.query("select status::text from agendamentos where id = $1", [id])).rows[0].status;
+  }
+
+  it("dígito depois do menu com robô desligado → confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await cenarioDigito(c);
+      await c.query("update robo_config set ativo = false");
+      expect(await conversar(c, "1")).toEqual([]);
+      expect(await statusAg(c, ag)).toBe("confirmado");
+    });
+  });
+
+  it("dígito depois do menu com a sessão pausada → confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await cenarioDigito(c);
+      await c.query("update robo_sessoes set pausado_ate = now() + interval '1 hour'");
+      expect(await conversar(c, "1")).toEqual([]);
+      expect(await statusAg(c, ag)).toBe("confirmado");
+    });
+  });
+
+  it("última do robô foi 'falar com a equipe' (robô retomado) → o dígito confirma", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = await agendamentoPendente(c);
+      await c.query(
+        `update fila_mensagens set status = 'enviada', texto = 'Confirma?', enviada_em = now() - interval '1 day'
+         where agendamento_id = $1 and tipo = 'confirmacao'`,
+        [ag],
+      );
+      await conversar(c, "bom dia");
+      await conversar(c, "4");
+      await c.query("update robo_sessoes set pausado_ate = null");
+      await c.query(
+        `update fila_mensagens set status = 'enviada',
+           enviada_em = now() - case when texto like 'Certo!%' then interval '1 minute' else interval '2 minutes' end
+         where tipo = 'robo'`,
+      );
+      expect(await conversar(c, "1")).toEqual([]);
+      expect(await statusAg(c, ag)).toBe("confirmado");
+    });
+  });
+
+  it("erro dentro do robô vira WARNING e a resposta fica registrada", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      // Quebra o insert do robô só nesta transação (desfeita no fim do teste).
+      await c.query(
+        "alter table fila_mensagens add constraint teste_sem_robo check (tipo <> 'robo') not valid",
+      );
+      const avisos: string[] = [];
+      const ouvir = (m: { severity?: string; message?: string }) => {
+        if (m.severity === "WARNING" && m.message) avisos.push(m.message);
+      };
+      c.on("notice", ouvir);
+      try {
+        const id = await receber(c, "oi");
+        const r = await c.query("select texto from mensagens_recebidas where id = $1", [id]);
+        expect(r.rows[0].texto).toBe("oi");
+      } finally {
+        c.off("notice", ouvir);
+      }
+      expect(avisos.some((a) => a.startsWith("Robô: não foi possível processar a resposta"))).toBe(true);
+      expect(await robo(c)).toEqual([]);
+      expect(await sessao(c)).toBeUndefined();
+    });
+  });
+
   it("robô inativo (ou WhatsApp desligado) → nada", async () => {
     await emTeste(async (c) => {
       expect(await conversar(c, "oi")).toEqual([]);
@@ -744,6 +830,68 @@ describe("fila: tipo robo", () => {
         vencida,
       ]);
       expect(v.rows[0]).toEqual({ status: "cancelada", cancelada_motivo: "Mensagem perdeu a validade" });
+    });
+  });
+
+  it("fora da janela só sai o robô; validade de 1 h; ritmo e limite valem", async () => {
+    await emTeste(async (c) => {
+      const h = (
+        await c.query<{ h: number }>(
+          "select extract(hour from now() at time zone 'America/Sao_Paulo')::int as h",
+        )
+      ).rows[0].h;
+      const janela = h < 12 ? ["13:00", "14:00"] : ["01:00", "02:00"];
+      await c.query(
+        `update configuracoes_clinica set whatsapp_ativo = true, whatsapp_janela_inicio = $1,
+           whatsapp_janela_fim = $2, whatsapp_limite_por_hora = 60`,
+        janela,
+      );
+      const ins = (tipo: string, texto: string, ha: string) =>
+        c.query<{ id: string }>(
+          `insert into fila_mensagens (tipo, cliente_id, telefone, texto, agendado_para)
+           values ($1, $2, $3, $4, now() - $5::interval) returning id`,
+          [tipo, cli, ZAP, texto, ha],
+        );
+      const avulsa = (await ins("avulsa", "avulsa", "10 minutes")).rows[0].id;
+      const velho = (await ins("robo", "velho", "61 minutes")).rows[0].id;
+      await ins("robo", "menu", "30 minutes");
+      const proxima = async () => {
+        await comoServico(c);
+        const r = await c.query("select tipo::text, texto from proxima_mensagem()");
+        await comoSuper(c);
+        return r.rows;
+      };
+      expect(await proxima()).toEqual([{ tipo: "robo", texto: "menu" }]);
+      const st = async (id: string) =>
+        (await c.query("select status::text, cancelada_motivo from fila_mensagens where id = $1", [id])).rows[0];
+      expect(await st(velho)).toEqual({ status: "cancelada", cancelada_motivo: "Mensagem perdeu a validade" });
+      expect(await st(avulsa)).toEqual({ status: "pendente", cancelada_motivo: null });
+      // Ritmo: com uma em envio, nada sai.
+      await ins("robo", "outro", "1 minute");
+      expect(await proxima()).toEqual([]);
+      // Limite por hora atingido: nada sai, nem o robô.
+      await c.query("update fila_mensagens set status = 'enviada', enviada_em = now() - interval '5 minutes' where status = 'enviando'");
+      await c.query("update configuracoes_clinica set whatsapp_limite_por_hora = 1");
+      expect(await proxima()).toEqual([]);
+      await c.query("update configuracoes_clinica set whatsapp_limite_por_hora = 60");
+      expect(await proxima()).toEqual([{ tipo: "robo", texto: "outro" }]);
+      // WhatsApp desligado: nada.
+      await c.query("update fila_mensagens set status = 'enviada', enviada_em = now() - interval '5 minutes' where status = 'enviando'");
+      await ins("robo", "mais um", "1 minute");
+      await c.query("update configuracoes_clinica set whatsapp_ativo = false");
+      expect(await proxima()).toEqual([]);
+    });
+  });
+
+  it("robo_link_site: URL do site + /agendar para dona e recepção; profissional nulo", async () => {
+    await emTeste(async (c) => {
+      const link = (uid: string) =>
+        como(c, uid, async () => (await c.query("select robo_link_site() as l")).rows[0].l);
+      expect(await link(dona)).toBeNull();
+      await c.query("update whatsapp_relogio set url = 'https://madame.exemplo.com/'");
+      expect(await link(dona)).toBe("https://madame.exemplo.com/agendar");
+      expect(await link(recepcao)).toBe("https://madame.exemplo.com/agendar");
+      expect(await link(prof)).toBeNull();
     });
   });
 

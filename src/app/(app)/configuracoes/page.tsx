@@ -29,6 +29,7 @@ export default async function ConfiguracoesPage() {
     { data: status },
     { data: robo, error: erroRobo },
     { data: opcoesRobo, error: erroOpcoes },
+    { data: linkSite },
   ] = await Promise.all([
     supabase.from("modelos_mensagem").select("tipo, variacoes, ativo"),
     supabase.from("whatsapp_status").select("estado").maybeSingle(),
@@ -40,6 +41,8 @@ export default async function ConfiguracoesPage() {
       .from("robo_opcoes")
       .select("numero, rotulo, tipo, resposta, ativo")
       .order("numero"),
+    // Mesma regra do banco: sem link próprio, a URL do site (whatsapp_relogio) + /agendar.
+    supabase.rpc("robo_link_site"),
   ]);
   if (erroModelos) throw new Error(`Falha ao carregar os modelos: ${erroModelos.message}`);
   if (erroRobo) throw new Error(`Falha ao carregar o robô: ${erroRobo.message}`);
@@ -114,7 +117,7 @@ export default async function ConfiguracoesPage() {
           clinica={data?.nome ?? "Madame Fê Clinic"}
           endereco={data?.endereco ?? ""}
           horario={data?.horario_funcionamento ?? {}}
-          siteUrl={process.env.NEXT_PUBLIC_SITE_URL ?? ""}
+          linkSite={linkSite ?? null}
         />
       </SecaoWhatsapp>
     </div>

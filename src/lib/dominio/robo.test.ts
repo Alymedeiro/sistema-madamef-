@@ -4,6 +4,7 @@ import {
   ROBO_PADRAO,
   TEXTO_FALAR_COM_EQUIPE,
   TEXTO_SEM_LINK,
+  linkAgendamentoEfetivo,
   montarMenu,
   renderizarRobo,
   respostaOpcao,
@@ -108,5 +109,13 @@ describe("textos iguais aos da migração 0017", () => {
     for (const t of [...Object.values(ROBO_PADRAO), TEXTO_FALAR_COM_EQUIPE, TEXTO_SEM_LINK]) {
       expect(sql).toContain(`'${t}'`);
     }
+  });
+});
+
+describe("linkAgendamentoEfetivo", () => {
+  it("link próprio > link do site > nenhum", () => {
+    expect(linkAgendamentoEfetivo(" https://a.com/x ", "https://site.com/agendar")).toBe("https://a.com/x");
+    expect(linkAgendamentoEfetivo("  ", "https://site.com/agendar")).toBe("https://site.com/agendar");
+    expect(linkAgendamentoEfetivo(null, null)).toBeNull();
   });
 });

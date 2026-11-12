@@ -2809,6 +2809,9 @@ export type Database = {
       // 0017: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
       // mensagens."); limpa pausado_ate e pediu_equipe_em da sessão.
       retomar_robo: { Args: { p_telefone: string }; Returns: undefined }
+      // 0017: whatsapp_relogio.url + '/agendar' (nulo sem URL ou fora de
+      // dona/recepção); link padrão do robô.
+      robo_link_site: { Args: never; Returns: string | null }
       // 0017: pediram atendimento nas últimas 24 h sem avulsa da equipe
       // depois (RLS de quem chama: profissional vê 0).
       robo_pedidos_atendimento: { Args: never; Returns: number }

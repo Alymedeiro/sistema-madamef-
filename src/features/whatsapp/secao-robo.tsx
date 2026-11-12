@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
+  linkAgendamentoEfetivo,
   MAX_OPCOES_ROBO,
   ROTULO_QUANDO,
   ROTULO_TIPO_OPCAO,
@@ -34,8 +35,8 @@ type Props = {
   clinica: string;
   endereco: string;
   horario: unknown;
-  /** URL do site (NEXT_PUBLIC_SITE_URL), para o link padrão de agendamento. */
-  siteUrl: string;
+  /** Link padrão do banco (robo_link_site: URL do site + /agendar); nulo sem URL. */
+  linkSite: string | null;
 };
 
 type OpcaoLocal = OpcaoRobo & { chave: number };
@@ -59,7 +60,7 @@ function Balao({ texto, rotulo }: { texto: string; rotulo: string }) {
   );
 }
 
-export function SecaoRobo({ inicial, clinica, endereco, horario, siteUrl }: Props) {
+export function SecaoRobo({ inicial, clinica, endereco, horario, linkSite }: Props) {
   const [ativo, setAtivo] = useState(inicial.ativo);
   const [quando, setQuando] = useState<QuandoRobo>(inicial.quando);
   const [boasVindas, setBoasVindas] = useState(inicial.boasVindas);
@@ -77,7 +78,7 @@ export function SecaoRobo({ inicial, clinica, endereco, horario, siteUrl }: Prop
     () => [...opcoes].sort((a, b) => a.numero - b.numero || a.chave - b.chave),
     [opcoes],
   );
-  const linkPadrao = siteUrl ? `${siteUrl.replace(/\/+$/, "")}/agendar` : "";
+  const linkPadrao = linkSite ?? "";
   const dadosPrevia = { clinica, endereco, horario };
   const menu = previaMenuRobo(boasVindas, opcoes, dadosPrevia);
 
@@ -322,7 +323,7 @@ export function SecaoRobo({ inicial, clinica, endereco, horario, siteUrl }: Prop
                   </p>
                 </div>
                 <Balao
-                  texto={previaRespostaRobo(o, rodape, link || linkPadrao || null, dadosPrevia)}
+                  texto={previaRespostaRobo(o, rodape, linkAgendamentoEfetivo(link, linkSite), dadosPrevia)}
                   rotulo={`Prévia da opção ${o.numero}`}
                 />
               </div>
