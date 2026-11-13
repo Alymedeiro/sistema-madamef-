@@ -37,6 +37,8 @@
 -- 0012 (mensagens_recebidas, fila_mensagens), 0017 (robo_sessoes).
 -- =============================================================================
 
+set lock_timeout = '5s';
+
 -- =============================================================================
 -- 1. Tabela, RLS e marcar como lidas
 -- =============================================================================
@@ -226,6 +228,13 @@ as $$
 $$;
 
 revoke execute on function public.notificacao_nome(uuid, text) from public, anon, authenticated;
+revoke execute on function public.notificacao_chave_conversa(uuid, text)
+  from public, anon, authenticated;
+revoke execute on function public.notificacao_link_conversa(uuid, text)
+  from public, anon, authenticated;
+revoke execute on function public.notificacao_quando(timestamptz) from public, anon, authenticated;
+revoke execute on function public.notificacao_link_agenda(timestamptz)
+  from public, anon, authenticated;
 revoke execute on function public.notificar(text, text, text, text, boolean, uuid, text)
   from public, anon, authenticated, service_role;
 
@@ -269,6 +278,22 @@ begin
         );
         return null;
       end if;
+    end if;
+
+    -- Dígito ou "menu" respondido pelo robô (atendendo agora e sem pausa na
+    -- conversa): é navegação no menu, não precisa avisar a equipe.
+    if lower(translate(
+         btrim(new.texto),
+         'áàâãäéèêëíìîïóòôõöúùûüçÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇ',
+         'aaaaaeeeeiiiiooooouuuucAAAAAEEEEIIIIOOOOOUUUUC'
+       )) ~ '^([0-8]\.?|menu)$'
+       and public.robo_atende_agora()
+       and not exists (
+         select 1 from public.robo_sessoes rs
+         where rs.telefone = any (public.robo_telefones(new.telefone))
+           and rs.pausado_ate > now()
+       ) then
+      return null;
     end if;
 
     perform public.notificar(
@@ -569,9 +594,18 @@ do $$
 begin
   if exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
     begin
-      alter publication supabase_realtime add table public.notificacoes;
-    exception when duplicate_object then
-      null;
+      if not exists (
+        select 1 from pg_publication p
+        where p.pubname = 'supabase_realtime'
+          and (p.puballtables or exists (
+            select 1 from pg_publication_tables t
+            where t.pubname = p.pubname and t.schemaname = 'public' and t.tablename = 'notificacoes'
+          ))
+      ) then
+        alter publication supabase_realtime add table public.notificacoes;
+      end if;
+    exception when others then
+      raise notice 'Não foi possível pôr notificacoes no Realtime; adicione à mão: %', sqlerrm;
     end;
   else
     raise notice 'Publicação supabase_realtime ausente; notificacoes fica fora do Realtime.';

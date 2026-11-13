@@ -11,6 +11,7 @@ import {
   PREFERENCIAS_PADRAO,
   TIPOS_NOTIFICACAO,
   tipoPermitido,
+  tiposDoPerfil,
   type Notificacao,
 } from "./regras";
 
@@ -181,4 +182,17 @@ describe("quandoNotificacao", () => {
     ["2030-11-13T18:00:00Z", "13/11 às 15:00"],
     ["x", ""],
   ])("%s → %s", (c, e) => expect(quandoNotificacao(c, agora)).toBe(e));
+});
+
+describe("tiposDoPerfil (preferências mostram só o que o perfil recebe)", () => {
+  it("profissional: só os do próprio agendamento", () => {
+    expect(tiposDoPerfil("profissional")).toEqual(["confirmou", "quer_remarcar", "agenda_profissional"]);
+  });
+  it("recepção: os da equipe, sem a agenda da profissional", () => {
+    expect(tiposDoPerfil("recepcao")).not.toContain("agenda_profissional");
+    expect(tiposDoPerfil("recepcao")).toContain("mensagem_falhou");
+  });
+  it("dona: todos", () => {
+    expect(tiposDoPerfil("dona")).toEqual([...TIPOS_NOTIFICACAO]);
+  });
 });

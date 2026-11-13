@@ -231,7 +231,9 @@ export function ProvedorNotificacoes({
       const { data } = await supabase.auth.getSession();
       if (encerrado || minha !== geracao) return;
       if (data.session) await supabase.realtime.setAuth(data.session.access_token);
-      canal = supabase
+      // Outra assinatura começou (ou o provedor desmontou) durante o setAuth.
+      if (encerrado || minha !== geracao) return;
+      const novo = supabase
         .channel(`notificacoes:${colaboradorId}:${minha}`)
         .on(
           "postgres_changes",
@@ -256,6 +258,11 @@ export function ProvedorNotificacoes({
             reassinar();
           }
         });
+      if (encerrado || minha !== geracao) {
+        void supabase.removeChannel(novo);
+        return;
+      }
+      canal = novo;
     }
 
     const aoVoltar = () => {

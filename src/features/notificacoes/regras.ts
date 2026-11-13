@@ -1,4 +1,5 @@
 import type { TipoNotificacao } from "@/lib/supabase/tipos";
+import type { Perfil } from "@/lib/dominio/permissoes";
 
 // Módulo puro (sem "use client"): regras das notificações, testadas no Vitest.
 
@@ -169,4 +170,15 @@ export function quandoNotificacao(criadaEm: string, agora: number = Date.now()):
   if (min < 12 * 60) return `há ${Math.floor(min / 60)} h`;
   const partes = Object.fromEntries(FORMATO_DATA_HORA.formatToParts(new Date(t)).map((p) => [p.type, p.value]));
   return `${partes.day}/${partes.month} às ${partes.hour}:${partes.minute}`;
+}
+
+/**
+ * Tipos que cada perfil recebe (gatilhos de 0019): dona e recepção recebem os
+ * da equipe; a profissional, os do próprio agendamento. A dona também pode
+ * atender (profissional do agendamento) e por isso vê "Mudanças na minha agenda".
+ */
+export function tiposDoPerfil(perfil: Perfil): TipoNotificacao[] {
+  if (perfil === "profissional") return ["confirmou", "quer_remarcar", "agenda_profissional"];
+  if (perfil === "recepcao") return TIPOS_NOTIFICACAO.filter((t) => t !== "agenda_profissional");
+  return [...TIPOS_NOTIFICACAO];
 }

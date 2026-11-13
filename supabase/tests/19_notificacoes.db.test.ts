@@ -178,6 +178,32 @@ describe("mensagem recebida", () => {
       expect(l.link).toBe("/mensagens");
     }));
 
+  it("dígito ou 'menu' com o robô atendendo e sem pausa não notifica", () =>
+    emTeste(async (c) => {
+      await c.query("update configuracoes_clinica set whatsapp_ativo = true");
+      await c.query("update robo_config set ativo = true, quando = 'sempre'");
+      for (const texto of ["1", " 2. ", "Menu", "0"]) await recebida(c, { texto });
+      expect(await notificacoes(c)).toEqual([]);
+      await recebida(c, { texto: "oi" });
+      expect(destinatarios(await notificacoes(c))).toEqual(ids(dona, recepcao));
+    }));
+
+  it("dígito notifica com o robô desligado ou com a conversa pausada", () =>
+    emTeste(async (c) => {
+      await c.query("update configuracoes_clinica set whatsapp_ativo = true");
+      await c.query("update robo_config set ativo = false");
+      await recebida(c, { texto: "1" });
+      expect(await notificacoes(c)).toHaveLength(2);
+
+      await c.query("update robo_config set ativo = true, quando = 'sempre'");
+      // Pausa gravada com o número sem o 9: robo_telefones cobre as duas formas.
+      await c.query(
+        "insert into robo_sessoes (telefone, pausado_ate) values ('551187654321', now() + interval '1 hour')",
+      );
+      await recebida(c, { texto: "2" });
+      expect(await notificacoes(c)).toHaveLength(4);
+    }));
+
   it("profissional não recebe mensagens comuns", () =>
     emTeste(async (c) => {
       await recebida(c, {});
@@ -497,6 +523,21 @@ describe("preferências", () => {
       );
       await falha(c, "update preferencias_notificacao set som = true", [], "42501");
       await falha(c, "delete from preferencias_notificacao", [], "42501");
+    }));
+});
+
+describe("funções auxiliares fechadas", () => {
+  it("usuários não executam as auxiliares de texto e link", () =>
+    comoUsuario(dona.uid, async (c) => {
+      for (const sql of [
+        "select notificacao_chave_conversa(null, '5511987654321')",
+        "select notificacao_link_conversa(null, '5511987654321')",
+        "select notificacao_quando(now())",
+        "select notificacao_link_agenda(now())",
+        "select notificacao_nome(null, '5511987654321')",
+      ]) {
+        await falha(c, sql, [], "42501");
+      }
     }));
 });
 

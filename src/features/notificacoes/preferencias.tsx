@@ -8,11 +8,13 @@ import { permissaoComputador, useNotificacoes } from "./provedor";
 import {
   ROTULO_TIPO_NOTIFICACAO,
   TIPOS_NOTIFICACAO,
+  tiposDoPerfil,
   type PermissaoComputador,
   type Preferencias,
   type TipoNotificacao,
 } from "./regras";
 import { tocarSomSuave } from "./som";
+import type { Perfil } from "@/lib/dominio/permissoes";
 
 const TEXTO_PERMISSAO: Record<PermissaoComputador, string> = {
   granted: "Permitidas neste computador.",
@@ -24,7 +26,7 @@ const TEXTO_PERMISSAO: Record<PermissaoComputador, string> = {
 };
 
 /** Seção "Notificações": som, volume, notificações do computador e tipos. */
-export function PreferenciasNotificacoes() {
+export function PreferenciasNotificacoes({ perfil }: { perfil: Perfil }) {
   const { preferencias, salvarPreferencias } = useNotificacoes();
   const [rascunho, setRascunho] = useState<Preferencias>(preferencias);
   const [permissao, setPermissao] = useState<PermissaoComputador>("default");
@@ -119,7 +121,8 @@ export function PreferenciasNotificacoes() {
 
       <fieldset className="flex flex-col gap-1">
         <legend className="mb-1 text-sm font-medium">Avisar sobre</legend>
-        {TIPOS_NOTIFICACAO.map((tipo) => (
+        {/* Os tipos que o perfil não recebe ficam como estão ao salvar. */}
+        {tiposDoPerfil(perfil).map((tipo) => (
           <label key={tipo} className="flex min-h-11 cursor-pointer items-center gap-3">
             <Checkbox
               checked={rascunho.tipos.includes(tipo)}
