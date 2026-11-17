@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   CalendarDays,
   Ellipsis,
+  Globe,
   HeartHandshake,
   House,
   MessageCircle,
@@ -32,6 +33,7 @@ const ICONES: Record<string, LucideIcon> = {
   Wallet,
   UserCog,
   Settings,
+  Globe,
 };
 
 function Icone({ nome, className }: { nome: string; className?: string }) {

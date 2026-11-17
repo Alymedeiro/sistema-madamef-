@@ -63,6 +63,7 @@ describe("ITENS_MENU", () => {
       "produtos",
       "financeiro",
       "equipe",
+      "site",
       "configuracoes",
     ];
     expect(ITENS_MENU.map((i) => i.recurso)).toEqual(ordem);
@@ -76,8 +77,21 @@ describe("ITENS_MENU", () => {
       "Produtos",
       "Financeiro",
       "Equipe",
+      "Site",
       "Configurações",
     ]);
+  });
+
+  it("site (Globe): só a dona", () => {
+    expect(podeAcessar("dona", "site")).toBe(true);
+    expect(podeAcessar("recepcao", "site")).toBe(false);
+    expect(podeAcessar("profissional", "site")).toBe(false);
+    expect(ITENS_MENU.find((i) => i.recurso === "site")).toEqual({
+      recurso: "site",
+      rotulo: "Site",
+      href: "/site",
+      icone: "Globe",
+    });
   });
 
   it("crm (HeartHandshake): dona e recepção; profissional não", () => {
@@ -127,10 +141,10 @@ describe("dividirMenuInferior (barra do celular)", () => {
   const menuDe = (perfil: Perfil) => ITENS_MENU.filter((i) => podeAcessar(perfil, i.recurso));
   const recursos = (itens: { recurso: Recurso }[]) => itens.map((i) => i.recurso);
 
-  it("dona (10 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
+  it("dona (11 itens): Início, Agenda, Clientes, Financeiro + Mais com o resto", () => {
     const r = dividirMenuInferior(menuDe("dona"));
     expect(recursos(r.principais)).toEqual(["inicio", "agenda", "clientes", "financeiro"]);
-    expect(recursos(r.mais)).toEqual(["mensagens", "crm", "servicos", "produtos", "equipe", "configuracoes"]);
+    expect(recursos(r.mais)).toEqual(["mensagens", "crm", "servicos", "produtos", "equipe", "site", "configuracoes"]);
   });
 
   it("recepção (7 itens): mesmos 4 + Mais com Mensagens, CRM, Serviços e Produtos", () => {

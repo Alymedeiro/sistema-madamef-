@@ -13,6 +13,7 @@ export type Recurso =
   | "produtos"
   | "financeiro"
   | "equipe"
+  | "site"
   | "configuracoes";
 
 export const ROTULO_PERFIL: Record<Perfil, string> = {
@@ -36,6 +37,8 @@ const ACESSO: Record<Recurso, readonly Perfil[]> = {
   // Recepção só vê a aba Caixa do dia (a página força ?aba=caixa).
   financeiro: ["dona", "recepcao"],
   equipe: ["dona"],
+  // Site da clínica (só visualização, dentro do sistema).
+  site: ["dona"],
   configuracoes: ["dona"],
 };
 
@@ -66,6 +69,7 @@ export const ITENS_MENU: ItemMenu[] = [
   { recurso: "produtos", rotulo: "Produtos", href: "/produtos", icone: "Package" },
   { recurso: "financeiro", rotulo: "Financeiro", href: "/financeiro", icone: "Wallet" },
   { recurso: "equipe", rotulo: "Equipe", href: "/equipe", icone: "UserCog" },
+  { recurso: "site", rotulo: "Site", href: "/site", icone: "Globe" },
   {
     recurso: "configuracoes",
     rotulo: "Configurações",
