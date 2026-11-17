@@ -210,13 +210,16 @@ test.describe("dona", () => {
     await expect(page.getByRole("link", { name: "Exportar PDF" })).toHaveCount(0);
   });
 
-  test("sininho mostra o aviso e ele some após 'Marcar todos como lidos'", async ({ page }) => {
+  test("sininho mostra o aviso e ele some após 'Marcar todas como lidas'", async ({ page }) => {
     await page.goto("/inicio");
     await page.getByRole("button", { name: /^Avisos: \d+ não lidos?$/ }).click();
     const lista = page.getByRole("region", { name: "Avisos de vencimento" });
     await expect(lista.getByRole("link", { name: new RegExp(`${prefixo} aviso — .* — vence em 3 dias`) })).toBeVisible();
 
-    await lista.getByRole("button", { name: "Marcar todos como lidos" }).click();
+    await page
+      .getByRole("region", { name: "Notificações" })
+      .getByRole("button", { name: "Marcar todas como lidas" })
+      .click();
     await expect(page.getByRole("button", { name: "Avisos: nenhum não lido" })).toBeVisible();
     await page.reload();
     await expect(page.getByRole("button", { name: "Avisos: nenhum não lido" })).toBeVisible();

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { Logo } from "@/components/shell/logo";
 import { MenuInferior, MenuLateral } from "@/components/shell/menu";
@@ -11,7 +12,8 @@ import {
 } from "@/lib/dominio/permissoes";
 import { sair } from "@/app/login/actions";
 import { carregarAvisosDoPerfil } from "@/features/avisos/dados";
-import { Sininho } from "@/features/avisos/sininho";
+import { ProvedorNotificacoes } from "@/features/notificacoes/provedor";
+import { Sininho } from "@/features/notificacoes/sininho";
 import { dataNoFuso } from "@/lib/dominio/tempo";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
@@ -32,41 +34,47 @@ export default async function AppLayout({
   const itens = ITENS_MENU.filter((i) => podeAcessar(colaborador.perfil, i.recurso));
 
   return (
-    <div className="min-h-dvh lg:pl-64">
-      <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-6 border-r bg-card p-4 lg:flex">
-        <div className="flex flex-col items-center gap-2 pt-2 text-center">
-          <Logo tamanho="md" alt="" className="rounded-md" />
-          <span className="font-titulo text-lg font-semibold tracking-wide text-ouro-escuro">
-            Madame Fê Clinic
-          </span>
-        </div>
-        <MenuLateral itens={itens} />
-      </aside>
-
-      <header className="sticky top-0 z-20 flex min-h-16 items-center gap-3 border-b bg-card px-4">
-        <div className="lg:hidden">
-          <Logo tamanho="sm" className="rounded-md" />
-        </div>
-        <div className="ml-auto flex min-w-0 items-center gap-3">
-          {colaborador.perfil === "dona" && <Sininho avisos={avisos} />}
-          <div className="flex min-w-0 flex-col items-end gap-0.5 sm:flex-row sm:items-center sm:gap-2">
-            <span className="max-w-[10rem] truncate text-sm font-medium sm:max-w-xs">
-              {colaborador.nome}
+    <ProvedorNotificacoes colaboradorId={colaborador.id}>
+      <div className="min-h-dvh lg:pl-64">
+        <aside className="fixed inset-y-0 left-0 hidden w-64 flex-col gap-6 border-r bg-card p-4 lg:flex">
+          <div className="flex flex-col items-center gap-2 pt-2 text-center">
+            <Logo tamanho="md" alt="" className="rounded-md" />
+            <span className="font-titulo text-lg font-semibold tracking-wide text-ouro-escuro">
+              Madame Fê Clinic
             </span>
-            <Badge variant="secondary">{ROTULO_PERFIL[colaborador.perfil]}</Badge>
           </div>
-          <form action={sair}>
-            <Button type="submit" variant="outline" size="sm">
-              <LogOut aria-hidden />
-              Sair
-            </Button>
-          </form>
-        </div>
-      </header>
+          <MenuLateral itens={itens} />
+        </aside>
 
-      <main className="px-4 py-6 pb-24 lg:px-8 lg:pb-8">{children}</main>
-      <MenuInferior itens={itens} />
-      <Toaster />
-    </div>
+        <header className="sticky top-0 z-20 flex min-h-16 items-center gap-3 border-b bg-card px-4">
+          <div className="lg:hidden">
+            <Logo tamanho="sm" className="rounded-md" />
+          </div>
+          <div className="ml-auto flex min-w-0 items-center gap-3">
+            <Sininho avisos={avisos} />
+            <Link
+              href="/perfil/notificacoes"
+              title="Minhas preferências de notificação"
+              className="flex min-h-11 min-w-0 flex-col items-end justify-center gap-0.5 rounded-md px-1 hover:bg-accent/50 sm:flex-row sm:items-center sm:gap-2"
+            >
+              <span className="max-w-[10rem] truncate text-sm font-medium sm:max-w-xs">
+                {colaborador.nome}
+              </span>
+              <Badge variant="secondary">{ROTULO_PERFIL[colaborador.perfil]}</Badge>
+            </Link>
+            <form action={sair}>
+              <Button type="submit" variant="outline" size="sm">
+                <LogOut aria-hidden />
+                Sair
+              </Button>
+            </form>
+          </div>
+        </header>
+
+        <main className="px-4 py-6 pb-24 lg:px-8 lg:pb-8">{children}</main>
+        <MenuInferior itens={itens} />
+        <Toaster />
+      </div>
+    </ProvedorNotificacoes>
   );
 }

@@ -11,6 +11,16 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
+// 0019: tipos de notificação (check de notificacoes.tipo).
+export type TipoNotificacao =
+  | "mensagem_recebida"
+  | "pedido_online"
+  | "confirmou"
+  | "quer_remarcar"
+  | "pediu_equipe"
+  | "agenda_profissional"
+  | "mensagem_falhou"
+
 export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
@@ -2385,6 +2395,85 @@ export type Database = {
           },
         ]
       }
+      // 0019: cada colaborador lê e marca (lida_em) só as próprias; escrita só
+      // pelos gatilhos. link = rota interna ("/...").
+      notificacoes: {
+        Row: {
+          colaborador_id: string
+          corpo: string | null
+          criada_em: string
+          id: string
+          lida_em: string | null
+          link: string
+          tipo: TipoNotificacao
+          titulo: string
+        }
+        Insert: {
+          colaborador_id: string
+          corpo?: string | null
+          criada_em?: string
+          id?: string
+          lida_em?: string | null
+          link?: string
+          tipo: TipoNotificacao
+          titulo: string
+        }
+        Update: {
+          colaborador_id?: string
+          corpo?: string | null
+          criada_em?: string
+          id?: string
+          lida_em?: string | null
+          link?: string
+          tipo?: TipoNotificacao
+          titulo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notificacoes_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: false
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      // 0019: só o próprio lê; escrita por salvar_preferencias_notificacao.
+      preferencias_notificacao: {
+        Row: {
+          atualizado_em: string
+          colaborador_id: string
+          desktop: boolean
+          som: boolean
+          tipos: TipoNotificacao[]
+          volume: number
+        }
+        Insert: {
+          atualizado_em?: string
+          colaborador_id: string
+          desktop?: boolean
+          som?: boolean
+          tipos?: TipoNotificacao[]
+          volume?: number
+        }
+        Update: {
+          atualizado_em?: string
+          colaborador_id?: string
+          desktop?: boolean
+          som?: boolean
+          tipos?: TipoNotificacao[]
+          volume?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "preferencias_notificacao_colaborador_id_fkey"
+            columns: ["colaborador_id"]
+            isOneToOne: true
+            referencedRelation: "colaboradores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       // 0012: linha única; dona e recepção leem; escrita só por
       // gravar_status_whatsapp (service_role).
       whatsapp_status: {
@@ -2713,6 +2802,14 @@ export type Database = {
       }
       // 0010: idempotente; chave 1–120 (23514).
       marcar_avisos_lidos: { Args: { p_chaves: string[] }; Returns: undefined }
+      // 0019: do usuário logado (sem colaborador → P0001); p_ids omitido/null =
+      // todas. Devolve quantas mudaram.
+      marcar_notificacoes_lidas: { Args: { p_ids?: string[] | null }; Returns: number }
+      // 0019: upsert do próprio; p_tipos null = todos; volume 0–100 (P0001).
+      salvar_preferencias_notificacao: {
+        Args: { p_som: boolean; p_volume: number; p_desktop: boolean; p_tipos: string[] | null }
+        Returns: undefined
+      }
       // 0018: dona/recepção (senão "Apenas a dona ou a recepção podem enviar
       // mensagens."); 1–200 chaves, vazio → "Escolha pelo menos uma conversa.".
       // Devolvem quantas foram arquivadas / desarquivadas.
