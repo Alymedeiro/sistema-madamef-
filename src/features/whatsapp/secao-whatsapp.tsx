@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { CircleAlert, CircleCheck, CircleX } from "lucide-react";
 import { toast } from "sonner";
 import { salvarConfigWhatsapp } from "@/app/(app)/configuracoes/actions";
 import { whatsappConfigSchema } from "@/app/(app)/configuracoes/schemas";
@@ -16,6 +17,13 @@ const ROTULO_ESTADO: Record<EstadoWhatsapp, string> = {
   conectado: "Conectado",
   desconectado: "Desconectado",
   sem_chaves: "Chaves da Z-API não configuradas",
+};
+
+/** Ícone e cor do estado: verde conectado, vermelho desconectado, âmbar sem chaves. */
+const VISUAL_ESTADO: Record<EstadoWhatsapp, { Icone: typeof CircleCheck; cor: string }> = {
+  conectado: { Icone: CircleCheck, cor: "text-green-600" },
+  desconectado: { Icone: CircleX, cor: "text-red-600" },
+  sem_chaves: { Icone: CircleAlert, cor: "text-amber-600" },
 };
 
 type Props = {
@@ -34,6 +42,7 @@ export function SecaoWhatsapp({ inicial, estado, clinica, modelos, children }: P
   const [limite, setLimite] = useState(String(inicial.limitePorHora));
   const [erros, setErros] = useState<{ janelaInicio?: string; janelaFim?: string; limitePorHora?: string }>({});
   const [pendente, iniciar] = useTransition();
+  const { Icone: IconeEstado, cor: corEstado } = VISUAL_ESTADO[estado];
 
   function enviar(e: React.FormEvent) {
     e.preventDefault();
@@ -67,9 +76,14 @@ export function SecaoWhatsapp({ inicial, estado, clinica, modelos, children }: P
         WhatsApp
       </h2>
       <form onSubmit={enviar} noValidate className="flex flex-col gap-5">
-        <p className="text-sm">
-          <span className="font-medium">Estado da conexão: </span>
-          <span role="status" data-estado={estado}>
+        <p className="flex flex-wrap items-center gap-x-1.5 text-sm">
+          <span className="font-medium">Estado da conexão:</span>
+          <span
+            role="status"
+            data-estado={estado}
+            className={`inline-flex items-center gap-1.5 font-medium ${corEstado}`}
+          >
+            <IconeEstado aria-hidden className="size-5 shrink-0" />
             {ROTULO_ESTADO[estado]}
           </span>
         </p>
