@@ -100,7 +100,7 @@ export async function salvarModelo(dados: ModeloInput): Promise<Resultado> {
     const supabase = await createClient();
     const { data, error } = await supabase
       .from("modelos_mensagem")
-      .update({ variacoes, ativo, atualizado_em: new Date().toISOString() })
+      .update({ variacoes, ativo })
       .eq("tipo", tipo)
       .select("tipo");
     if (error) return falha(mensagemErroBanco(error));
