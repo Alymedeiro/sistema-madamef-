@@ -89,6 +89,8 @@ describe("salvarModelo", () => {
     const u = falso.chamadasDe("modelos_mensagem", "update")[0].args[0] as Record<string, unknown>;
     expect(u.variacoes).toEqual(["A", "B"]);
     expect(u.ativo).toBe(false);
+    // Só as colunas liberadas no banco (grant update (variacoes, ativo)); atualizado_em é do gatilho.
+    expect(Object.keys(u).sort()).toEqual(["ativo", "variacoes"]);
     expect(falso.chamadasDe("modelos_mensagem", "eq")[0].args).toEqual(["tipo", "lembrete"]);
   });
 
