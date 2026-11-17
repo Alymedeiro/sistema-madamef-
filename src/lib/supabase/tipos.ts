@@ -2193,6 +2193,50 @@ export type Database = {
           },
         ]
       }
+      // 0020: até 5 por serviço; ordem 0..4 (capa = 0; sem ordem, o banco usa a
+      // menor livre). caminho = servicos/<servico_id>/<uuid>.webp|.jpg no
+      // bucket público `servicos-fotos`.
+      servicos_fotos: {
+        Row: {
+          id: string
+          servico_id: string
+          caminho: string
+          ordem: number
+          largura: number | null
+          altura: number | null
+          criado_em: string
+          criado_por: string | null
+        }
+        Insert: {
+          id?: string
+          servico_id: string
+          caminho: string
+          ordem?: number
+          largura?: number | null
+          altura?: number | null
+          criado_em?: string
+          criado_por?: string | null
+        }
+        Update: {
+          id?: string
+          servico_id?: string
+          caminho?: string
+          ordem?: number
+          largura?: number | null
+          altura?: number | null
+          criado_em?: string
+          criado_por?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "servicos_fotos_servico_id_fkey"
+            columns: ["servico_id"]
+            isOneToOne: false
+            referencedRelation: "servicos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       termos_assinados: {
         Row: {
           agendamento_id: string | null
@@ -2964,6 +3008,10 @@ export type Database = {
       }
       // 0006: grava 'visualizou' na auditoria; sem acesso → P0001
       // 'Acesso não autorizado'.
+      // 0020: só a dona; p_ids = exatamente as fotos do serviço (senão "A lista
+      // de fotos não confere com as fotos do serviço."); regrava ordem 0..n-1.
+      reordenar_fotos_servico: { Args: { p_servico: string; p_ids: string[] }; Returns: undefined }
+      servico_publico: { Args: { p_servico: string }; Returns: boolean }
       registrar_acesso: {
         Args: {
           p_entidade:

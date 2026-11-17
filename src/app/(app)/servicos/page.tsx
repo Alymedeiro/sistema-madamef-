@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ClipboardCheck, Globe, Pencil, Plus } from "lucide-react";
+import { ClipboardCheck, Globe, ImageIcon, Pencil, Plus } from "lucide-react";
 import { BotaoAtivoItem } from "@/features/catalogo/botao-ativo-item";
 import { DialogoCategoria } from "@/features/servicos/dialogo-categoria";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,7 @@ import {
 import { formatarDuracao } from "@/lib/dominio/catalogo";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { perfisComAcesso } from "@/lib/dominio/permissoes";
+import { BUCKET_SERVICOS_FOTOS } from "@/lib/dominio/servicos-fotos";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,31 @@ type Servico = {
   dias_retorno: number | null;
   ativo: boolean;
 };
+
+/** Capa 40×40 ao lado do nome (decorativa: o nome está ao lado); sem foto, um quadrado neutro. */
+function Miniatura({ url }: { url: string | undefined }) {
+  if (!url) {
+    return (
+      <span
+        aria-hidden
+        className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"
+      >
+        <ImageIcon className="size-4" />
+      </span>
+    );
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- Storage sem next/image configurado
+    <img
+      src={url}
+      alt=""
+      width={40}
+      height={40}
+      loading="lazy"
+      className="size-10 shrink-0 rounded-md object-cover"
+    />
+  );
+}
 
 function Marcas({ s }: { s: Servico }) {
   if (!s.permite_online && !s.exige_avaliacao) return null;
@@ -82,9 +108,11 @@ export default async function ServicosPage() {
     .order("nome", { ascending: true });
   if (!ehDona) consultaServicos = consultaServicos.eq("ativo", true);
 
-  const [categoriasRes, servicosRes] = await Promise.all([
+  const [categoriasRes, servicosRes, capasRes] = await Promise.all([
     supabase.from("categorias_servico").select("id, nome").order("nome", { ascending: true }),
     consultaServicos,
+    // Capa = ordem 0 (o banco renumera ao remover).
+    supabase.from("servicos_fotos").select("servico_id, caminho").eq("ordem", 0),
   ]);
   if (categoriasRes.error) {
     throw new Error(`Falha ao carregar as categorias: ${categoriasRes.error.message}`);
@@ -92,6 +120,14 @@ export default async function ServicosPage() {
   if (servicosRes.error) {
     throw new Error(`Falha ao carregar os serviços: ${servicosRes.error.message}`);
   }
+
+  // Sem capa não é erro: a lista segue com o quadrado neutro.
+  const capas = new Map(
+    (capasRes.data ?? []).map((f) => [
+      f.servico_id,
+      supabase.storage.from(BUCKET_SERVICOS_FOTOS).getPublicUrl(f.caminho).data.publicUrl,
+    ]),
+  );
 
   const servicos: Servico[] = servicosRes.data ?? [];
   const grupos = (categoriasRes.data ?? [])
@@ -149,7 +185,10 @@ export default async function ServicosPage() {
                       )}
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <p className="min-w-0 font-medium break-words">{s.nome}</p>
+                        <div className="flex min-w-0 items-center gap-3">
+                          <Miniatura url={capas.get(s.id)} />
+                          <p className="min-w-0 font-medium break-words">{s.nome}</p>
+                        </div>
                         <p className="shrink-0 font-semibold">{formatarBRL(s.preco_centavos)}</p>
                       </div>
                       <p className="text-sm text-muted-foreground">
@@ -187,12 +226,17 @@ export default async function ServicosPage() {
                       {g.servicos.map((s) => (
                         <TableRow key={s.id} className={cn(!s.ativo && "opacity-70")}>
                           <TableCell className="font-medium">
-                            {s.nome}
-                            {!s.ativo ? (
-                              <Badge variant="destructive" className="ml-2">
-                                Inativo
-                              </Badge>
-                            ) : null}
+                            <div className="flex items-center gap-3">
+                              <Miniatura url={capas.get(s.id)} />
+                              <span>
+                                {s.nome}
+                                {!s.ativo ? (
+                                  <Badge variant="destructive" className="ml-2">
+                                    Inativo
+                                  </Badge>
+                                ) : null}
+                              </span>
+                            </div>
                           </TableCell>
                           <TableCell>{formatarDuracao(s.duracao_min)}</TableCell>
                           <TableCell>{formatarBRL(s.preco_centavos)}</TableCell>
