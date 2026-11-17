@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 import { erroDasPerguntas } from "./anamnese";
 import {
   caracteresUteis,
+  LIMITE_TEXTO_IMPORTADO,
+  MAX_CARACTERES_LINHA,
   extrairPerguntas,
   juntarComProxima,
+  limitarTexto,
   perguntasDaImportacao,
   separarPergunta,
   textoDosItensPdf,
@@ -319,5 +322,48 @@ describe("caracteresUteis", () => {
   it("ignora espaços, sublinhados e pontuação", () => {
     expect(caracteresUteis(" ___ ... \n 1/3 ")).toBe(2);
     expect(caracteresUteis("Nome completo")).toBe(12);
+  });
+});
+
+describe("desempenho com textos grandes", () => {
+  const medir = (texto: string) => {
+    const inicio = performance.now();
+    extrairPerguntas(texto);
+    return performance.now() - inicio;
+  };
+
+  it("linha enorme sem quebras", () => {
+    expect(medir("a".repeat(20000))).toBeLessThan(200);
+  });
+
+  it("rótulo enorme terminando em ':'", () => {
+    expect(medir("Nome ".repeat(4000) + ":")).toBeLessThan(200);
+  });
+
+  it("linha de 20 000 caracteres com marcadores", () => {
+    const linha = "Pergunta? " + "( ) Sim ( ) Não ".repeat(1300);
+    expect(linha.length).toBeGreaterThanOrEqual(20000);
+    expect(medir(linha)).toBeLessThan(200);
+  });
+
+  it("sublinhados, campos e traços longos", () => {
+    expect(medir("Nome: " + "_".repeat(20000) + "a")).toBeLessThan(200);
+    expect(medir(("Nome: ___ ").repeat(2000))).toBeLessThan(200);
+    expect(medir("- ".repeat(10000) + "x")).toBeLessThan(200);
+    expect(medir(("linha sem fim de frase\n").repeat(1000))).toBeLessThan(200);
+  });
+
+  it("corta linhas acima do limite", () => {
+    const [p] = extrairPerguntas("1. " + "x".repeat(5000) + "?");
+    expect(p.texto.length).toBeLessThanOrEqual(MAX_CARACTERES_LINHA);
+  });
+});
+
+describe("limitarTexto", () => {
+  it("trunca no limite e avisa", () => {
+    expect(limitarTexto("abc")).toEqual({ texto: "abc", truncado: false });
+    const r = limitarTexto("a".repeat(LIMITE_TEXTO_IMPORTADO + 5));
+    expect(r.truncado).toBe(true);
+    expect(r.texto).toHaveLength(LIMITE_TEXTO_IMPORTADO);
   });
 });

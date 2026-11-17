@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FileUp, ClipboardPaste } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,6 +22,7 @@ import {
   caracteresUteis,
   extrairPerguntas,
   juntarComProxima,
+  limitarTexto,
   perguntasDaImportacao,
   separarPergunta,
   type PerguntaImportada,
@@ -37,6 +38,7 @@ const comChaves = (itens: ItemRevisao[]): ItemRevisao[] =>
 
 const SEM_TEXTO_NO_PDF =
   "Não encontramos texto neste PDF (parece uma foto ou um escaneado). Use 'Colar texto'.";
+const AVISO_PDF_GRANDE = "O PDF é grande; usamos só o começo do texto.";
 const SEM_PERGUNTAS = "Não encontramos perguntas neste texto. Confira se ele veio completo.";
 
 const AREA_TEXTO =
@@ -59,10 +61,42 @@ export function ImportarAnamnese({
   const [erroColar, setErroColar] = useState<string | null>(null);
   const [itens, setItens] = useState<ItemRevisao[] | null>(null);
   const [confirmarSubstituir, setConfirmarSubstituir] = useState(false);
+  const [confirmarDescartar, setConfirmarDescartar] = useState(false);
+  const [editado, setEditado] = useState(false);
+  const [avisoRevisao, setAvisoRevisao] = useState<string | null>(null);
+  const botaoVoltar = useRef<HTMLButtonElement>(null);
+  const botaoContinuar = useRef<HTMLButtonElement>(null);
 
-  function abrirRevisao(lista: PerguntaImportada[]) {
+  useEffect(() => {
+    if (confirmarSubstituir) botaoVoltar.current?.focus();
+  }, [confirmarSubstituir]);
+  useEffect(() => {
+    if (confirmarDescartar) botaoContinuar.current?.focus();
+  }, [confirmarDescartar]);
+
+  function abrirRevisao(lista: PerguntaImportada[], aviso: string | null = null) {
     setConfirmarSubstituir(false);
+    setConfirmarDescartar(false);
+    setEditado(false);
+    setAvisoRevisao(aviso);
     setItens(comChaves(lista));
+  }
+
+  function fecharRevisao() {
+    setItens(null);
+    setConfirmarDescartar(false);
+    setConfirmarSubstituir(false);
+  }
+
+  /** Esc, clique fora ou X: com edições, pede confirmação antes de descartar. */
+  function pedirFechar() {
+    if (editado) setConfirmarDescartar(true);
+    else fecharRevisao();
+  }
+
+  function alterarItens(f: (ls: ItemRevisao[]) => ItemRevisao[]) {
+    setEditado(true);
+    setItens((ls) => ls && f(ls));
   }
 
   async function aoEscolherPdf(arquivo: File | undefined) {
@@ -80,14 +114,14 @@ export function ImportarAnamnese({
     setLendo(true);
     try {
       const { textoDoPdf } = await import("./ler-pdf");
-      const texto = await textoDoPdf(arquivo);
+      const { texto, truncado } = limitarTexto(await textoDoPdf(arquivo));
       if (caracteresUteis(texto) < MINIMO_CARACTERES_UTEIS) {
         setErro(SEM_TEXTO_NO_PDF);
         return;
       }
       const lista = extrairPerguntas(texto);
       if (lista.length === 0) setErro(SEM_PERGUNTAS);
-      else abrirRevisao(lista);
+      else abrirRevisao(lista, truncado ? AVISO_PDF_GRANDE : null);
     } catch {
       setErro("Não foi possível ler este PDF. Tente outro arquivo ou use 'Colar texto'.");
     } finally {
@@ -108,12 +142,12 @@ export function ImportarAnamnese({
   }
 
   function mudar(chave: string | undefined, parcial: Partial<PerguntaImportada>) {
-    setItens((ls) => ls && ls.map((l) => (l.chave === chave ? { ...l, ...parcial } : l)));
+    alterarItens((ls) => ls.map((l) => (l.chave === chave ? { ...l, ...parcial } : l)));
   }
 
   function separar(i: number, chave: string | undefined) {
     const el = document.getElementById(`imp-texto-${chave}`) as HTMLTextAreaElement | null;
-    setItens((ls) => ls && comChaves(separarPergunta(ls, i, el?.selectionStart ?? undefined)));
+    alterarItens((ls) => comChaves(separarPergunta(ls, i, el?.selectionStart ?? undefined)));
   }
 
   const selecionadas = itens?.filter((i) => i.incluir && i.texto.trim()).length ?? 0;
@@ -123,7 +157,7 @@ export function ImportarAnamnese({
     const perguntas = perguntasDaImportacao(itens, modo === "adicionar" ? idsExistentes : []);
     if (perguntas.length === 0) return;
     onImportar(perguntas, modo);
-    setItens(null);
+    fecharRevisao();
   }
 
   return (
@@ -184,12 +218,19 @@ export function ImportarAnamnese({
               maxLength={LIMITE_TEXTO_IMPORTADO}
               value={textoColado}
               onChange={(e) => setTextoColado(e.target.value)}
+              aria-describedby="imp-colar-contador"
               className={AREA_TEXTO}
             />
-            <p className="text-right text-xs text-muted-foreground">
+            <p id="imp-colar-contador" className="text-right text-xs text-muted-foreground">
               {textoColado.length.toLocaleString("pt-BR")} /{" "}
-              {LIMITE_TEXTO_IMPORTADO.toLocaleString("pt-BR")}
+              {LIMITE_TEXTO_IMPORTADO.toLocaleString("pt-BR")} caracteres
             </p>
+            {textoColado.length >= LIMITE_TEXTO_IMPORTADO ? (
+              <p role="status" className="text-sm font-medium text-destructive">
+                Você chegou ao limite de {LIMITE_TEXTO_IMPORTADO.toLocaleString("pt-BR")}{" "}
+                caracteres; o que passou disso ficou de fora.
+              </p>
+            ) : null}
             {erroColar ? (
               <p role="alert" className="text-sm font-medium text-destructive">
                 {erroColar}
@@ -207,14 +248,19 @@ export function ImportarAnamnese({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={itens !== null} onOpenChange={(aberto) => !aberto && setItens(null)}>
+      <Dialog open={itens !== null} onOpenChange={(aberto) => !aberto && pedirFechar()}>
         <DialogContent className="top-0 left-0 flex h-dvh max-h-dvh w-full max-w-none translate-x-0 translate-y-0 flex-col gap-4 overflow-hidden rounded-none p-4 sm:top-1/2 sm:left-1/2 sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:w-[calc(100%-2rem)] sm:max-w-3xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-xl sm:p-6">
           <DialogHeader>
             <DialogTitle>Revisar perguntas</DialogTitle>
             <DialogDescription>
               Desmarque o que não é pergunta, ajuste textos e tipos. Nada é salvo até você clicar
-              em Salvar no modelo.
+              em Salvar nova versão.
             </DialogDescription>
+            {avisoRevisao ? (
+              <p role="status" className="text-sm font-medium text-ouro-escuro">
+                {avisoRevisao}
+              </p>
+            ) : null}
           </DialogHeader>
 
           <ol className="-mx-1 flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-1">
@@ -284,7 +330,7 @@ export function ImportarAnamnese({
                     variant="outline"
                     size="sm"
                     disabled={i === lista.length - 1}
-                    onClick={() => setItens((ls) => ls && comChaves(juntarComProxima(ls, i)))}
+                    onClick={() => alterarItens((ls) => comChaves(juntarComProxima(ls, i)))}
                   >
                     Juntar com a próxima
                   </Button>
@@ -301,7 +347,30 @@ export function ImportarAnamnese({
             ))}
           </ol>
 
-          {confirmarSubstituir ? (
+          {confirmarDescartar ? (
+            <div
+              role="alertdialog"
+              aria-labelledby="imp-descartar"
+              className="flex flex-col gap-3 rounded-xl border border-destructive/40 p-3"
+            >
+              <p id="imp-descartar" className="text-sm font-medium">
+                Descartar as perguntas importadas?
+              </p>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <Button
+                  ref={botaoContinuar}
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmarDescartar(false)}
+                >
+                  Continuar revisando
+                </Button>
+                <Button type="button" variant="destructive" onClick={fecharRevisao}>
+                  Descartar
+                </Button>
+              </div>
+            </div>
+          ) : confirmarSubstituir ? (
             <div
               role="alertdialog"
               aria-labelledby="imp-confirmar"
@@ -312,7 +381,12 @@ export function ImportarAnamnese({
                 anamneses já preenchidas não mudam.
               </p>
               <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-                <Button type="button" variant="outline" onClick={() => setConfirmarSubstituir(false)}>
+                <Button
+                  ref={botaoVoltar}
+                  type="button"
+                  variant="outline"
+                  onClick={() => setConfirmarSubstituir(false)}
+                >
                   Voltar
                 </Button>
                 <Button type="button" variant="destructive" onClick={() => concluir("substituir")}>

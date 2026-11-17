@@ -14,6 +14,15 @@ export const LIMITE_TEXTO_IMPORTADO = 20_000;
 export const LIMITE_PDF_BYTES = 10 * 1024 * 1024;
 /** Abaixo disso o PDF é tratado como foto/escaneado. */
 export const MINIMO_CARACTERES_UTEIS = 20;
+/** Linhas maiores são cortadas: nenhuma pergunta real passa disso. */
+export const MAX_CARACTERES_LINHA = 1000;
+
+/** Corta no limite do texto importado (o mesmo do colar). */
+export function limitarTexto(texto: string): { texto: string; truncado: boolean } {
+  return texto.length > LIMITE_TEXTO_IMPORTADO
+    ? { texto: texto.slice(0, LIMITE_TEXTO_IMPORTADO), truncado: true }
+    : { texto, truncado: false };
+}
 
 const MARCADOR = /\(\s*[xX]?\s*\)|\[\s*[xX]?\s*\]|[☐□▢❑○◯]/g;
 const TEM_MARCADOR = /\(\s*[xX]?\s*\)|\[\s*[xX]?\s*\]|[☐□▢❑○◯]/;
@@ -21,13 +30,12 @@ const S_N = /(?:^|\s)S\s*\/\s*N\.?$/i;
 const NUMERACAO = /^(?:\d{1,3}\s*[.)\-–—]|[a-zA-Z]\))\s*/;
 const PAGINA = /^(?:p[aá]g(?:ina)?\.?\s*)?\d{1,3}\s*(?:(?:de|\/)\s*\d{1,3})?$|^[-–—]\s*\d{1,3}\s*[-–—]$/i;
 const SO_TRACOS = /^[\s_.\-–—…=*]+$/;
-const CAMPO_DATA = /_+\s*\/\s*_+\s*\/\s*_+|\bdd\s*\/\s*mm\s*\/\s*a{2,4}\b/i;
+// Começa com um "_" só (sem "_+") para não reprocessar sequências longas de sublinhados.
+const CAMPO_DATA = /_\s*\/\s*_+\s*\/\s*_|\bdd\s*\/\s*mm\s*\/\s*a{2,4}\b/i;
 const DETALHE = /\b(?:qual|quais|especifique|se sim|caso sim|descreva)\b/i;
 const INICIO_DETALHE = /^(?:se sim|caso sim|qual|quais|especifique|descreva)\b/i;
 const SECAO = /^(?:dados pessoais|termo)\b/i;
 const DECLARACAO = /\bdeclaro\b|\bassinatura\b/i;
-/** Vários campos "Rótulo: ____" na mesma linha. */
-const CAMPO_ROTULADO = /[^:]*?:\s*(?:[_./]\s*){3,}/g;
 
 function normalizarLinha(l: string): string {
   return l.replace(/[\u00a0\t]/g, " ").replace(/\s+/g, " ").trim();
@@ -37,25 +45,32 @@ function semAcento(s: string): string {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
+/** Remove do fim os caracteres de `conjunto`, em tempo linear (regex com `+$` é quadrática). */
+function cortarFim(s: string, conjunto: string): string {
+  let fim = s.length;
+  while (fim > 0 && (conjunto.includes(s[fim - 1]) || /\s/.test(s[fim - 1]))) fim--;
+  return s.slice(0, fim);
+}
+
 /** Sem o campo de preencher no fim (sublinhados, pontilhados, barras de data). */
 function semCampoFinal(s: string): string {
-  return s.replace(/[\s_.…/]+$/, "");
+  return cortarFim(s, "_.…/");
 }
 
 function limparTexto(t: string): string {
-  return t
+  const limpo = t
     .replace(/\(?\s*\bdd\s*\/\s*mm\s*\/\s*a{2,4}\b\s*\)?/gi, " ")
-    .replace(/(?:_+\s*\/\s*)+_+/g, " ")
-    .replace(/_+/g, " ")
+    .replace(/_+/g, "_")
+    .replace(/_(?:\s*\/\s*_)+/g, " ")
+    .replace(/_/g, " ")
     .replace(/\.{3,}|…+/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[\s:\-–—]+$/, "")
     .trim();
+  return cortarFim(limpo, ":-–—").trim();
 }
 
 function limparOpcao(o: string): string {
-  return limparTexto(o).replace(/[\s,;:]+$/, "");
+  return cortarFim(limparTexto(o), ",;:");
 }
 
 function capitalizar(s: string): string {
@@ -103,10 +118,12 @@ function analisarLinha(l: string): LinhaAnalisada {
       enunciado = primeira.slice(0, corte + 1);
       rotulos = [primeira.slice(corte + 1), ...partes.slice(1, -1)];
     } else {
-      const m = /^(.*?)\b(sim|n[aã]o)\s*$/iu.exec(primeira);
-      if (m && m[1].trim()) {
-        enunciado = m[1];
-        rotulos = [m[2], ...partes.slice(1, -1)];
+      const aparada = primeira.trimEnd();
+      const m = /(?:^|[^\p{L}])(sim|n[aã]o)$/iu.exec(aparada);
+      const antes = m ? aparada.slice(0, aparada.length - m[1].length) : "";
+      if (m && antes.trim()) {
+        enunciado = antes;
+        rotulos = [m[1], ...partes.slice(1, -1)];
       } else {
         enunciado = "";
         rotulos = partes.slice(0, -1);
@@ -164,17 +181,30 @@ function terminaFechada(enunciado: string): boolean {
   return s.endsWith("?") || s.endsWith(":");
 }
 
+/** Vários campos "Rótulo: ____" na mesma linha viram linhas separadas (sem regex preguiçosa). */
 function separarCampos(l: string): string[] {
-  const achados = l.match(CAMPO_ROTULADO);
-  if (!achados || achados.length < 2) return [l];
-  const resto = l.slice(achados.join("").length);
-  return [...achados, resto].map((s) => s.trim()).filter(Boolean);
+  if (!l.includes("___") && !l.includes("...")) return [l];
+  const partes = l.split(":");
+  const campos: string[] = [];
+  let rotulo = partes[0];
+  for (const trecho of partes.slice(1)) {
+    // [_./] e \s são disjuntos: casa em tempo linear.
+    const campo = /^\s*(?:[_./]\s*)*/.exec(trecho)?.[0] ?? "";
+    if (campo.replace(/\s/g, "").length >= 3) {
+      campos.push(`${rotulo}: ${campo.trim()}`);
+      rotulo = trecho.slice(campo.length);
+    } else {
+      rotulo += `:${trecho}`;
+    }
+  }
+  if (campos.length < 2) return [l];
+  return [...campos, rotulo].map((s) => s.trim()).filter(Boolean);
 }
 
 function preprocessar(texto: string): string[] {
   const linhas = texto
     .split(/\r?\n|\r/)
-    .map(normalizarLinha)
+    .map((l) => normalizarLinha(l.slice(0, MAX_CARACTERES_LINHA * 2)).slice(0, MAX_CARACTERES_LINHA))
     .filter((l) => l && !SO_TRACOS.test(l) && !PAGINA.test(l))
     .flatMap(separarCampos);
   const contagem = new Map<string, number>();
@@ -217,7 +247,7 @@ export function extrairPerguntas(texto: string): PerguntaImportada[] {
     });
   };
 
-  for (const l of preprocessar(texto)) {
+  for (const l of preprocessar(limitarTexto(texto).texto)) {
     const a = analisarLinha(l);
     const anterior = ultimo();
     const numerada = NUMERACAO.test(a.enunciado);
