@@ -2,8 +2,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { FormularioServico } from "@/features/servicos/formulario-servico";
+import { SecaoFotosServico } from "@/features/servicos/secao-fotos";
 import { SecaoProdutosConsumidos } from "@/features/servicos/secao-produtos-consumidos";
 import { Badge } from "@/components/ui/badge";
+import { BUCKET_SERVICOS_FOTOS } from "@/lib/dominio/servicos-fotos";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { idSchema } from "@/lib/validacao";
@@ -39,7 +41,7 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
 
   const supabase = await createClient();
   // Página só da dona (exigirPerfil acima): o percentual só é lido por ela.
-  const [categorias, servico, vinculos, produtos, termos, comissao] = await Promise.all([
+  const [categorias, servico, vinculos, produtos, termos, comissao, fotos] = await Promise.all([
     supabase.from("categorias_servico").select("id, nome").order("nome", { ascending: true }),
     novo
       ? Promise.resolve({ data: null, error: null })
@@ -62,8 +64,15 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
     novo
       ? Promise.resolve({ data: null, error: null })
       : supabase.from("servicos_comissao").select("percentual").eq("servico_id", id).maybeSingle(),
+    novo
+      ? Promise.resolve({ data: [], error: null })
+      : supabase
+          .from("servicos_fotos")
+          .select("id, caminho, largura, altura")
+          .eq("servico_id", id)
+          .order("ordem", { ascending: true }),
   ]);
-  for (const r of [categorias, servico, vinculos, produtos, termos, comissao]) {
+  for (const r of [categorias, servico, vinculos, produtos, termos, comissao, fotos]) {
     if (r.error) throw new Error(`Falha ao carregar o serviço: ${r.error.message}`);
   }
   const s = servico.data;
@@ -123,6 +132,23 @@ export default async function ServicoPage({ params }: { params: Promise<{ id: st
             : undefined
         }
       />
+
+      {s ? (
+        <SecaoFotosServico
+          servicoId={s.id}
+          nomeServico={s.nome}
+          fotos={(fotos.data ?? []).map((f) => ({
+            id: f.id,
+            url: supabase.storage.from(BUCKET_SERVICOS_FOTOS).getPublicUrl(f.caminho).data.publicUrl,
+            largura: f.largura,
+            altura: f.altura,
+          }))}
+        />
+      ) : (
+        <p className="max-w-2xl text-sm text-muted-foreground">
+          Salve o serviço para adicionar fotos.
+        </p>
+      )}
 
       {s ? (
         <SecaoProdutosConsumidos servicoId={s.id} produtos={opcoesProduto} iniciais={iniciais} />

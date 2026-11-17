@@ -178,6 +178,7 @@ function botaoDia(page: Page) {
 async function abrirHorarios(page: Page) {
   await page.goto("/agendar");
   await page.getByRole("button", { name: new RegExp(SERVICO) }).click();
+  await page.getByRole("button", { name: "Agendar este serviço" }).click();
   await page.getByRole("button", { name: "Qualquer uma" }).click();
   await botaoDia(page).click();
   await expect(page.getByRole("group", { name: "Horário" })).toBeVisible();

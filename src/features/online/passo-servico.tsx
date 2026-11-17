@@ -19,23 +19,53 @@ export function PassoServico({
   selecionado: string | null;
   aoEscolher: (id: string) => void;
 }) {
+  // Com alguma foto, cartões em grade; sem nenhuma, a lista simples de antes.
+  const comFotos = servicos.some((s) => s.fotos.length > 0);
   return (
-    <fieldset className="flex flex-col gap-3">
+    <fieldset className="flex min-w-0 flex-col gap-3">
       <legend className="mb-3 font-titulo text-lg font-semibold text-ouro-escuro">
         1. Escolha o serviço
       </legend>
-      {servicos.map((s) => (
-        <button
-          key={s.id}
-          type="button"
-          aria-pressed={selecionado === s.id}
-          className={estiloOpcao(selecionado === s.id)}
-          onClick={() => aoEscolher(s.id)}
-        >
-          <span>{rotuloServico(s)}</span>
-          <span className="shrink-0 text-sm text-muted-foreground">{s.duracaoMin} min</span>
-        </button>
-      ))}
+      <div className={cn("grid gap-3", comFotos && "sm:grid-cols-2")}>
+        {servicos.map((s) => {
+          const capa = s.fotos[0];
+          return (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={selecionado === s.id}
+              onClick={() => aoEscolher(s.id)}
+              className={cn(
+                estiloOpcao(selecionado === s.id),
+                capa && "flex-col items-stretch justify-start overflow-hidden p-0",
+              )}
+            >
+              {capa ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- Storage sem next/image configurado */}
+                  <img
+                    src={capa.url}
+                    alt={s.nome}
+                    width={capa.largura ?? 400}
+                    height={capa.altura ?? 300}
+                    loading="lazy"
+                    className="aspect-[4/3] w-full bg-muted object-cover"
+                  />
+                  <span className="flex items-center justify-between gap-3 px-4 py-3">
+                    <span>{rotuloServico(s)}</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span>{rotuloServico(s)}</span>
+                  <span className="shrink-0 text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </fieldset>
   );
 }

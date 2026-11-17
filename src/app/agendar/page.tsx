@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { FormularioAgendar } from "@/features/online/formulario-agendar";
 import type { ProfissionalOnline, ServicoOnline } from "@/features/online/tipos";
 import { diasDisponiveis } from "@/lib/dominio/online";
+import { BUCKET_SERVICOS_FOTOS, fotosPorServico } from "@/lib/dominio/servicos-fotos";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -36,7 +37,7 @@ export default async function AgendarPage() {
   const [{ data: servicosDb }, { data: colaboradoresDb }, { data: vinculos }] = await Promise.all([
     admin
       .from("servicos")
-      .select("id, nome, duracao_min, exige_avaliacao")
+      .select("id, nome, descricao, duracao_min, exige_avaliacao")
       .eq("ativo", true)
       .eq("permite_online", true)
       .order("nome"),
@@ -44,11 +45,27 @@ export default async function AgendarPage() {
     admin.from("colaborador_servicos").select("colaborador_id, servico_id"),
   ]);
 
+  // Fotos são opcionais: se a leitura falhar, os serviços aparecem sem galeria.
+  const idsOnline = (servicosDb ?? []).map((s) => s.id);
+  const { data: fotosDb } =
+    idsOnline.length > 0
+      ? await admin
+          .from("servicos_fotos")
+          .select("servico_id, caminho, ordem, largura, altura")
+          .in("servico_id", idsOnline)
+      : { data: [] };
+  const fotos = fotosPorServico(
+    fotosDb ?? [],
+    (caminho) => admin.storage.from(BUCKET_SERVICOS_FOTOS).getPublicUrl(caminho).data.publicUrl,
+  );
+
   const servicos: ServicoOnline[] = (servicosDb ?? []).map((s) => ({
     id: s.id,
     nome: s.nome,
+    descricao: s.descricao?.trim() || null,
     duracaoMin: s.duracao_min,
     exigeAvaliacao: s.exige_avaliacao,
+    fotos: fotos.get(s.id) ?? [],
   }));
   const online = new Set(servicos.map((s) => s.id));
   const profissionais: ProfissionalOnline[] = (colaboradoresDb ?? [])

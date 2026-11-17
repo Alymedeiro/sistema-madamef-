@@ -5,6 +5,7 @@ import {
   quantidadeNaoNegativaSchema,
   textoOpcional,
 } from "@/lib/validacao";
+import { MAX_FOTOS_SERVICO, caminhoFotoServicoValido } from "@/lib/dominio/servicos-fotos";
 
 export const categoriaSchema = z.object({
   nome: z
@@ -75,3 +76,24 @@ export const produtosDoServicoSchema = z
       vistos.add(item.produtoId);
     }
   });
+
+// Fotos do serviço (0020). Largura/altura vêm do redimensionamento no navegador.
+const MSG_FOTO = "Foto inválida.";
+const dimensao = z.number(MSG_FOTO).int(MSG_FOTO).min(1, MSG_FOTO).max(10000, MSG_FOTO);
+
+export const fotoServicoSchema = z
+  .object({
+    servicoId: z.uuid("Serviço inválido."),
+    caminho: z.string(MSG_FOTO),
+    largura: dimensao,
+    altura: dimensao,
+  })
+  .refine((f) => caminhoFotoServicoValido(f.servicoId, f.caminho), MSG_FOTO);
+
+export type FotoServicoInput = z.input<typeof fotoServicoSchema>;
+
+export const ordemFotosSchema = z
+  .array(z.uuid(MSG_FOTO), MSG_FOTO)
+  .min(1, MSG_FOTO)
+  .max(MAX_FOTOS_SERVICO, MSG_FOTO)
+  .refine((ids) => new Set(ids).size === ids.length, MSG_FOTO);

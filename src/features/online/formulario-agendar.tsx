@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatarNoFuso } from "@/lib/dominio/tempo";
 import { PassoDados, type Dados } from "./passo-dados";
+import { PassoDetalhes } from "./passo-detalhes";
 import { PassoHorario } from "./passo-horario";
 import { PassoProfissional } from "./passo-profissional";
 import { PassoServico } from "./passo-servico";
@@ -33,6 +34,8 @@ export function FormularioAgendar({
 }) {
   const [passo, setPasso] = useState(1);
   const [servicoId, setServicoId] = useState<string | null>(null);
+  // Serviço aberto nos detalhes (passo 1), antes de confirmar a escolha.
+  const [detalheId, setDetalheId] = useState<string | null>(null);
   // undefined = ainda não escolheu; null = "Qualquer uma".
   const [profissionalId, setProfissionalId] = useState<string | null | undefined>(undefined);
   const [dia, setDia] = useState<string | null>(null);
@@ -50,6 +53,7 @@ export function FormularioAgendar({
   const ultimaBusca = useRef(0);
 
   const servico = servicos.find((s) => s.id === servicoId) ?? null;
+  const detalhe = servicos.find((s) => s.id === detalheId) ?? null;
   const daServico = profissionais.filter((p) => servicoId && p.servicoIds.includes(servicoId));
 
   function limparHorario() {
@@ -150,19 +154,24 @@ export function FormularioAgendar({
           <p className="text-sm text-muted-foreground">{escolhas.join(" · ")}</p>
         ) : null}
 
-        {passo === 1 ? (
-          <PassoServico
-            servicos={servicos}
-            selecionado={servicoId}
-            aoEscolher={(id) => {
-              if (id !== servicoId) {
-                setServicoId(id);
+        {passo === 1 && detalhe ? (
+          <PassoDetalhes
+            key={detalhe.id}
+            servico={detalhe}
+            aoVoltar={() => setDetalheId(null)}
+            aoAgendar={() => {
+              if (detalhe.id !== servicoId) {
+                setServicoId(detalhe.id);
                 setProfissionalId(undefined);
                 limparHorario();
               }
               setPasso(2);
             }}
           />
+        ) : null}
+
+        {passo === 1 && !detalhe ? (
+          <PassoServico servicos={servicos} selecionado={servicoId} aoEscolher={setDetalheId} />
         ) : null}
 
         {passo === 2 ? (
