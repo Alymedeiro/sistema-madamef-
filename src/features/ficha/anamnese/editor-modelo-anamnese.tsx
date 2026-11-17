@@ -15,6 +15,7 @@ import {
   type Pergunta,
   type TipoPergunta,
 } from "@/lib/dominio/anamnese";
+import { ImportarAnamnese, type ModoImportacao } from "./importar-anamnese";
 
 type Linha = {
   chave: string;
@@ -89,6 +90,16 @@ export function EditorModeloAnamnese({
     });
   }
 
+  function importar(novas: Pergunta[], modo: ModoImportacao) {
+    const importadas = novas.map((p) => ({ ...deModelo(p), chave: novaChave() }));
+    setLinhas((ls) => (modo === "substituir" ? importadas : [...ls, ...importadas]));
+    setErro(null);
+    const n = `${novas.length} pergunta${novas.length === 1 ? "" : "s"}`;
+    toast.success(
+      `${modo === "substituir" ? `Modelo trocado por ${n}` : `${n} adicionada${novas.length === 1 ? "" : "s"}`}. Confira e clique em Salvar nova versão.`,
+    );
+  }
+
   function salvar() {
     if (!titulo.trim()) {
       setErro("Informe o título do modelo.");
@@ -113,6 +124,11 @@ export function EditorModeloAnamnese({
 
   return (
     <div className="flex max-w-3xl flex-col gap-6">
+      <ImportarAnamnese
+        idsExistentes={linhas.flatMap((l) => (l.id ? [l.id] : []))}
+        totalAtual={linhas.length}
+        onImportar={importar}
+      />
       <p className="text-sm text-muted-foreground">
         Versão atual: {versao}. Ao salvar com mudanças, nasce uma nova versão; as anamneses
         já preenchidas continuam com as perguntas da versão em que foram respondidas.
