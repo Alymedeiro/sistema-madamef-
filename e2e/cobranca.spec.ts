@@ -139,9 +139,8 @@ test("pacote: venda dividida na ficha e 'Usar sessão do pacote' na agenda", asy
   const novo = page.getByRole("dialog");
   await novo.getByLabel("Cliente").fill(fx.cliente.nome);
   await novo.getByRole("button", { name: new RegExp(fx.cliente.nome) }).click();
-  const servico = novo.getByLabel("Serviço");
-  const valor = await servico.locator("option", { hasText: fx.servicoNome }).first().getAttribute("value");
-  await servico.selectOption(valor!);
+  await novo.getByRole("combobox", { name: "Serviço" }).fill(fx.servicoNome);
+  await novo.getByRole("option", { name: new RegExp(fx.servicoNome) }).first().click();
   const usar = novo.getByLabel(/Usar sessão do pacote/);
   await expect(usar).toBeVisible();
   await usar.check();

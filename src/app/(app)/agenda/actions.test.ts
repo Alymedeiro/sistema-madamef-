@@ -139,6 +139,72 @@ describe("salvarAgendamento", () => {
     expect(r).toEqual({ ok: false, erro: "Todas as sessões do pacote já foram usadas." });
   });
 
+  it("vários serviços: um insert só, em sequência, sem pacote nos extras", async () => {
+    prepararContexto();
+    // 2º serviço: novo ciclo de consultas (outro serviço, 30 min).
+    falso.responder("colaboradores", ok({ id: PROF, ativo: true }));
+    falso.responder(
+      "servicos",
+      ok({ id: OUTRO_SERVICO, duracao_min: 30, preco_centavos: 5000, ativo: true }),
+    );
+    falso.responder("colaborador_servicos", ok([{ servico_id: SERVICO }, { servico_id: OUTRO_SERVICO }]));
+    falso.responder(
+      "jornadas",
+      ok([{ dia_semana: 2, hora_inicio: "09:00:00", hora_fim: "12:00:00" }]),
+    );
+    falso.responder("bloqueios_agenda", ok([]));
+    falso.responder("agendamentos", ok([]));
+    falso.responder("agendamentos", ok([{ id: AG }, { id: "a2" }]));
+
+    const r = await salvarAgendamento({
+      ...novo,
+      pacoteVendidoId: PACOTE,
+      servicosExtras: [OUTRO_SERVICO],
+    });
+    expect(r).toEqual({ ok: true, id: AG });
+    const inserts = falso.chamadasDe("agendamentos", "insert");
+    expect(inserts).toHaveLength(1);
+    expect(inserts[0].args[0]).toEqual([
+      expect.objectContaining({
+        servico_id: SERVICO,
+        inicio: "2026-11-03T12:00:00.000Z",
+        fim: "2026-11-03T13:00:00.000Z",
+        pacote_vendido_id: PACOTE,
+        valor_previsto_centavos: 18000,
+      }),
+      {
+        cliente_id: CLIENTE,
+        profissional_id: PROF,
+        observacoes: "Primeira vez",
+        servico_id: OUTRO_SERVICO,
+        inicio: "2026-11-03T13:00:00.000Z",
+        fim: "2026-11-03T13:30:00.000Z",
+        valor_previsto_centavos: 5000,
+      },
+    ]);
+  });
+
+  it("vários serviços: falha no 2º diz qual foi e não insere nada", async () => {
+    prepararContexto();
+    falso.responder("colaboradores", ok({ id: PROF, ativo: true }));
+    falso.responder("servicos", ok({ id: OUTRO_SERVICO, duracao_min: 30, preco_centavos: 5000, ativo: false }));
+    const r = await salvarAgendamento({ ...novo, servicosExtras: [OUTRO_SERVICO] });
+    expect(r).toEqual({ ok: false, erro: "2º serviço: Serviço não encontrado ou inativo." });
+    expect(falso.chamadasDe("agendamentos", "insert")).toHaveLength(0);
+  });
+
+  it("vários serviços: recusa linha vazia e extras na edição", async () => {
+    expect(await salvarAgendamento({ ...novo, servicosExtras: [""] })).toEqual({
+      ok: false,
+      erro: "Escolha o serviço adicional ou remova a linha.",
+    });
+    falso.responder("agendamentos", ok({ id: AG, status: "pendente", servico_id: SERVICO, valor_previsto_centavos: 1 }));
+    expect(await salvarAgendamento({ ...novo, id: AG, servicosExtras: [OUTRO_SERVICO] })).toEqual({
+      ok: false,
+      erro: "Para adicionar serviços, crie um novo agendamento.",
+    });
+  });
+
   it("busca o contexto da profissional no dia de São Paulo", async () => {
     prepararContexto();
     falso.responder("agendamentos", ok({ id: AG }));
