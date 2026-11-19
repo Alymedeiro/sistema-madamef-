@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { BUCKET_SERVICOS_FOTOS } from "@/lib/dominio/servicos-fotos";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO, falha, OK, type Resultado } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
@@ -145,6 +146,36 @@ export async function definirServicoAtivo(id: string, ativo: boolean): Promise<R
   }
 
   revalidatePath("/servicos", "layout");
+  return OK;
+}
+
+/**
+ * Exclui de vez um serviço sem histórico (o banco recusa com a mensagem se já
+ * tiver agendamento, pacote ou pedido; aí o caminho é desativar). Os arquivos
+ * das fotos saem do Storage depois; falha nisso não desfaz a exclusão.
+ */
+export async function excluirServico(id: string): Promise<Resultado> {
+  await exigirPerfil("dona");
+  if (!idSchema.safeParse(id).success) return falha(ERRO_SERVICO);
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("excluir_servico", { p_id: id });
+    if (error) return falha(mensagemErroBanco(error));
+    const caminhos = data ?? [];
+    if (caminhos.length > 0) {
+      try {
+        await supabase.storage.from(BUCKET_SERVICOS_FOTOS).remove(caminhos);
+      } catch {
+        // Arquivo órfão no bucket não atrapalha: o serviço já foi excluído.
+      }
+    }
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+
+  revalidatePath("/servicos", "layout");
+  revalidatePath("/agendar");
   return OK;
 }
 

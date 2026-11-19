@@ -18,6 +18,7 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: () => createClient() }))
 
 import {
   definirServicoAtivo,
+  excluirServico,
   salvarCategoria,
   salvarProdutosDoServico,
   salvarServico,
@@ -190,6 +191,34 @@ describe("definirServicoAtivo", () => {
     expect(await definirServicoAtivo(ID, false)).toEqual({ ok: true });
     expect(falso.chamadasDe("servicos", "update")[0].args[0]).toEqual({ ativo: false });
     expect((await definirServicoAtivo("x", false)).ok).toBe(false);
+  });
+});
+
+describe("excluirServico", () => {
+  it("só a dona; id inválido não toca no banco", async () => {
+    perfilAtual = "recepcao";
+    await expect(excluirServico(ID)).rejects.toThrow("REDIRECT:/inicio");
+    perfilAtual = "dona";
+    expect((await excluirServico("x")).ok).toBe(false);
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("chama excluir_servico e apaga os arquivos das fotos", async () => {
+    falso.responder("rpc:excluir_servico", { data: ["servicos/a/1.webp"], error: null });
+    expect(await excluirServico(ID)).toEqual({ ok: true });
+    expect(falso.chamadasRpc("excluir_servico")[0].args[0]).toEqual({ p_id: ID });
+    expect(falso.chamadasDe("storage:servicos-fotos", "remove")[0].args[0]).toEqual([
+      "servicos/a/1.webp",
+    ]);
+  });
+
+  it("serviço com histórico: devolve a mensagem do banco", async () => {
+    falso.responder("rpc:excluir_servico", {
+      data: null,
+      error: { code: "P0001", message: "Este serviço já tem histórico." },
+    });
+    expect(await excluirServico(ID)).toEqual({ ok: false, erro: "Este serviço já tem histórico." });
+    expect(falso.chamadasDe("storage:servicos-fotos", "remove")).toHaveLength(0);
   });
 });
 

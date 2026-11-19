@@ -2707,6 +2707,9 @@ export type Database = {
       // marketing."; já na fila → "Já existe um retorno na fila para este
       // atendimento.".
       enviar_retorno: { Args: { p_agendamento: string }; Returns: string }
+      // 0021: só a dona; P0001 se o serviço tem histórico. Devolve os
+      // caminhos das fotos do catálogo para apagar no Storage.
+      excluir_servico: { Args: { p_id: string }; Returns: string[] }
       // 0015 (CRM): dona/recepção; 1–500 clientes distintas ("Escolha pelo
       // menos uma cliente." / "Escolha no máximo 500 clientes."). Pula sem
       // WhatsApp, sem opt-in, inativa ou com reativação nos últimos 30 dias.

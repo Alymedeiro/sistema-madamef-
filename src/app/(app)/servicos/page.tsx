@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ClipboardCheck, Globe, ImageIcon, Pencil, Plus } from "lucide-react";
 import { BotaoAtivoItem } from "@/features/catalogo/botao-ativo-item";
 import { BuscaServicos } from "@/features/servicos/busca-servicos";
+import { BotaoExcluirServico } from "@/features/servicos/botao-excluir-servico";
 import { DialogoCategoria } from "@/features/servicos/dialogo-categoria";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,7 @@ function Acoes({ s }: { s: Servico }) {
         </Link>
       </Button>
       <BotaoAtivoItem tipo="servico" id={s.id} nome={s.nome} ativo={s.ativo} />
+      <BotaoExcluirServico id={s.id} nome={s.nome} />
     </>
   );
 }
