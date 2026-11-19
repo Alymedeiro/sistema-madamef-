@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ClipboardCheck, Globe, ImageIcon, Pencil, Plus } from "lucide-react";
 import { BotaoAtivoItem } from "@/features/catalogo/botao-ativo-item";
+import { BuscaServicos } from "@/features/servicos/busca-servicos";
 import { DialogoCategoria } from "@/features/servicos/dialogo-categoria";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatarDuracao } from "@/lib/dominio/catalogo";
+import { formatarDuracao, servicoCombinaBusca } from "@/lib/dominio/catalogo";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
 import { perfisComAcesso } from "@/lib/dominio/permissoes";
 import { BUCKET_SERVICOS_FOTOS } from "@/lib/dominio/servicos-fotos";
@@ -94,7 +95,13 @@ function Acoes({ s }: { s: Servico }) {
   );
 }
 
-export default async function ServicosPage() {
+export default async function ServicosPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
+  const { q } = await searchParams;
+  const termo = (Array.isArray(q) ? q[0] : q)?.trim().slice(0, 100) ?? "";
   // Todos consultam; só a dona edita (o RLS também barra a escrita).
   const { colaborador } = await exigirPerfil(...perfisComAcesso("servicos"));
   const ehDona = colaborador.perfil === "dona";
@@ -131,9 +138,14 @@ export default async function ServicosPage() {
 
   const servicos: Servico[] = servicosRes.data ?? [];
   const grupos = (categoriasRes.data ?? [])
-    .map((c) => ({ ...c, servicos: servicos.filter((s) => s.categoria_id === c.id) }))
-    // Quem só consulta não precisa ver categoria vazia.
-    .filter((g) => ehDona || g.servicos.length > 0);
+    .map((c) => ({
+      ...c,
+      servicos: servicos.filter(
+        (s) => s.categoria_id === c.id && servicoCombinaBusca(s.nome, c.nome, termo),
+      ),
+    }))
+    // Quem só consulta não precisa ver categoria vazia; na busca, ninguém.
+    .filter((g) => (ehDona && !termo) || g.servicos.length > 0);
 
   return (
     <div className="flex flex-col gap-6">
@@ -154,7 +166,11 @@ export default async function ServicosPage() {
         ) : null}
       </div>
 
-      {grupos.length === 0 ? (
+      <BuscaServicos termoInicial={termo} />
+
+      {grupos.length === 0 && termo ? (
+        <p className="text-muted-foreground">Nenhum serviço encontrado para “{termo}”.</p>
+      ) : grupos.length === 0 ? (
         <p className="text-muted-foreground">
           {ehDona
             ? "Nenhum serviço cadastrado. Comece criando uma categoria."

@@ -1,6 +1,8 @@
 // Helpers puros de serviços e produtos: quantidades fracionadas (0,5 ml),
 // alerta de estoque baixo e duração legível. Dinheiro fica em dinheiro.ts.
 
+import { normalizarTextoBusca } from "./clientes";
+
 const FORMATO_QUANTIDADE = /^(\d+)(?:[.,](\d+))?$/;
 
 /**
@@ -44,4 +46,15 @@ export function formatarDuracao(minutos: number): string {
   const m = minutos % 60;
   if (h === 0) return `${m} min`;
   return m === 0 ? `${h} h` : `${h} h ${m} min`;
+}
+
+/**
+ * Busca de serviços por nome ou categoria, sem diferenciar maiúsculas e acentos.
+ * Todas as palavras digitadas precisam aparecer ("laser perna" acha "Meia perna - laser").
+ */
+export function servicoCombinaBusca(nome: string, categoria: string, termo: string): boolean {
+  const palavras = normalizarTextoBusca(termo).split(" ").filter(Boolean);
+  if (palavras.length === 0) return true;
+  const alvo = normalizarTextoBusca(`${nome} ${categoria}`);
+  return palavras.every((p) => alvo.includes(p));
 }

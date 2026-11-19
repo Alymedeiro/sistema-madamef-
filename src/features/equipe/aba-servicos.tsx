@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Search } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { servicoCombinaBusca } from "@/lib/dominio/catalogo";
 import { salvarServicosDoColaborador } from "@/app/(app)/equipe/actions";
 
 export type ServicoOpcao = { id: string; nome: string; categoria: string };
@@ -17,6 +20,7 @@ type Props = {
 export function AbaServicos({ colaboradorId, servicos, selecionados }: Props) {
   const [marcados, setMarcados] = useState<Set<string>>(new Set(selecionados));
   const [pendente, iniciar] = useTransition();
+  const [busca, setBusca] = useState("");
 
   function alternar(id: string, marcado: boolean) {
     setMarcados((atual) => {
@@ -43,17 +47,38 @@ export function AbaServicos({ colaboradorId, servicos, selecionados }: Props) {
     );
   }
 
-  const categorias = [...new Set(servicos.map((s) => s.categoria))];
+  // A busca só esconde itens da tela: os marcados fora dela continuam salvos.
+  const visiveis = servicos.filter((s) => servicoCombinaBusca(s.nome, s.categoria, busca));
+  const categorias = [...new Set(visiveis.map((s) => s.categoria))];
 
   return (
     <div className="flex flex-col gap-5">
       <p className="text-sm text-muted-foreground">
         Marque os serviços que esta profissional realiza. Só eles aparecem para ela na agenda.
       </p>
+      <div role="search" className="relative max-w-xl">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden
+        />
+        <Input
+          type="search"
+          inputMode="search"
+          aria-label="Buscar serviço"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar serviço"
+          autoComplete="off"
+          className="pl-9"
+        />
+      </div>
+      {visiveis.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum serviço encontrado.</p>
+      ) : null}
       {categorias.map((categoria) => (
         <fieldset key={categoria} className="flex flex-col gap-2">
           <legend className="mb-1 text-sm font-semibold text-ouro-escuro">{categoria}</legend>
-          {servicos
+          {visiveis
             .filter((s) => s.categoria === categoria)
             .map((s) => {
               const idCheck = `servico-${s.id}`;

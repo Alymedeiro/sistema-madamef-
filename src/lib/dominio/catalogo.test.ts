@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  servicoCombinaBusca,
   estoqueBaixo,
   formatarDuracao,
   formatarQuantidade,
@@ -63,5 +64,19 @@ describe("formatarDuracao", () => {
     expect(formatarDuracao(60)).toBe("1 h");
     expect(formatarDuracao(90)).toBe("1 h 30 min");
     expect(formatarDuracao(480)).toBe("8 h");
+  });
+});
+
+describe("servicoCombinaBusca", () => {
+  it("vazio combina com tudo", () => {
+    expect(servicoCombinaBusca("Axila - laser", "Corporal", "  ")).toBe(true);
+  });
+  it("ignora maiúsculas e acentos", () => {
+    expect(servicoCombinaBusca("Depilação a laser - 3 regiões", "Corporal", "DEPILACAO regioes")).toBe(true);
+  });
+  it("todas as palavras em qualquer ordem, inclusive a categoria", () => {
+    expect(servicoCombinaBusca("Meia perna - laser", "Corporal", "laser perna")).toBe(true);
+    expect(servicoCombinaBusca("Meia perna - laser", "Corporal", "corporal meia")).toBe(true);
+    expect(servicoCombinaBusca("Meia perna - laser", "Corporal", "laser axila")).toBe(false);
   });
 });
