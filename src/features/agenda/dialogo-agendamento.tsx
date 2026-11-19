@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useState, useTransition } from "react";
+import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,10 +17,14 @@ import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { salvarAgendamento } from "@/app/(app)/agenda/actions";
 import { pacotesDisponiveis } from "@/app/(app)/clientes/ficha/pacotes";
-import { agendamentoSchema, type AgendamentoInput } from "@/app/(app)/agenda/schemas";
-import { MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
+import {
+  agendamentoSchema,
+  MAX_SERVICOS_EXTRAS,
+  type AgendamentoInput,
+} from "@/app/(app)/agenda/schemas";
+import { calcularFim, MENSAGEM_VALIDACAO } from "@/lib/dominio/agenda";
 import { formatarBRL } from "@/lib/dominio/dinheiro";
-import { dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
+import { combinarDataHora, dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import type { AgendamentoAgenda, ProfissionalAgenda, ServicoAgenda } from "./dados-agenda";
 import {
   pacoteMantido,
@@ -29,6 +34,7 @@ import {
   type PacoteOriginal,
 } from "./pacote-agendamento";
 import { SeletorCliente, type ClienteEscolhida } from "./seletor-cliente";
+import { SeletorServico } from "./seletor-servico";
 
 export type EstadoDialogo =
   | { modo: "novo"; profissionalId: string; data: string; hora: string }
@@ -107,6 +113,7 @@ function valoresIniciais(estado: EstadoDialogo) {
       data: estado.data,
       hora: estado.hora,
       observacoes: "",
+      extras: [] as string[],
     };
   }
   const a = estado.agendamento;
@@ -117,7 +124,35 @@ function valoresIniciais(estado: EstadoDialogo) {
     data: dataNoFuso(a.inicio),
     hora: horaNoFuso(a.inicio),
     observacoes: a.observacoes ?? "",
+    extras: [] as string[],
   };
+}
+
+/** Horário de cada serviço em sequência ("09:15–09:35"); vazio se faltar dado. */
+function horariosEmSequencia(
+  data: string,
+  hora: string,
+  duracoes: (number | undefined)[],
+): (string | undefined)[] {
+  let inicio: Date;
+  try {
+    inicio = combinarDataHora(data, hora);
+  } catch {
+    return duracoes.map(() => undefined);
+  }
+  const saida: (string | undefined)[] = [];
+  let atual: Date | null = inicio;
+  for (const duracao of duracoes) {
+    if (!atual || duracao === undefined) {
+      saida.push(undefined);
+      atual = null;
+      continue;
+    }
+    const fim = calcularFim(atual, duracao);
+    saida.push(`${horaNoFuso(atual)}–${horaNoFuso(fim)}`);
+    atual = fim;
+  }
+  return saida;
 }
 
 function FormularioAgendamento({
@@ -181,6 +216,21 @@ function FormularioAgendamento({
     };
   }, [mantido, clienteId, v.servicoId, usarPorPadrao]);
 
+  const escolhidos = [v.servicoId, ...v.extras].map((sid) => servicos.find((s) => s.id === sid));
+  const horarios = horariosEmSequencia(
+    v.data,
+    v.hora,
+    escolhidos.map((s) => s?.duracaoMin),
+  );
+  const ultimo = horarios[horarios.length - 1];
+  const resumo =
+    ultimo && escolhidos.every(Boolean)
+      ? {
+          termino: ultimo.split("–")[1],
+          total: escolhidos.reduce((t, s) => t + (s?.precoCentavos ?? 0), 0),
+        }
+      : null;
+
   const pacote = pacoteOferecido({ ...escolha, disponiveis: pacotes });
   const pacoteVendidoId = pacoteParaEnvio({ ...escolha, oferecido: pacote, usar: usarPacote });
 
@@ -195,6 +245,7 @@ function FormularioAgendamento({
       observacoes: v.observacoes,
       forcarForaJornada,
       ...(pacoteVendidoId !== undefined ? { pacoteVendidoId } : {}),
+      ...(editando ? {} : { servicosExtras: v.extras }),
     };
   }
 
@@ -215,7 +266,13 @@ function FormularioAgendamento({
       const r = await salvarAgendamento(entrada);
       if (r.ok) {
         setEncaixe(false);
-        toast.success(editando ? "Agendamento atualizado." : "Agendamento criado.");
+        toast.success(
+          editando
+            ? "Agendamento atualizado."
+            : v.extras.length > 0
+              ? `${v.extras.length + 1} serviços agendados em sequência.`
+              : "Agendamento criado.",
+        );
         onSalvo();
       } else if ("aviso" in r) {
         setEncaixe(true);
@@ -252,7 +309,9 @@ function FormularioAgendamento({
           <Select
             id={`${id}-prof`}
             value={v.profissionalId}
-            onChange={(e) => setV((x) => ({ ...x, profissionalId: e.target.value, servicoId: "" }))}
+            onChange={(e) =>
+              setV((x) => ({ ...x, profissionalId: e.target.value, servicoId: "", extras: [] }))
+            }
           >
             {profissionais.map((p) => (
               <option key={p.id} value={p.id} disabled={!p.aceitaAgendamento}>
@@ -287,23 +346,45 @@ function FormularioAgendamento({
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor={`${id}-servico`}>Serviço</Label>
-          <Select
-            id={`${id}-servico`}
-            value={v.servicoId}
-            onChange={(e) => setV((x) => ({ ...x, servicoId: e.target.value }))}
-            required
-          >
-            <option value="">Escolha o serviço</option>
-            {servicosDaProfissional.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.nome} · {s.duracaoMin} min · {formatarBRL(s.precoCentavos)}
-              </option>
-            ))}
-          </Select>
+        <div className="flex flex-col gap-3">
+          <SeletorServico
+            rotulo={v.extras.length > 0 ? "1º serviço" : "Serviço"}
+            servicos={servicosDaProfissional}
+            valor={v.servicoId}
+            onEscolher={(servicoId) => setV((x) => ({ ...x, servicoId }))}
+            horario={v.extras.length > 0 ? horarios[0] : undefined}
+          />
+          {v.extras.map((servicoId, i) => (
+            <SeletorServico
+              key={i}
+              rotulo={`${i + 2}º serviço`}
+              servicos={servicosDaProfissional}
+              valor={servicoId}
+              horario={horarios[i + 1]}
+              onEscolher={(novo) =>
+                setV((x) => ({ ...x, extras: x.extras.map((e, j) => (j === i ? novo : e)) }))
+              }
+              onRemover={() => setV((x) => ({ ...x, extras: x.extras.filter((_, j) => j !== i) }))}
+            />
+          ))}
           {servicosDaProfissional.length === 0 && (
             <p className="text-sm text-muted-foreground">Esta profissional não tem serviços ativos.</p>
+          )}
+          {!editando && servicosDaProfissional.length > 0 && v.extras.length < MAX_SERVICOS_EXTRAS && (
+            <Button
+              type="button"
+              variant="outline"
+              className="self-start"
+              onClick={() => setV((x) => ({ ...x, extras: [...x.extras, ""] }))}
+            >
+              <Plus aria-hidden />
+              Adicionar outro serviço
+            </Button>
+          )}
+          {v.extras.length > 0 && resumo && (
+            <p className="rounded-md bg-blush px-3 py-2 text-sm" aria-live="polite">
+              Termina às <strong>{resumo.termino}</strong> · Total <strong>{formatarBRL(resumo.total)}</strong>
+            </p>
           )}
         </div>
 

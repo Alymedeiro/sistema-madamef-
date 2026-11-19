@@ -113,9 +113,8 @@ async function preencherAgendamento(page: Page, hora?: string) {
   await dialogo.getByLabel("Cliente").fill(fx.cliente.nome);
   await dialogo.getByRole("button", { name: new RegExp(fx.cliente.nome) }).click();
   if (hora) await dialogo.getByLabel("Horário").fill(hora);
-  const servico = dialogo.getByLabel("Serviço");
-  const valor = await servico.locator("option", { hasText: `${fx.servicoNome} ·` }).first().getAttribute("value");
-  await servico.selectOption(valor!);
+  await dialogo.getByRole("combobox", { name: "Serviço" }).fill(fx.servicoNome);
+  await dialogo.getByRole("option", { name: new RegExp(`^${fx.servicoNome} ·`) }).first().click();
   await dialogo.getByRole("button", { name: "Salvar" }).click();
 }
 

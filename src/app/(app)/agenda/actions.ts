@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { transicaoPermitida, type StatusAgendamento } from "@/lib/dominio/status";
+import { dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import { mensagemErroBanco } from "@/lib/erros-db";
 import { ERRO_INESPERADO } from "@/lib/resultado";
 import { exigirPerfil } from "@/lib/sessao";
@@ -19,6 +20,12 @@ import {
 
 const erro = (mensagem: string) => ({ ok: false as const, erro: mensagem });
 
+/** Com vários serviços, diz em qual deles a regra falhou (1 = o primeiro). */
+function rotularFalha<T extends Exclude<ResultadoAgendamento, { ok: true }>>(r: T, ordem: number): T {
+  if (ordem === 0 || !("erro" in r)) return r;
+  return { ...r, erro: `${ordem}º serviço: ${r.erro}` };
+}
+
 /** Cria (sem id) ou edita (com id) um agendamento. Só dona e recepção. */
 export async function salvarAgendamento(dados: AgendamentoInput): Promise<ResultadoAgendamento> {
   await exigirPerfil("dona", "recepcao");
@@ -34,6 +41,10 @@ export async function salvarAgendamento(dados: AgendamentoInput): Promise<Result
     if (d.id && !existente) return erro(MSG.naoEncontrado);
     if (existente && STATUS_FINAIS.includes(existente.status)) return erro(MSG.finalizado);
 
+    if (existente && d.servicosExtras.length > 0) {
+      return erro("Para adicionar serviços, crie um novo agendamento.");
+    }
+
     const aprovado = await aprovarProposta(supabase, {
       id: d.id,
       profissionalId: d.profissionalId,
@@ -42,15 +53,41 @@ export async function salvarAgendamento(dados: AgendamentoInput): Promise<Result
       hora: d.hora,
       forcarForaJornada: d.forcarForaJornada,
     });
-    if (!aprovado.ok) return aprovado;
+    if (!aprovado.ok) return rotularFalha(aprovado, d.servicosExtras.length > 0 ? 1 : 0);
 
-    const linha = {
+    // Serviços extras: cada um começa quando o anterior termina (mesma cliente e
+    // profissional) e passa pelas mesmas regras. Sem pacote: o pacote vale só
+    // para o primeiro serviço.
+    const extras: { servico_id: string; inicio: string; fim: string; valor_previsto_centavos: number }[] = [];
+    let fimAnterior = aprovado.fim;
+    for (const [i, servicoId] of d.servicosExtras.entries()) {
+      const ok = await aprovarProposta(supabase, {
+        profissionalId: d.profissionalId,
+        servicoId,
+        data: dataNoFuso(fimAnterior),
+        hora: horaNoFuso(fimAnterior),
+        forcarForaJornada: d.forcarForaJornada,
+      });
+      if (!ok.ok) return rotularFalha(ok, i + 2);
+      extras.push({
+        servico_id: servicoId,
+        inicio: ok.inicio.toISOString(),
+        fim: ok.fim.toISOString(),
+        valor_previsto_centavos: ok.precoCentavos,
+      });
+      fimAnterior = ok.fim;
+    }
+
+    const base = {
       cliente_id: d.clienteId,
       profissional_id: d.profissionalId,
+      observacoes: d.observacoes,
+    };
+    const linha = {
+      ...base,
       servico_id: d.servicoId,
       inicio: aprovado.inicio.toISOString(),
       fim: aprovado.fim.toISOString(),
-      observacoes: d.observacoes,
       // Só grava quando informado: remarcar pelo formulário não desfaz o vínculo.
       ...(d.pacoteVendidoId !== undefined ? { pacote_vendido_id: d.pacoteVendidoId } : {}),
     };
@@ -68,13 +105,26 @@ export async function salvarAgendamento(dados: AgendamentoInput): Promise<Result
       if (!data?.length) return erro(MSG.naoEncontrado);
       id = existente.id;
     } else {
-      const { data, error } = await supabase
-        .from("agendamentos")
-        .insert({ ...linha, valor_previsto_centavos: aprovado.precoCentavos })
-        .select("id")
-        .single();
-      if (error || !data) return erro(error ? mensagemErroBanco(error) : ERRO_INESPERADO);
-      id = data.id;
+      const primeira = { ...linha, valor_previsto_centavos: aprovado.precoCentavos };
+      if (extras.length === 0) {
+        const { data, error } = await supabase
+          .from("agendamentos")
+          .insert(primeira)
+          .select("id")
+          .single();
+        if (error || !data) return erro(error ? mensagemErroBanco(error) : ERRO_INESPERADO);
+        id = data.id;
+      } else {
+        // Um único insert: ou entram todos os serviços, ou nenhum (ex.: 23P01).
+        const { data, error } = await supabase
+          .from("agendamentos")
+          .insert([primeira, ...extras.map((x) => ({ ...base, ...x }))])
+          .select("id");
+        if (error || !data?.length) {
+          return erro(error ? mensagemErroBanco(error) : ERRO_INESPERADO);
+        }
+        id = data[0].id;
+      }
     }
 
     revalidatePath("/agenda");

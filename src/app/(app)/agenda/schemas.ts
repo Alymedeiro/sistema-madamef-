@@ -12,6 +12,9 @@ export const STATUS_AGENDAMENTO = [
   "cancelado",
 ] as const satisfies readonly StatusAgendamento[];
 
+/** Serviços adicionais no mesmo atendimento (além do primeiro). */
+export const MAX_SERVICOS_EXTRAS = 5;
+
 export const dataSchema = z
   .string("Data inválida.")
   .refine((v) => dataValida(v), "Data inválida.");
@@ -32,6 +35,15 @@ export const agendamentoSchema = z.object({
   forcarForaJornada: z.boolean().optional().default(false),
   /** Sessão paga por um pacote; o banco valida cliente, serviço e pacote ativo. */
   pacoteVendidoId: z.uuid().nullable().optional(),
+  /**
+   * Só na criação: serviços feitos em seguida, com a mesma cliente e
+   * profissional. Cada um vira um agendamento que começa quando o anterior termina.
+   */
+  servicosExtras: z
+    .array(z.uuid("Escolha o serviço adicional ou remova a linha."))
+    .max(MAX_SERVICOS_EXTRAS, `Adicione no máximo ${MAX_SERVICOS_EXTRAS} serviços extras.`)
+    .optional()
+    .default([]),
 });
 
 export type AgendamentoInput = z.input<typeof agendamentoSchema>;
