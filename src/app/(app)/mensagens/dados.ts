@@ -412,6 +412,10 @@ export function agruparConversas(
       instante(e.agendado_para) <= agora.getTime());
 
   const conversas: ResumoConversa[] = [];
+  // Ordem da lista: o que já aconteceu, da mais nova para a mais antiga. Uma
+  // conversa que só tem mensagem futura (ex.: lembrete de 29/12) entra pela
+  // data em que essa mensagem foi criada, e não pela data marcada para o envio.
+  const ordem = new Map<string, number>();
   for (const chave of new Set([...recebidasPor.keys(), ...enviadasPor.keys()])) {
     const recentes = [...(recebidasPor.get(chave) ?? [])].sort(
       (a, b) => instante(b.recebida_em) - instante(a.recebida_em),
@@ -438,6 +442,14 @@ export function agruparConversas(
               quando: quandoEnviada(candidataSemRecebida!),
               direcao: "enviada",
             };
+
+    const futura = !ultimaRecebida && !ultimaSaida ? candidataSemRecebida : undefined;
+    ordem.set(
+      chave,
+      futura
+        ? Math.min(instante(futura.criado_em ?? quandoEnviada(futura)), agora.getTime())
+        : instante(ultima.quando),
+    );
 
     const naoLidas = recentes.filter((r) => r.lida_em === null);
     const clienteId = ultimaRecebida?.cliente_id ?? doGrupo.find((e) => e.cliente_id)?.cliente_id ?? null;
@@ -472,7 +484,7 @@ export function agruparConversas(
       enviadas: doGrupo.map((e) => ({ status: e.status, tipo: e.tipo })),
     });
   }
-  return conversas.sort((a, b) => instante(b.ultima.quando) - instante(a.ultima.quando));
+  return conversas.sort((a, b) => (ordem.get(b.chave) ?? 0) - (ordem.get(a.chave) ?? 0));
 }
 
 /**

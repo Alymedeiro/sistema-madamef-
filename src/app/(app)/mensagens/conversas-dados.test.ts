@@ -52,6 +52,27 @@ describe("agruparConversas", () => {
     });
   });
 
+  it("conversa só com lembrete futuro não fica no topo: entra pela data de criação", () => {
+    const agora = new Date("2026-11-22T12:00:00Z");
+    const r = agruparConversas(
+      [rec({ id: "r1", cliente_id: "c1", recebida_em: "2026-11-22T11:00:00Z" })],
+      [
+        env({
+          id: "e1",
+          cliente_id: "c2",
+          status: "pendente",
+          tipo: "lembrete",
+          texto: null,
+          enviada_em: null,
+          agendado_para: "2026-12-29T12:00:00Z",
+          criado_em: "2026-11-20T09:00:00Z",
+        }),
+      ],
+      agora,
+    );
+    expect(r.map((c) => c.chave)).toEqual(["c1", "c2"]);
+  });
+
   it("ordena pela última mensagem, mais recente no topo", () => {
     const r = agruparConversas(
       [
