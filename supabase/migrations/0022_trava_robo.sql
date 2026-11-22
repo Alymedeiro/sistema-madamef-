@@ -16,7 +16,7 @@
 --      Respostas a opções do menu e '0'/'menu' continuam como antes.
 --   3. "Não entendi" só nas 2 h seguintes ao menu (mesma validade das
 --      opções); depois disso, mensagem que não é opção não recebe resposta.
---   robo_processar: corpo de 0017 com as duas travas.
+--   robo_processar: corpo de 0017 com as três travas.
 -- =============================================================================
 set lock_timeout = '5s';
 
@@ -84,7 +84,7 @@ begin
   if not public.robo_atende_agora() then
     return;
   end if;
-  -- Trava 1: no máximo LIMITE_HORA respostas do robô por hora. Passou disso,
+  -- Trava 1: no máximo 10 respostas do robô por hora. Passou disso,
   -- o robô se desliga sozinho e a equipe é avisada no sininho.
   if (select count(*) from public.fila_mensagens f
       where f.tipo = 'robo' and f.criado_em > now() - interval '1 hour') >= 10 then
