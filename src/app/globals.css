@@ -75,3 +75,21 @@
     @apply bg-background font-sans text-foreground antialiased;
   }
 }
+
+/* Barra de rolagem visível e discreta (listas longas, ex.: conversas). */
+@utility rolagem-fina {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-ouro-escuro) 55%, transparent) transparent;
+  &::-webkit-scrollbar {
+    width: 10px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in srgb, var(--color-ouro-escuro) 55%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+}
