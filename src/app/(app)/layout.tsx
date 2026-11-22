@@ -54,7 +54,7 @@ export default async function AppLayout({
             <Sininho avisos={avisos} />
             <Link
               href="/perfil/notificacoes"
-              title="Minhas preferências de notificação"
+              title="Minhas preferências (notificações e senha)"
               className="flex min-h-11 min-w-0 flex-col items-end justify-center gap-0.5 rounded-md px-1 hover:bg-accent/50 sm:flex-row sm:items-center sm:gap-2"
             >
               <span className="max-w-[10rem] truncate text-sm font-medium sm:max-w-xs">
