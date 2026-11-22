@@ -76,6 +76,7 @@ describe("redefinirSenha", () => {
     expect(await redefinirSenha(ID, "provisoria1")).toEqual({ ok: true });
     expect(updateUserById).toHaveBeenCalledWith(AUTH_ID, {
       password: "provisoria1",
+      email_confirm: true,
       app_metadata: { deve_trocar_senha: true },
     });
   });
