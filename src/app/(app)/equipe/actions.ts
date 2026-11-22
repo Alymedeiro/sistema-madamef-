@@ -165,8 +165,11 @@ export async function redefinirSenha(id: string, senha: string): Promise<Resulta
     if (!alvo.usuario_auth_id) return falha("Este colaborador ainda não tem acesso ao sistema.");
 
     // A marca obriga a pessoa a criar a própria senha no próximo acesso.
+    // email_confirm: convite nunca aceito deixaria o e-mail sem confirmação e
+    // o login com a senha provisória seria recusado; a dona responde por ela.
     const { error } = await createAdminClient().auth.admin.updateUserById(alvo.usuario_auth_id, {
       password: senha,
+      email_confirm: true,
       app_metadata: { deve_trocar_senha: true },
     });
     if (error) {
