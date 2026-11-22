@@ -5,6 +5,7 @@ import { AbaFolgas, type BloqueioItem } from "@/features/equipe/aba-folgas";
 import { AbaJornada } from "@/features/equipe/aba-jornada";
 import { AbaServicos, type ServicoOpcao } from "@/features/equipe/aba-servicos";
 import { BotaoAtivo } from "@/features/equipe/botao-ativo";
+import { BotaoRedefinirSenha } from "@/features/equipe/botao-redefinir-senha";
 import { FormularioColaborador } from "@/features/equipe/formulario-colaborador";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -138,7 +139,10 @@ export default async function ColaboradorPage({
         />
         <Titulo>{c.nome}</Titulo>
         {!c.ativo ? <Badge variant="destructive">Inativa</Badge> : null}
-        <div className="ml-auto">
+        <div className="ml-auto flex flex-wrap gap-2">
+          {c.ativo && c.usuario_auth_id && c.id !== eu.id ? (
+            <BotaoRedefinirSenha id={c.id} nome={c.nome} />
+          ) : null}
           <BotaoAtivo id={c.id} nome={c.nome} ativo={c.ativo} ehVoceMesma={c.id === eu.id} />
         </div>
       </div>

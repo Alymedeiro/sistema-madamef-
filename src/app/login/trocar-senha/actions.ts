@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { concluirTrocaObrigatoria } from "@/lib/auth/troca-obrigatoria";
 import { cookieDeAtividade } from "@/lib/supabase/cookies-sessao";
 import { createClient } from "@/lib/supabase/server";
 import { trocarSenhaSchema } from "./schemas";
@@ -46,6 +47,9 @@ export async function trocarSenha(
         return { erro: "Senha fraca demais. Use uma senha mais longa e variada." };
       }
       return { erro: ERRO_GENERICO };
+    }
+    if (login.data.user?.app_metadata?.deve_trocar_senha === true) {
+      await concluirTrocaObrigatoria(supabase, login.data.user.id);
     }
     const atividade = cookieDeAtividade();
     (await cookies()).set(atividade.name, atividade.value, atividade.options);

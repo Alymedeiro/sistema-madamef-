@@ -21,18 +21,20 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: () => createClient() }))
 const AUTH_ID = "a0000000-0000-4000-8000-0000000000aa";
 const inviteUserByEmail = vi.fn(async () => ({ data: { user: { id: AUTH_ID } }, error: null }));
 const deleteUser = vi.fn(async () => ({ data: null, error: null }));
+const updateUserById = vi.fn(async () => ({ data: null, error: null as unknown }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     auth: {
       admin: {
         inviteUserByEmail: (...a: unknown[]) => inviteUserByEmail(...(a as [])),
         deleteUser: (...a: unknown[]) => deleteUser(...(a as [])),
+        updateUserById: (...a: unknown[]) => updateUserById(...(a as [])),
       },
     },
   }),
 }));
 
-import { atualizarColaborador, convidarColaborador } from "./actions";
+import { atualizarColaborador, convidarColaborador, redefinirSenha } from "./actions";
 
 const ID = "b2222222-2222-4222-8222-222222222222";
 const novo = {
@@ -53,6 +55,38 @@ beforeEach(() => {
   createClient.mockClear();
   inviteUserByEmail.mockClear();
   deleteUser.mockClear();
+  updateUserById.mockClear();
+});
+
+describe("redefinirSenha", () => {
+  it("só a dona; não vale para si mesma nem senha curta", async () => {
+    perfilAtual = "recepcao";
+    await expect(redefinirSenha(ID, "provisoria1")).rejects.toThrow("REDIRECT:/inicio");
+    perfilAtual = "dona";
+    expect((await redefinirSenha(EU, "provisoria1")).ok).toBe(false);
+    expect(await redefinirSenha(ID, "curta")).toEqual({
+      ok: false,
+      erro: "A senha provisória precisa ter pelo menos 8 caracteres.",
+    });
+    expect(updateUserById).not.toHaveBeenCalled();
+  });
+
+  it("grava a senha e marca a troca obrigatória", async () => {
+    falso.responder("colaboradores", { data: { id: ID, usuario_auth_id: AUTH_ID, ativo: true }, error: null });
+    expect(await redefinirSenha(ID, "provisoria1")).toEqual({ ok: true });
+    expect(updateUserById).toHaveBeenCalledWith(AUTH_ID, {
+      password: "provisoria1",
+      app_metadata: { deve_trocar_senha: true },
+    });
+  });
+
+  it("colaborador inativo ou sem acesso: recusa", async () => {
+    falso.responder("colaboradores", { data: { id: ID, usuario_auth_id: AUTH_ID, ativo: false }, error: null });
+    expect((await redefinirSenha(ID, "provisoria1")).ok).toBe(false);
+    falso.responder("colaboradores", { data: { id: ID, usuario_auth_id: null, ativo: true }, error: null });
+    expect((await redefinirSenha(ID, "provisoria1")).ok).toBe(false);
+    expect(updateUserById).not.toHaveBeenCalled();
+  });
 });
 
 describe("guarda de perfil na comissão da equipe", () => {
