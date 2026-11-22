@@ -1,7 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { exigirPerfil } from "@/lib/sessao";
+import { concluirTrocaObrigatoria } from "@/lib/auth/troca-obrigatoria";
+import { exigirSessaoParaSenha } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { novaSenhaSchema } from "./schemas";
 
@@ -14,7 +15,7 @@ export async function definirSenha(
   formData: FormData,
 ): Promise<EstadoSenha> {
   // Qualquer colaborador ativo pode definir a própria senha (sem checar perfil).
-  await exigirPerfil();
+  const sessao = await exigirSessaoParaSenha();
 
   const parsed = novaSenhaSchema.safeParse({
     senha: String(formData.get("senha") ?? ""),
@@ -34,6 +35,7 @@ export async function definirSenha(
       }
       return { erro: ERRO_GENERICO };
     }
+    if (sessao.trocaObrigatoria) await concluirTrocaObrigatoria(supabase, sessao.userId);
   } catch {
     return { erro: ERRO_GENERICO };
   }

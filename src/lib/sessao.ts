@@ -12,7 +12,7 @@ export type Sessao = {
 type EstadoSessao =
   | { tipo: "anonima" }
   | { tipo: "inativa" }
-  | { tipo: "ativa"; sessao: Sessao };
+  | { tipo: "ativa"; sessao: Sessao; trocaObrigatoria: boolean };
 
 /**
  * Resolve quem está logado. Três resultados:
@@ -27,11 +27,16 @@ const resolverEstado = cache(async (): Promise<EstadoSessao> => {
   const supabase = await createClient();
 
   let userId: string | null = null;
+  let trocaObrigatoria = false;
   try {
     // Validação local do JWT (sem ida ao servidor de auth); o middleware já
     // renovou o token desta requisição.
     const { data, error } = await supabase.auth.getClaims();
     userId = error ? null : (data?.claims?.sub ?? null);
+    // Senha provisória dada pela dona (app_metadata, só o servidor grava).
+    const app = (data?.claims as { app_metadata?: Record<string, unknown> } | undefined)
+      ?.app_metadata;
+    trocaObrigatoria = !error && app?.deve_trocar_senha === true;
   } catch {
     userId = null;
   }
@@ -53,6 +58,7 @@ const resolverEstado = cache(async (): Promise<EstadoSessao> => {
       userId,
       colaborador: { id: data.id, nome: data.nome, perfil: data.perfil },
     },
+    trocaObrigatoria,
   };
 });
 
@@ -71,10 +77,23 @@ export async function exigirPerfil(...perfis: Perfil[]): Promise<Sessao> {
   const estado = await resolverEstado();
   if (estado.tipo === "anonima") redirect("/login");
   if (estado.tipo === "inativa") redirect("/login?motivo=inativo");
+  // Entrou com senha provisória: só passa depois de criar a própria senha.
+  if (estado.trocaObrigatoria) redirect("/definir-senha?obrigatoria=1");
 
   const { sessao } = estado;
   if (perfis.length > 0 && !perfis.includes(sessao.colaborador.perfil)) {
     redirect("/inicio");
   }
   return sessao;
+}
+
+/**
+ * Para a tela de definir senha: exige colaborador ativo, mas não manda de
+ * volta para lá quem tem a troca obrigatória pendente (evita o laço).
+ */
+export async function exigirSessaoParaSenha(): Promise<Sessao & { trocaObrigatoria: boolean }> {
+  const estado = await resolverEstado();
+  if (estado.tipo === "anonima") redirect("/login");
+  if (estado.tipo === "inativa") redirect("/login?motivo=inativo");
+  return { ...estado.sessao, trocaObrigatoria: estado.trocaObrigatoria };
 }

@@ -23,7 +23,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { exigirPerfil, getSessao } from "./sessao";
+import { exigirPerfil, exigirSessaoParaSenha, getSessao } from "./sessao";
 
 const colaborador = { id: "c1", nome: "Fernanda", perfil: "recepcao" as const };
 
@@ -94,5 +94,25 @@ describe("exigirPerfil", () => {
     getClaims.mockResolvedValue({ data: { claims: { sub: "u1" } }, error: null });
     maybeSingle.mockResolvedValue({ data: colaborador, error: null });
     await expect(exigirPerfil()).resolves.toMatchObject({ userId: "u1" });
+  });
+});
+
+describe("senha provisória (app_metadata.deve_trocar_senha)", () => {
+  const claims = { sub: "u1", app_metadata: { deve_trocar_senha: true } };
+
+  it("exigirPerfil manda para /definir-senha?obrigatoria=1", async () => {
+    getClaims.mockResolvedValue({ data: { claims }, error: null });
+    maybeSingle.mockResolvedValue({ data: colaborador, error: null });
+    await expect(exigirPerfil()).rejects.toThrow("REDIRECT:/definir-senha?obrigatoria=1");
+  });
+
+  it("exigirSessaoParaSenha deixa passar e avisa que a troca é obrigatória", async () => {
+    getClaims.mockResolvedValue({ data: { claims }, error: null });
+    maybeSingle.mockResolvedValue({ data: colaborador, error: null });
+    expect(await exigirSessaoParaSenha()).toEqual({
+      userId: "u1",
+      colaborador,
+      trocaObrigatoria: true,
+    });
   });
 });

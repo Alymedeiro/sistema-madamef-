@@ -140,6 +140,47 @@ export async function atualizarColaborador(
   return OK;
 }
 
+/** Senha provisória: mesmas regras da senha normal (8 a 72 caracteres). */
+export async function redefinirSenha(id: string, senha: string): Promise<Resultado> {
+  const sessao = await exigirPerfil("dona");
+  if (!ID.test(id)) return falha(ERRO_ID);
+  if (id === sessao.colaborador.id) {
+    return falha('Para a sua própria senha, use "Trocar senha" nas suas preferências.');
+  }
+  if (typeof senha !== "string" || senha.length < 8) {
+    return falha("A senha provisória precisa ter pelo menos 8 caracteres.");
+  }
+  if (senha.length > 72) return falha("A senha pode ter no máximo 72 caracteres.");
+
+  try {
+    const supabase = await createClient();
+    const { data: alvo, error: erroBusca } = await supabase
+      .from("colaboradores")
+      .select("id, usuario_auth_id, ativo")
+      .eq("id", id)
+      .maybeSingle();
+    if (erroBusca) return falha(mensagemErroBanco(erroBusca));
+    if (!alvo) return falha("Colaborador não encontrado.");
+    if (!alvo.ativo) return falha("Reative o acesso antes de redefinir a senha.");
+    if (!alvo.usuario_auth_id) return falha("Este colaborador ainda não tem acesso ao sistema.");
+
+    // A marca obriga a pessoa a criar a própria senha no próximo acesso.
+    const { error } = await createAdminClient().auth.admin.updateUserById(alvo.usuario_auth_id, {
+      password: senha,
+      app_metadata: { deve_trocar_senha: true },
+    });
+    if (error) {
+      if (error.code === "weak_password") {
+        return falha("Senha fraca demais. Use uma senha mais longa e variada.");
+      }
+      return falha(ERRO_INESPERADO);
+    }
+  } catch {
+    return falha(ERRO_INESPERADO);
+  }
+  return OK;
+}
+
 const BANIMENTO = "876000h"; // ~100 anos
 
 export async function definirAtivo(id: string, ativo: boolean): Promise<Resultado> {
