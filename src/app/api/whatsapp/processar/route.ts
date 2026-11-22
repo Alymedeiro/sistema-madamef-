@@ -1,5 +1,6 @@
 import {
   dadosDaMensagem,
+  dadosDoDia,
   podeEnviar,
   renderizarMensagem,
   temTextoPronto,
@@ -80,9 +81,26 @@ export async function POST(req: Request) {
   const linha = proxima.data?.[0];
   if (!linha) return json({ enviado: false, motivo: "fila_vazia" });
 
+  // Confirmação/lembrete: uma mensagem por cliente por dia, com todos os
+  // horários (0023). Se a leitura do grupo falhar, sai como antes (só este).
+  let grupo: { agendamento_id: string; inicio: string; servico: string; profissional: string }[] = [];
+  if (linha.tipo === "confirmacao" || linha.tipo === "lembrete") {
+    const g = await admin.rpc("grupo_mensagem_agenda", { p_id: linha.id });
+    if (g.error) {
+      console.error("whatsapp: falha em grupo_mensagem_agenda", g.error.message);
+    } else if (g.data?.[0]?.ja_enviada) {
+      const motivo = "Enviada junto com outra mensagem do mesmo dia";
+      const { error } = await admin.rpc("descartar_envio", { p_id: linha.id, p_motivo: motivo });
+      if (error) console.error("whatsapp: falha em descartar_envio", error.message);
+      return json({ enviado: false, motivo });
+    } else {
+      grupo = g.data ?? [];
+    }
+  }
+
   const texto = temTextoPronto(linha.tipo)
     ? (linha.texto ?? "").trim()
-    : renderizarMensagem(linha.variacoes ?? [], dadosDaMensagem(linha));
+    : renderizarMensagem(linha.variacoes ?? [], dadosDoDia(dadosDaMensagem(linha), grupo));
 
   const condicao = podeEnviar(
     linha.tipo,
@@ -107,6 +125,13 @@ export async function POST(req: Request) {
     // A mensagem saiu; se o registro falhar, proxima_mensagem a marca como
     // 'falhou' depois de 10 min (sem reenviar sozinha, para não duplicar).
     if (error) console.error("whatsapp: falha em concluir_envio", error.message);
+    if (grupo.length > 0) {
+      const r = await admin.rpc("registrar_grupo_envio", {
+        p_id: linha.id,
+        p_agendamentos: grupo.map((g) => g.agendamento_id),
+      });
+      if (r.error) console.error("whatsapp: falha em registrar_grupo_envio", r.error.message);
+    }
     return json({ enviado: true });
   }
 

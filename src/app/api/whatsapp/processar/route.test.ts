@@ -330,3 +330,39 @@ describe("POST /api/whatsapp/processar — envio", () => {
     erro.mockRestore();
   });
 });
+
+describe("POST /api/whatsapp/processar — vários horários no mesmo dia (0023)", () => {
+  const grupo = [
+    { agendamento_id: "a1", inicio: "2026-11-12T13:00:00+00:00", servico: "Limpeza de pele", profissional: "Ana", ja_enviada: false },
+    { agendamento_id: "a2", inicio: "2026-11-12T14:30:00+00:00", servico: "Design de sobrancelhas", profissional: "Ana", ja_enviada: false },
+  ];
+
+  it("uma mensagem com todos os serviços e cancela as outras do dia", async () => {
+    prepararBase();
+    falso.responder("rpc:proxima_mensagem", ok([linhaConfirmacao]));
+    falso.responder("rpc:grupo_mensagem_agenda", ok(grupo));
+    const r = await POST(requisicao(TOKEN));
+    expect(await r.json()).toEqual({ enviado: true });
+    expect(zapi.enviarTexto).toHaveBeenCalledWith(
+      "5511988887777",
+      "Oi, Maria! Limpeza de pele (10:00) e Design de sobrancelhas (11:30) com Ana em 12/11 às 10:00. Madame Fé",
+    );
+    expect(falso.chamadasRpc("registrar_grupo_envio")[0].args[0]).toEqual({
+      p_id: MSG,
+      p_agendamentos: ["a1", "a2"],
+    });
+  });
+
+  it("já coberta por outra mensagem enviada: descarta sem enviar", async () => {
+    prepararBase();
+    falso.responder("rpc:proxima_mensagem", ok([linhaConfirmacao]));
+    falso.responder("rpc:grupo_mensagem_agenda", ok([{ ...grupo[1], ja_enviada: true }]));
+    const r = await POST(requisicao(TOKEN));
+    expect(await r.json()).toEqual({
+      enviado: false,
+      motivo: "Enviada junto com outra mensagem do mesmo dia",
+    });
+    expect(zapi.enviarTexto).not.toHaveBeenCalled();
+    expect(falso.chamadasRpc("descartar_envio")).toHaveLength(1);
+  });
+});
