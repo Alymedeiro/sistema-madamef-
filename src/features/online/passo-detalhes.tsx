@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { rotuloServico, type ServicoOnline } from "./tipos";
+import { precoServico, rotuloServico, type ServicoOnline } from "./tipos";
 
 /**
  * Detalhes do serviço antes de escolher profissional e horário: galeria com
@@ -101,7 +101,10 @@ export function PassoDetalhes({
         >
           {rotuloServico(servico)}
         </h2>
-        <p className="text-sm text-muted-foreground">Duração: {servico.duracaoMin} min</p>
+        <p className="text-base">
+          <span className="font-semibold text-ouro-escuro">{precoServico(servico)}</span>
+          <span className="text-sm text-muted-foreground"> · Duração: {servico.duracaoMin} min</span>
+        </p>
       </div>
       {servico.descricao ? (
         <p className="text-base whitespace-pre-line break-words">{servico.descricao}</p>

@@ -10,7 +10,12 @@ import { PassoDetalhes } from "./passo-detalhes";
 import { PassoHorario } from "./passo-horario";
 import { PassoProfissional } from "./passo-profissional";
 import { PassoServico } from "./passo-servico";
-import { rotuloServico, type ProfissionalOnline, type ServicoOnline } from "./tipos";
+import {
+  precoServico,
+  rotuloServico,
+  type ProfissionalOnline,
+  type ServicoOnline,
+} from "./tipos";
 import { WidgetTurnstile } from "./turnstile";
 
 const RESERVADO = "Esse horário acabou de ser reservado, escolha outro.";
@@ -125,6 +130,12 @@ export function FormularioAgendar({
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-base">
             <dt className="font-medium">Serviço</dt>
             <dd>{resumo.servico}</dd>
+            {servico ? (
+              <>
+                <dt className="font-medium">Valor</dt>
+                <dd>{precoServico(servico)}</dd>
+              </>
+            ) : null}
             <dt className="font-medium">Profissional</dt>
             <dd>{resumo.profissional}</dd>
             <dt className="font-medium">Quando</dt>
