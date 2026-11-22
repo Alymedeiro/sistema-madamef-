@@ -1,7 +1,7 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { rotuloServico, type ServicoOnline } from "./tipos";
+import { precoServico, rotuloServico, type ServicoOnline } from "./tipos";
 
 export const estiloOpcao = (marcada: boolean) =>
   cn(
@@ -53,13 +53,19 @@ export function PassoServico({
                   />
                   <span className="flex items-center justify-between gap-3 px-4 py-3">
                     <span>{rotuloServico(s)}</span>
-                    <span className="shrink-0 text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                    <span className="flex shrink-0 flex-col items-end text-right">
+                      <span className="font-semibold text-ouro-escuro">{precoServico(s)}</span>
+                      <span className="text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                    </span>
                   </span>
                 </>
               ) : (
                 <>
                   <span>{rotuloServico(s)}</span>
-                  <span className="shrink-0 text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                  <span className="flex shrink-0 flex-col items-end text-right">
+                      <span className="font-semibold text-ouro-escuro">{precoServico(s)}</span>
+                      <span className="text-sm text-muted-foreground">{s.duracaoMin} min</span>
+                    </span>
                 </>
               )}
             </button>

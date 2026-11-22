@@ -37,7 +37,7 @@ export default async function AgendarPage() {
   const [{ data: servicosDb }, { data: colaboradoresDb }, { data: vinculos }] = await Promise.all([
     admin
       .from("servicos")
-      .select("id, nome, descricao, duracao_min, exige_avaliacao")
+      .select("id, nome, descricao, duracao_min, preco_centavos, exige_avaliacao")
       .eq("ativo", true)
       .eq("permite_online", true)
       .order("nome"),
@@ -64,6 +64,7 @@ export default async function AgendarPage() {
     nome: s.nome,
     descricao: s.descricao?.trim() || null,
     duracaoMin: s.duracao_min,
+    precoCentavos: s.preco_centavos,
     exigeAvaliacao: s.exige_avaliacao,
     fotos: fotos.get(s.id) ?? [],
   }));
