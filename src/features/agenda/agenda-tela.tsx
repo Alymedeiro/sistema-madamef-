@@ -22,8 +22,10 @@ import { DetalhesAgendamento, SombraCartao } from "./cartao-agendamento";
 import { ALTURA_LINHA } from "./coluna-agenda";
 import type { AgendamentoAgenda, DadosAgenda } from "./dados-agenda";
 import { DialogoAgendamento, DialogoEncaixe, type EstadoDialogo } from "./dialogo-agendamento";
+import { DialogoBloqueio, type EstadoBloqueio } from "./dialogo-bloqueio";
 import { hrefAgenda, lerIdDoHorario, PASSO_MIN, type Visao } from "./grade";
 import { GradeDia } from "./grade-dia";
+import { GradeMes } from "./grade-mes";
 import { GradeSemana } from "./grade-semana";
 import { useTelaGrande } from "./use-tela-grande";
 
@@ -65,6 +67,8 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
   const telaGrande = useTelaGrande();
   const podeAgendar = perfil !== "profissional";
   const podeArrastar = podeAgendar && telaGrande;
+  const ehDona = perfil === "dona";
+  const [bloqueio, setBloqueio] = useState<EstadoBloqueio | null>(null);
 
   const [escolhida, setSelecionada] = useState<string | null>(prof);
   // Se a escolhida não está mais na agenda (ou nunca esteve), vale a primeira.
@@ -161,6 +165,9 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
     onAbrirPedido: podeAgendar
       ? (id: string) => router.push(`/agenda/pedidos?pedido=${id}`)
       : undefined,
+    onAbrirBloqueio: ehDona
+      ? (b: DadosAgenda["bloqueios"][number]) => setBloqueio({ modo: "editar", bloqueio: b })
+      : undefined,
   };
 
   return (
@@ -173,6 +180,16 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
         selecionada={selecionada}
         onSelecionar={selecionar}
         mostrarPedidos={podeAgendar}
+        onBloquear={
+          ehDona && dados.profissionais.length > 0
+            ? () =>
+                setBloqueio({
+                  modo: "novo",
+                  profissionalId: selecionada ?? dados.profissionais[0].id,
+                  data,
+                })
+            : undefined
+        }
       />
 
       {dados.profissionais.length === 0 ? (
@@ -188,7 +205,9 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
           onDragEnd={aoSoltar}
           onDragCancel={() => setArrastando(null)}
         >
-          {visao === "dia" ? (
+          {visao === "mes" ? (
+            <GradeMes dados={dados} agendamentos={agendamentos} datas={datas} mes={data.slice(0, 7)} />
+          ) : visao === "dia" ? (
             <GradeDia {...propsGrade} data={data} selecionada={selecionada} />
           ) : (
             <GradeSemana
@@ -247,6 +266,12 @@ export function AgendaTela({ dados, data, datas, visao, prof, perfil }: Props) {
           setPagando(null);
           router.refresh();
         }}
+      />
+
+      <DialogoBloqueio
+        estado={bloqueio}
+        profissionais={dados.profissionais}
+        onFechar={() => setBloqueio(null)}
       />
 
       <DialogoEncaixe

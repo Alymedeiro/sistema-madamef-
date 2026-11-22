@@ -23,6 +23,7 @@ export function GradeSemana({
   onNovo,
   onAbrir,
   onAbrirPedido,
+  onAbrirBloqueio,
 }: Props) {
   const profissional = dados.profissionais.find((p) => p.id === profissionalId);
   const doProfissional = agendamentos.filter((a) => a.profissionalId === profissionalId);
@@ -96,6 +97,7 @@ export function GradeSemana({
                   onAbrir={onAbrir}
                   pedidos={pedidosDela}
                   onAbrirPedido={onAbrirPedido}
+                  onAbrirBloqueio={onAbrirBloqueio}
                 />
               </section>
             );

@@ -1,12 +1,13 @@
 import "server-only";
 import { limitesDoDia } from "@/features/agenda/contexto";
 import { montarDadosAgenda, type DadosAgenda } from "@/features/agenda/dados-agenda";
-import { semanaDe, type Visao } from "@/features/agenda/grade";
+import { datasDoMes, semanaDe, type Visao } from "@/features/agenda/grade";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 
-/** Datas (yyyy-MM-dd) exibidas: o dia, ou a semana seg–dom que o contém. */
+/** Datas (yyyy-MM-dd) exibidas: o dia, a semana seg–dom ou o calendário do mês. */
 export function datasDaVisao(data: string, visao: Visao): string[] {
+  if (visao === "mes") return datasDoMes(data);
   return visao === "semana" ? semanaDe(data) : [data];
 }
 

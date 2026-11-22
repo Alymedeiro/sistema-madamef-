@@ -9,7 +9,7 @@ import { idSchema } from "@/lib/validacao";
 /** Passo das linhas da grade, em minutos. */
 export const PASSO_MIN = 15;
 
-export type Visao = "dia" | "semana";
+export type Visao = "dia" | "semana" | "mes";
 
 function paraMinutos(hora: string): number {
   const [h, m] = horaCurta(hora).split(":").map(Number);
@@ -183,6 +183,30 @@ export function diaDaSemana(data: string): number {
   return new Date(Date.UTC(ano, mes - 1, dia)).getUTCDay();
 }
 
+/**
+ * Datas do calendário do mês que contém `data`: de segunda da semana do dia 1
+ * a domingo da semana do último dia (semanas completas, 28 a 42 datas).
+ */
+export function datasDoMes(data: string): string[] {
+  const primeiro = `${data.slice(0, 8)}01`;
+  const [ano, mes] = data.split("-").map(Number);
+  const ultimo = new Date(Date.UTC(ano, mes, 0)).toISOString().slice(0, 10);
+  const inicio = somarDias(primeiro, -((diaDaSemana(primeiro) + 6) % 7));
+  const fim = somarDias(ultimo, (7 - diaDaSemana(ultimo)) % 7);
+  const datas: string[] = [];
+  for (let d = inicio; d <= fim; d = somarDias(d, 1)) datas.push(d);
+  return datas;
+}
+
+/** Soma meses mantendo o dia quando existe (31/01 + 1 mês → 28 ou 29/02). */
+export function somarMeses(data: string, meses: number): string {
+  const [ano, mes, dia] = data.split("-").map(Number);
+  const alvo = new Date(Date.UTC(ano, mes - 1 + meses, 1));
+  const ultimoDia = new Date(Date.UTC(alvo.getUTCFullYear(), alvo.getUTCMonth() + 1, 0)).getUTCDate();
+  alvo.setUTCDate(Math.min(dia, ultimoDia));
+  return alvo.toISOString().slice(0, 10);
+}
+
 /** As 7 datas (segunda a domingo) da semana que contém `data`. */
 export function semanaDe(data: string): string[] {
   const recuo = (diaDaSemana(data) + 6) % 7;
@@ -204,7 +228,7 @@ export function parametrosAgenda(
   const prof = unico(busca.prof);
   return {
     data: data && dataValida(data) ? data : hoje,
-    visao: visao === "semana" ? "semana" : "dia",
+    visao: visao === "semana" || visao === "mes" ? visao : "dia",
     prof: prof && idSchema.safeParse(prof).success ? prof : null,
   };
 }
@@ -216,8 +240,9 @@ export function hrefAgenda(p: { data: string; visao: Visao; prof?: string | null
   return `/agenda?${busca.toString()}`;
 }
 
-/** Data de destino das setas ‹ › (um dia ou uma semana). */
+/** Data de destino das setas ‹ › (um dia, uma semana ou um mês). */
 export function navegar(data: string, visao: Visao, sentido: 1 | -1): string {
+  if (visao === "mes") return somarMeses(data, sentido);
   return somarDias(data, sentido * (visao === "semana" ? 7 : 1));
 }
 
