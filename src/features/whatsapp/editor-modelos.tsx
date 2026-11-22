@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
-import { salvarModelo } from "@/app/(app)/configuracoes/actions";
+import { contarFilaPendente, salvarModelo } from "@/app/(app)/configuracoes/actions";
 import { modeloSchema, type TipoModelo } from "@/app/(app)/configuracoes/schemas";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -31,6 +31,18 @@ function CartaoModelo({ modelo, clinica }: { modelo: ModeloEditavel; clinica: st
     }
     setErro(null);
     iniciar(async () => {
+      // Ligar um modelo automático solta o que já está na fila: confirma antes.
+      if (ativo && !modelo.ativo) {
+        const n = await contarFilaPendente(modelo.tipo);
+        const quantas =
+          n === null ? "As mensagens" : n === 0 ? "Nenhuma mensagem" : `${n} mensagem(ns)`;
+        const ok = window.confirm(
+          `Ligar "${rotulo}"? ${quantas} desse tipo ${n === 0 ? "está" : "estão"} na fila e ` +
+            "começam a ser enviadas às clientes (respeitando a janela e o limite por hora). " +
+            "Novos agendamentos também passam a receber essa mensagem.",
+        );
+        if (!ok) return;
+      }
       const r = await salvarModelo(dados);
       if (r.ok) toast.success(`Modelo "${rotulo}" salvo.`);
       else toast.error(r.erro);

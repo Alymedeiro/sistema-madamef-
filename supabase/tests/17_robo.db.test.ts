@@ -136,8 +136,14 @@ async function sessao(c: PoolClient, telefone = ZAP) {
   ).rows[0];
 }
 
-/** Recua os horários da sessão (simula o tempo passando). */
+/**
+ * Recua os horários da sessão e das mensagens recebidas (simula o tempo
+ * passando; desde 0022 o robô olha as recebidas das últimas 12 h).
+ */
 async function recuar(c: PoolClient, intervalo: string, telefone = ZAP) {
+  await c.query("update mensagens_recebidas set recebida_em = recebida_em - $1::interval", [
+    intervalo,
+  ]);
   await c.query(
     `update robo_sessoes set
        menu_enviado_em = menu_enviado_em - $2::interval,
@@ -448,15 +454,19 @@ describe("conversa com o robô", () => {
       await ligar(c);
       await conversar(c, "oi");
       await recuar(c, "3 hours");
-      expect(await conversar(c, "1")).toEqual([NAO_ENTENDI]);
+      // Nem opção nem "não entendi" (0022: só nas 2 h seguintes ao menu).
+      expect(await conversar(c, "1")).toEqual([]);
     });
   });
 
-  it("menu reenviado depois de 12 h", async () => {
+  it("menu reenviado só depois de 24 h (0022)", async () => {
     await emTeste(async (c) => {
       await ligar(c);
       await conversar(c, "oi");
       await recuar(c, "13 hours");
+      // Menu de 13 h atrás: nem menu nem "não entendi" (só nas 2 h seguintes).
+      expect(await conversar(c, "tudo bem?")).toEqual([]);
+      await recuar(c, "25 hours");
       expect(await conversar(c, "tudo bem?")).toEqual([MENU]);
     });
   });
@@ -560,8 +570,8 @@ describe("conversa com o robô", () => {
       expect(await conversar(c, "1")).toEqual([]);
       const st = await c.query("select status::text from agendamentos where id = $1", [ag]);
       expect(st.rows[0].status).toBe("confirmado");
-      // Texto livre com agendamento: o robô responde normalmente.
-      expect(await conversar(c, "obrigada")).toEqual([MENU]);
+      // Agendamento amanhã (0022): atendimento em andamento, o robô fica quieto.
+      expect(await conversar(c, "obrigada")).toEqual([]);
     });
   });
 
@@ -737,7 +747,10 @@ describe("conversa com o robô", () => {
       expect(await conversar(c, "0")).toEqual([]);
       expect(await conversar(c, "1")).toEqual([]);
       expect(await statusAg(c, ag)).toBe("confirmado");
-      // Confirmado: o robô volta a atender.
+      // Confirmado, mas a conversa está em andamento (0022): quieto. Depois de
+      // 12 h sem mensagens, volta a atender.
+      expect(await conversar(c, "Oi de novo")).toEqual([]);
+      await recuar(c, "13 hours");
       expect(await conversar(c, "Oi de novo")).toEqual([MENU]);
     });
   });
@@ -796,6 +809,7 @@ describe("conversa com o robô", () => {
       await ligar(c, "fora_do_horario");
       await expediente(c, true);
       expect(await conversar(c, "oi")).toEqual([]);
+      await recuar(c, "13 hours");
       await expediente(c, false);
       expect(await conversar(c, "oi")).toEqual([MENU]);
     });
@@ -808,6 +822,70 @@ describe("conversa com o robô", () => {
       const r = await c.query("select texto from mensagens_recebidas where id = $1", [id]);
       expect(r.rows[0].texto).toBe("oi");
       expect(await robo(c, "abc")).toEqual([]);
+    });
+  });
+});
+
+describe("travas do robô (0022)", () => {
+  it("conversa em andamento (outra mensagem nas últimas 12 h): sem menu espontâneo; '0' ainda abre", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      // Mensagem chegou com o robô desligado (equipe atendendo).
+      await c.query("update robo_config set ativo = false");
+      await receber(c, "oi, tudo bem?");
+      await c.query("update robo_config set ativo = true");
+      expect(await conversar(c, "queria remarcar")).toEqual([]);
+      expect(await conversar(c, "0")).toEqual([MENU]);
+    });
+  });
+
+  it("agendamento hoje/amanhã ou atendimento nos últimos 7 dias: sem menu espontâneo", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      const ag = (
+        await c.query<{ id: string }>(
+          `insert into agendamentos (cliente_id, profissional_id, servico_id, inicio, fim, status)
+           values ($1, $2, $3, now() + interval '5 hours', now() + interval '5 hours 30 minutes', 'confirmado')
+           returning id`,
+          [cli, profId, servico],
+        )
+      ).rows[0].id;
+      expect(await conversar(c, "chego em 10 min")).toEqual([]);
+      // Atendida há 3 dias: continua quieto.
+      await c.query(
+        `update agendamentos set inicio = now() - interval '3 days', fim = now() - interval '3 days' + interval '30 minutes',
+           status = 'atendido' where id = $1`,
+        [ag],
+      );
+      await recuar(c, "13 hours");
+      expect(await conversar(c, "amei o resultado")).toEqual([]);
+      // Atendida há 10 dias e sem conversa recente: menu.
+      await c.query(
+        `update agendamentos set inicio = now() - interval '10 days', fim = now() - interval '10 days' + interval '30 minutes'
+         where id = $1`,
+        [ag],
+      );
+      await recuar(c, "13 hours");
+      expect(await conversar(c, "oi")).toEqual([MENU]);
+    });
+  });
+
+  it("10 respostas do robô na última hora: desliga o robô e avisa a equipe", async () => {
+    await emTeste(async (c) => {
+      await ligar(c);
+      for (let i = 0; i < 10; i++) {
+        await c.query(
+          "insert into fila_mensagens (tipo, telefone, texto, agendado_para) values ('robo', $1, 'x', now())",
+          [`55119000000${String(i).padStart(2, "0")}`],
+        );
+      }
+      expect(await conversar(c, "oi")).toEqual([]);
+      const r = await c.query("select ativo from robo_config");
+      expect(r.rows[0].ativo).toBe(false);
+      const n = await c.query(
+        "select count(*)::int as n from notificacoes where titulo = 'Robô desligado por segurança'",
+      );
+      expect(n.rows[0].n).toBe(2); // dona e recepção
     });
   });
 });

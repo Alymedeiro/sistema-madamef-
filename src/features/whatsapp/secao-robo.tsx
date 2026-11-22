@@ -120,6 +120,17 @@ export function SecaoRobo({ inicial, clinica, endereco, horario, linkSite }: Pro
       return;
     }
     setErro(null);
+    if (
+      ativo &&
+      !inicial.ativo &&
+      !window.confirm(
+        quando === "sempre"
+          ? 'Ligar o robô "sempre"? Ele responde clientes que começarem uma conversa, também durante o expediente.'
+          : "Ligar o robô? Ele responde clientes que começarem uma conversa fora do horário de funcionamento.",
+      )
+    ) {
+      return;
+    }
     iniciar(async () => {
       const r = await salvarRobo(dados);
       if (r.ok) toast.success("Robô de atendimento salvo.");
@@ -139,7 +150,10 @@ export function SecaoRobo({ inicial, clinica, endereco, horario, linkSite }: Pro
       <p className="text-sm text-muted-foreground">
         Responde as mensagens recebidas com um menu de opções numeradas (sem inteligência
         artificial). Quando a equipe envia uma mensagem para a cliente, ou ela escolhe falar com a
-        equipe, o robô fica pausado por 24 h naquela conversa. Variáveis: <code>{"{nome}"}</code>,{" "}
+        equipe, o robô fica pausado por 24 h naquela conversa. Travas de segurança: o menu só
+        vai no começo de uma conversa (nenhuma outra mensagem da cliente nas últimas 12 h e no
+        máximo um menu por dia), nunca para quem tem horário hoje ou amanhã ou foi atendida nos
+        últimos 7 dias, e o robô se desliga sozinho se responder 10 vezes em 1 hora. Variáveis: <code>{"{nome}"}</code>,{" "}
         <code>{"{clinica}"}</code>, <code>{"{endereco}"}</code>, <code>{"{horario}"}</code>.
       </p>
       <form onSubmit={salvar} noValidate className="flex flex-col gap-5">
