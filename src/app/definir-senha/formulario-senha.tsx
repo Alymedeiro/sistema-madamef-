@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,7 +9,7 @@ import { definirSenha, type EstadoSenha } from "./actions";
 
 const INICIAL: EstadoSenha = {};
 
-export function FormularioSenha() {
+export function FormularioSenha({ trocar = false }: { trocar?: boolean }) {
   const [estado, acao, pendente] = useActionState(definirSenha, INICIAL);
   const descr = estado.erro ? "erro-senha" : undefined;
 
@@ -46,8 +47,13 @@ export function FormularioSenha() {
         </p>
       ) : null}
       <Button type="submit" size="lg" disabled={pendente}>
-        {pendente ? "Salvando..." : "Salvar senha e entrar"}
+        {pendente ? "Salvando..." : trocar ? "Salvar nova senha" : "Salvar senha e entrar"}
       </Button>
+      {trocar ? (
+        <Button asChild variant="ghost">
+          <Link href="/perfil/notificacoes">Cancelar</Link>
+        </Button>
+      ) : null}
     </form>
   );
 }
