@@ -53,6 +53,12 @@ export function FormularioLogin() {
       >
         Esqueci minha senha
       </Link>
+      <Link
+        href="/login/trocar-senha"
+        className="-mt-3 inline-flex min-h-11 items-center justify-center text-sm font-medium text-ouro-escuro underline-offset-4 hover:underline"
+      >
+        Trocar senha
+      </Link>
     </form>
   );
 }
