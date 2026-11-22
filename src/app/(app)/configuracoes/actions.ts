@@ -89,6 +89,27 @@ export async function salvarConfigWhatsapp(dados: WhatsappConfigInput): Promise<
   return OK;
 }
 
+/**
+ * Quantas mensagens desse tipo estão na fila esperando (para avisar antes de
+ * ligar um modelo automático). Erro de leitura → null (o aviso sai sem número).
+ */
+export async function contarFilaPendente(tipo: ModeloInput["tipo"]): Promise<number | null> {
+  await exigirPerfil("dona");
+  const parsed = modeloSchema.shape.tipo.safeParse(tipo);
+  if (!parsed.success) return null;
+  try {
+    const supabase = await createClient();
+    const { count, error } = await supabase
+      .from("fila_mensagens")
+      .select("id", { count: "exact", head: true })
+      .eq("tipo", parsed.data)
+      .eq("status", "pendente");
+    return error ? null : (count ?? 0);
+  } catch {
+    return null;
+  }
+}
+
 export async function salvarModelo(dados: ModeloInput): Promise<Resultado> {
   await exigirPerfil("dona");
 
