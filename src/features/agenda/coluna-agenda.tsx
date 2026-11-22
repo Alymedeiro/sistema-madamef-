@@ -44,6 +44,8 @@ type Props = {
   onAbrir: (a: AgendamentoAgenda) => void;
   /** Só dona/recepção: abre o pedido na fila. Sem isso o bloco não é tocável. */
   onAbrirPedido?: (id: string) => void;
+  /** Só a dona: clicar no bloqueio abre a edição. */
+  onAbrirBloqueio?: (b: BloqueioAgenda) => void;
 };
 
 function Horario({
@@ -101,6 +103,7 @@ export function ColunaAgenda({
   onNovo,
   onAbrir,
   onAbrirPedido,
+  onAbrirBloqueio,
 }: Props) {
   const fim = fimDaGrade(linhas, PASSO_MIN);
   const foraDaJornada = fim && !fechado ? faixasForaDaJornada(jornadaDoDia, linhas[0], fim) : [];
@@ -152,13 +155,26 @@ export function ColunaAgenda({
         const pos = posicaoNaGrade(new Date(b.inicio), new Date(b.fim), data, linhas, PASSO_MIN);
         if (!pos) return null;
         return (
-          <div
-            key={b.id}
-            className="absolute inset-x-0 z-[5] overflow-hidden border-y border-neutral-400 bg-neutral-200 px-2 py-1 text-sm text-neutral-800"
-            style={{ top: pos.topo * ALTURA_LINHA, height: pos.altura * ALTURA_LINHA }}
-          >
-            <span className="font-medium">Bloqueado:</span> {b.motivo}
-          </div>
+          onAbrirBloqueio ? (
+            <button
+              key={b.id}
+              type="button"
+              onClick={() => onAbrirBloqueio(b)}
+              aria-label={`Bloqueado: ${b.motivo}. Editar bloqueio`}
+              className="absolute inset-x-0 z-[5] cursor-pointer overflow-hidden border-y border-neutral-400 bg-neutral-200 px-2 py-1 text-left text-sm text-neutral-800 outline-none hover:bg-neutral-300 focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring"
+              style={{ top: pos.topo * ALTURA_LINHA, height: pos.altura * ALTURA_LINHA }}
+            >
+              <span className="font-medium">Bloqueado:</span> {b.motivo}
+            </button>
+          ) : (
+            <div
+              key={b.id}
+              className="absolute inset-x-0 z-[5] overflow-hidden border-y border-neutral-400 bg-neutral-200 px-2 py-1 text-sm text-neutral-800"
+              style={{ top: pos.topo * ALTURA_LINHA, height: pos.altura * ALTURA_LINHA }}
+            >
+              <span className="font-medium">Bloqueado:</span> {b.motivo}
+            </div>
+          )
         );
       })}
 

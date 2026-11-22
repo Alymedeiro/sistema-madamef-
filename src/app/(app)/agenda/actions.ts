@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { transicaoPermitida, type StatusAgendamento } from "@/lib/dominio/status";
 import { dataNoFuso, horaNoFuso } from "@/lib/dominio/tempo";
 import { mensagemErroBanco } from "@/lib/erros-db";
-import { ERRO_INESPERADO } from "@/lib/resultado";
+import { ERRO_INESPERADO, type Resultado } from "@/lib/resultado";
+import { bloqueioSchema } from "@/app/(app)/equipe/schemas";
 import { exigirPerfil } from "@/lib/sessao";
 import { createClient } from "@/lib/supabase/server";
 import { aprovarProposta, carregarExistente, MSG, STATUS_FINAIS } from "./regras";
@@ -250,4 +251,64 @@ export async function alterarStatus(
   } catch {
     return erro(ERRO_INESPERADO);
   }
+}
+
+const ID_BLOQUEIO = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Cria (sem id) ou edita (com id) um bloqueio direto da agenda. Só a dona (o
+ * RLS também barra). `inicio`/`fim` vêm de <input type="datetime-local">
+ * (yyyy-MM-ddTHH:mm, horário de São Paulo).
+ */
+export async function salvarBloqueioAgenda(dados: {
+  id?: string;
+  profissionalId: string;
+  inicio: string;
+  fim: string;
+  motivo: string;
+}): Promise<Resultado> {
+  await exigirPerfil("dona");
+  if (dados.id !== undefined && !ID_BLOQUEIO.test(dados.id)) return erro("Bloqueio inválido.");
+  if (!ID_BLOQUEIO.test(dados.profissionalId)) return erro("Escolha a profissional.");
+  const parsed = bloqueioSchema.safeParse({
+    inicio: dados.inicio,
+    fim: dados.fim,
+    motivo: dados.motivo,
+  });
+  if (!parsed.success) return erro(parsed.error.issues[0].message);
+
+  try {
+    const supabase = await createClient();
+    const linha = { colaborador_id: dados.profissionalId, ...parsed.data };
+    const { data, error } = dados.id
+      ? await supabase.from("bloqueios_agenda").update(linha).eq("id", dados.id).select("id")
+      : await supabase.from("bloqueios_agenda").insert(linha).select("id");
+    if (error) return erro(mensagemErroBanco(error));
+    if (!data?.length) return erro("Bloqueio não encontrado.");
+  } catch {
+    return erro(ERRO_INESPERADO);
+  }
+  revalidatePath("/agenda");
+  revalidatePath(`/equipe/${dados.profissionalId}`);
+  return { ok: true };
+}
+
+export async function excluirBloqueioAgenda(id: string): Promise<Resultado> {
+  await exigirPerfil("dona");
+  if (!ID_BLOQUEIO.test(id)) return erro("Bloqueio inválido.");
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("bloqueios_agenda")
+      .delete()
+      .eq("id", id)
+      .select("colaborador_id");
+    if (error) return erro(mensagemErroBanco(error));
+    if (!data?.length) return erro("Bloqueio não encontrado.");
+    revalidatePath(`/equipe/${data[0].colaborador_id}`);
+  } catch {
+    return erro(ERRO_INESPERADO);
+  }
+  revalidatePath("/agenda");
+  return { ok: true };
 }

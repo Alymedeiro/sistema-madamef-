@@ -4,7 +4,7 @@ import { chaveDia } from "@/lib/dominio/intervalos";
 import { cn } from "@/lib/utils";
 import { ocupadosComPedidos } from "./dados-agenda";
 import { ALTURA_LINHA, ColunaAgenda } from "./coluna-agenda";
-import type { AgendamentoAgenda, DadosAgenda, PedidoAgenda } from "./dados-agenda";
+import type { AgendamentoAgenda, BloqueioAgenda, DadosAgenda, PedidoAgenda } from "./dados-agenda";
 import { diaDaSemana, linhasDoDia, PASSO_MIN } from "./grade";
 import type { ProfissionalAgenda } from "./dados-agenda";
 
@@ -49,6 +49,8 @@ export type PropsGrade = {
   onAbrir: (a: AgendamentoAgenda) => void;
   /** Só dona/recepção. */
   onAbrirPedido?: (id: string) => void;
+  /** Só a dona. */
+  onAbrirBloqueio?: (b: BloqueioAgenda) => void;
 };
 
 type Props = PropsGrade & {
@@ -68,6 +70,7 @@ export function GradeDia({
   onNovo,
   onAbrir,
   onAbrirPedido,
+  onAbrirBloqueio,
 }: Props) {
   const dia = chaveDia(diaDaSemana(data));
   const horario = dados.horarioFuncionamento[dia];
@@ -138,6 +141,7 @@ export function GradeDia({
                 onAbrir={onAbrir}
                 pedidos={dados.pedidos.filter((x) => x.profissionalId === p.id)}
                 onAbrirPedido={onAbrirPedido}
+                onAbrirBloqueio={onAbrirBloqueio}
               />
             </section>
           ))}

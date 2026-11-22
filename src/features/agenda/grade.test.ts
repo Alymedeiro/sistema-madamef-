@@ -9,11 +9,13 @@ import {
   idDoHorario,
   intervalosOcupados,
   lerIdDoHorario,
+  datasDoMes,
   navegar,
   linhasDoDia,
   parametrosAgenda,
   posicaoNaGrade,
   semanaDe,
+  somarMeses,
   somarDias,
 } from "./grade";
 
@@ -198,12 +200,32 @@ describe("parametrosAgenda", () => {
   });
 
   it("ignora valores inválidos ou repetidos", () => {
-    expect(parametrosAgenda({ data: "2026-02-30", visao: "mes", prof: "x" }, hoje)).toEqual({
+    expect(parametrosAgenda({ data: "2026-02-30", visao: "ano", prof: "x" }, hoje)).toEqual({
       data: hoje,
       visao: "dia",
       prof: null,
     });
     expect(parametrosAgenda({ data: ["2026-11-10", "2026-11-11"] }, hoje).data).toBe(hoje);
+  });
+});
+
+describe("visão mês", () => {
+  it("aceita visao=mes", () => {
+    expect(parametrosAgenda({ data: "2026-11-10", visao: "mes" }, "2026-11-01").visao).toBe("mes");
+  });
+
+  it("datasDoMes: semanas completas de segunda a domingo", () => {
+    const d = datasDoMes("2026-11-17"); // 01/11/2026 é domingo; 30/11 é segunda
+    expect(d[0]).toBe("2026-10-26");
+    expect(d[d.length - 1]).toBe("2026-12-06");
+    expect(d).toHaveLength(42);
+    expect(datasDoMes("2027-02-10")).toHaveLength(28); // 01/02/2027 segunda, 28/02 domingo
+  });
+
+  it("setas andam de mês em mês, sem pular fevereiro", () => {
+    expect(navegar("2026-11-17", "mes", 1)).toBe("2026-12-17");
+    expect(navegar("2027-01-31", "mes", 1)).toBe("2027-02-28");
+    expect(somarMeses("2026-01-15", -1)).toBe("2025-12-15");
   });
 });
 

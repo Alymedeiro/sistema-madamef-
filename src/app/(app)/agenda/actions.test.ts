@@ -18,7 +18,13 @@ let falso = criarSupabaseFalso();
 const createClient = vi.fn(async () => falso.cliente);
 vi.mock("@/lib/supabase/server", () => ({ createClient: () => createClient() }));
 
-import { alterarStatus, remarcarAgendamento, salvarAgendamento } from "./actions";
+import {
+  alterarStatus,
+  excluirBloqueioAgenda,
+  remarcarAgendamento,
+  salvarAgendamento,
+  salvarBloqueioAgenda,
+} from "./actions";
 
 const AG = "a0000000-0000-4000-8000-0000000000a1";
 const CLIENTE = "c1111111-1111-4111-8111-111111111111";
@@ -496,5 +502,46 @@ describe("alterarStatus", () => {
     expect((await alterarStatus("x", "confirmado")).ok).toBe(false);
     expect((await alterarStatus(AG, "sumiu" as never)).ok).toBe(false);
     expect(falso.chamadas).toHaveLength(0);
+  });
+});
+
+describe("bloqueios pela agenda", () => {
+  const BLOQ = "f6666666-6666-4666-8666-666666666666";
+  const dados = { profissionalId: PROF, inicio: "2026-11-03T13:00", fim: "2026-11-03T15:00", motivo: " Curso " };
+
+  it("só a dona; recepção é barrada", async () => {
+    perfilAtual = "recepcao";
+    await expect(salvarBloqueioAgenda(dados)).rejects.toThrow("REDIRECT:/inicio");
+    await expect(excluirBloqueioAgenda(BLOQ)).rejects.toThrow("REDIRECT:/inicio");
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("cria no horário de São Paulo e edita pelo id", async () => {
+    perfilAtual = "dona";
+    falso.responder("bloqueios_agenda", ok([{ id: BLOQ }]));
+    expect(await salvarBloqueioAgenda(dados)).toEqual({ ok: true });
+    expect(falso.chamadasDe("bloqueios_agenda", "insert")[0].args[0]).toEqual({
+      colaborador_id: PROF,
+      inicio: "2026-11-03T16:00:00.000Z",
+      fim: "2026-11-03T18:00:00.000Z",
+      motivo: "Curso",
+    });
+    falso.responder("bloqueios_agenda", ok([{ id: BLOQ }]));
+    expect(await salvarBloqueioAgenda({ ...dados, id: BLOQ })).toEqual({ ok: true });
+    expect(falso.chamadasDe("bloqueios_agenda", "eq").at(-1)?.args).toEqual(["id", BLOQ]);
+  });
+
+  it("fim antes do início é recusado sem tocar no banco", async () => {
+    perfilAtual = "dona";
+    const r = await salvarBloqueioAgenda({ ...dados, fim: "2026-11-03T12:00" });
+    expect(r).toEqual({ ok: false, erro: "O fim deve ser depois do início." });
+    expect(falso.chamadas).toHaveLength(0);
+  });
+
+  it("remove pelo id", async () => {
+    perfilAtual = "dona";
+    falso.responder("bloqueios_agenda", ok([{ colaborador_id: PROF }]));
+    expect(await excluirBloqueioAgenda(BLOQ)).toEqual({ ok: true });
+    expect(falso.chamadasDe("bloqueios_agenda", "delete")).toHaveLength(1);
   });
 });

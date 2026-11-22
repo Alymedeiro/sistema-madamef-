@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,11 +20,15 @@ type Props = {
   onSelecionar: (id: string) => void;
   /** Dona e recepção: atalho para Agenda > Pedidos online. */
   mostrarPedidos?: boolean;
+  /** Só a dona: botão "Bloquear horário". */
+  onBloquear?: () => void;
 };
 
 function titulo(datas: string[], visao: Visao): string {
   const meioDia = (d: string) => combinarDataHora(d, "12:00");
   if (visao === "dia") return formatarNoFuso(meioDia(datas[0]), "EEEE, d 'de' MMMM 'de' yyyy");
+  // Mês: as datas começam na semana anterior; o meio da grade é sempre do mês.
+  if (visao === "mes") return formatarNoFuso(meioDia(datas[14]), "MMMM 'de' yyyy");
   return `${formatarNoFuso(meioDia(datas[0]), "dd/MM")} a ${formatarNoFuso(meioDia(datas[datas.length - 1]), "dd/MM/yyyy")}`;
 }
 
@@ -37,6 +41,7 @@ export function BarraAgenda({
   selecionada,
   onSelecionar,
   mostrarPedidos = false,
+  onBloquear,
 }: Props) {
   const router = useRouter();
   const prof = selecionada;
@@ -44,20 +49,27 @@ export function BarraAgenda({
 
   // Abas: no dia só no celular (no computador aparecem todas as colunas);
   // na semana sempre, pois a semana é de uma profissional.
-  const mostrarAbas = profissionais.length > 1;
+  // No mês, o filtro fica na própria grade (com "Todas").
+  const mostrarAbas = profissionais.length > 1 && visao !== "mes";
 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="font-titulo text-2xl font-semibold tracking-wide text-ouro-escuro">Agenda</h1>
         <div className="flex flex-wrap items-center gap-2">
+          {onBloquear && (
+            <Button type="button" variant="outline" onClick={onBloquear}>
+              <Lock aria-hidden />
+              Bloquear horário
+            </Button>
+          )}
           {mostrarPedidos && (
             <Button asChild variant="outline">
               <Link href="/agenda/pedidos">Pedidos online</Link>
             </Button>
           )}
           <div role="group" aria-label="Visão" className="inline-flex rounded-lg bg-muted p-1">
-            {(["dia", "semana"] as const).map((v) => (
+            {(["dia", "semana", "mes"] as const).map((v) => (
               <Link
                 key={v}
                 href={hrefAgenda({ data, visao: v, prof })}
@@ -67,7 +79,7 @@ export function BarraAgenda({
                   visao === v ? "bg-card shadow-sm" : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {v === "dia" ? "Dia" : "Semana"}
+                {v === "dia" ? "Dia" : v === "semana" ? "Semana" : "Mês"}
               </Link>
             ))}
           </div>
@@ -76,7 +88,7 @@ export function BarraAgenda({
 
       <div className="flex flex-wrap items-end gap-2">
         <Button asChild variant="outline" size="icon">
-          <Link href={hrefAgenda({ data: navegar(data, visao, -1), visao, prof })} aria-label={visao === "dia" ? "Dia anterior" : "Semana anterior"}>
+          <Link href={hrefAgenda({ data: navegar(data, visao, -1), visao, prof })} aria-label={visao === "dia" ? "Dia anterior" : visao === "semana" ? "Semana anterior" : "Mês anterior"}>
             <ChevronLeft aria-hidden />
           </Link>
         </Button>
@@ -84,7 +96,7 @@ export function BarraAgenda({
           <Link href={hrefAgenda({ data: hoje, visao, prof })}>Hoje</Link>
         </Button>
         <Button asChild variant="outline" size="icon">
-          <Link href={hrefAgenda({ data: navegar(data, visao, 1), visao, prof })} aria-label={visao === "dia" ? "Próximo dia" : "Próxima semana"}>
+          <Link href={hrefAgenda({ data: navegar(data, visao, 1), visao, prof })} aria-label={visao === "dia" ? "Próximo dia" : visao === "semana" ? "Próxima semana" : "Próximo mês"}>
             <ChevronRight aria-hidden />
           </Link>
         </Button>
