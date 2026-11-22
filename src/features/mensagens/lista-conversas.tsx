@@ -30,6 +30,7 @@ export function ListaConversas({
 }) {
   const [selecionando, setSelecionando] = useState(false);
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  const rolagemRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ chave: string; acima: boolean } | null>(
     null,
   );
@@ -139,11 +140,16 @@ export function ListaConversas({
   return (
     <div className="flex flex-col gap-3">
       {barra}
-      <ul className="flex flex-col divide-y rounded-xl border bg-card shadow-sm">
+      {/* Barra de rolagem própria (mesma altura do painel da conversa no computador). */}
+      <div
+        ref={rolagemRef}
+        className="rolagem-fina max-h-[calc(100dvh-16rem)] min-h-64 overflow-y-auto rounded-xl border bg-card shadow-sm"
+      >
+      <ul className="flex flex-col divide-y">
         {conversas.map((c) => (
           <li
             key={c.chave}
-            className="relative flex items-stretch first:rounded-t-xl last:rounded-b-xl"
+            className="relative flex items-stretch"
           >
             {selecionando && (
               <label className="flex min-h-11 min-w-11 shrink-0 cursor-pointer items-center justify-center pl-2">
@@ -236,12 +242,12 @@ export function ListaConversas({
                   onClick={(e) => {
                     if (menu?.chave === c.chave) return fecharMenu(true);
                     botaoMenuRef.current = e.currentTarget;
-                    // Linha na metade de baixo da tela: o menu abre para cima.
+                    // Linha na metade de baixo da lista: o menu abre para cima
+                    // (a lista rola e corta o que passar da borda).
                     const { top } = e.currentTarget.getBoundingClientRect();
-                    setMenu({
-                      chave: c.chave,
-                      acima: top > window.innerHeight / 2,
-                    });
+                    const caixa = rolagemRef.current?.getBoundingClientRect();
+                    const meio = caixa ? caixa.top + caixa.height / 2 : window.innerHeight / 2;
+                    setMenu({ chave: c.chave, acima: top > meio });
                   }}
                 >
                   <MoreHorizontal aria-hidden />
@@ -280,6 +286,7 @@ export function ListaConversas({
           </li>
         ))}
       </ul>
+      </div>
     </div>
   );
 }
