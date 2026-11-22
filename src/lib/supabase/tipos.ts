@@ -1076,6 +1076,7 @@ export type Database = {
         Row: {
           agendado_para: string
           agendamento_id: string | null
+          agendamentos_grupo: string[] | null
           atualizado_em: string
           cancelada_motivo: string | null
           cliente_id: string | null
@@ -1097,6 +1098,7 @@ export type Database = {
         Insert: {
           agendado_para: string
           agendamento_id?: string | null
+          agendamentos_grupo?: string[] | null
           atualizado_em?: string
           cancelada_motivo?: string | null
           cliente_id?: string | null
@@ -1118,6 +1120,7 @@ export type Database = {
         Update: {
           agendado_para?: string
           agendamento_id?: string | null
+          agendamentos_grupo?: string[] | null
           atualizado_em?: string
           cancelada_motivo?: string | null
           cliente_id?: string | null
@@ -2636,6 +2639,18 @@ export type Database = {
       desativar_conta_fixa: { Args: { p_id: string }; Returns: undefined }
       // 0012: só service_role; 'enviando' → 'cancelada' com o motivo (podeEnviar).
       descartar_envio: { Args: { p_id: string; p_motivo: string }; Returns: undefined }
+      // 0023: agendamentos do mesmo dia que entram na confirmação/lembrete.
+      grupo_mensagem_agenda: {
+        Args: { p_id: string }
+        Returns: {
+          agendamento_id: string
+          inicio: string
+          servico: string
+          profissional: string
+          ja_enviada: boolean
+        }[]
+      }
+      registrar_grupo_envio: { Args: { p_id: string; p_agendamentos: string[] }; Returns: undefined }
       // 0010: só conta em aberto; p_anexo_path null remove o anexo.
       editar_conta_pagar: {
         Args: {

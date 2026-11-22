@@ -121,6 +121,37 @@ export function dadosDaMensagem(linha: {
   };
 }
 
+/** "A", "A e B", "A, B e C". */
+function juntarComE(itens: string[]): string {
+  if (itens.length <= 1) return itens[0] ?? "";
+  return `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
+}
+
+/**
+ * Confirmação/lembrete de vários horários da cliente no mesmo dia viram uma
+ * mensagem só: {servico} lista cada serviço com o horário, {hora} é o
+ * primeiro horário e {profissional} junta os nomes sem repetir. Um item só:
+ * devolve os dados de sempre.
+ */
+export function dadosDoDia(
+  base: DadosMensagem,
+  grupo: { inicio: string; servico: string; profissional: string }[],
+): DadosMensagem {
+  if (grupo.length <= 1) return base;
+  const ordenado = [...grupo].sort(
+    (a, b) => new Date(a.inicio).getTime() - new Date(b.inicio).getTime(),
+  );
+  return {
+    ...base,
+    data: formatarNoFuso(ordenado[0].inicio, "dd/MM"),
+    hora: formatarNoFuso(ordenado[0].inicio, "HH:mm"),
+    servico: juntarComE(
+      ordenado.map((g) => `${g.servico} (${formatarNoFuso(g.inicio, "HH:mm")})`),
+    ),
+    profissional: juntarComE([...new Set(ordenado.map((g) => g.profissional))]),
+  };
+}
+
 export function podeEnviar(
   tipo: TipoMensagem,
   statusAgendamento: string | null,
